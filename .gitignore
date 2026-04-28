@@ -17,7 +17,8 @@ packages/contracts/lib/
 packages/indexer/generated/
 packages/indexer/.ponder/
 
-# Editors
+# Editors / agent caches
+.claude/
 .vscode/
 .idea/
 *.swp
