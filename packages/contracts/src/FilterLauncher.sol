@@ -184,7 +184,9 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
             isFinalist: false
         });
         _tokens[currentSeasonId].push(token);
-        emit TokenLaunched(currentSeasonId, token, locker, creator, isProtocolLaunched, name_, symbol_, metadataURI_);
+        emit TokenLaunched(
+            currentSeasonId, token, locker, creator, isProtocolLaunched, name_, symbol_, metadataURI_
+        );
     }
 
     // ============================================================ Views

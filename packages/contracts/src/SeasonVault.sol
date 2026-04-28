@@ -167,7 +167,9 @@ contract SeasonVault is ReentrancyGuard {
         }
 
         phase = Phase.Liquidating;
-        emit SettlementSubmitted(winner_, losers_.length, rolloverRoot_, totalRolloverShares_, liquidationDeadline_);
+        emit SettlementSubmitted(
+            winner_, losers_.length, rolloverRoot_, totalRolloverShares_, liquidationDeadline_
+        );
     }
 
     /// @notice Permissionless. Drives one loser through `FilterLpLocker.liquidateToWETH`.
