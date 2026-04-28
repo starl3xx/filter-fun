@@ -27,13 +27,16 @@ jobs:
       - name: Show forge version
         run: forge --version
 
+      # Every dep is pinned. Floating any of these makes CI builds non-reproducible —
+      # an upstream breaking change (V4 in particular ships them often) would fail CI on
+      # PRs that have nothing to do with the change. Bump these intentionally, locally first.
       - name: Install dependencies
         run: |
-          forge install --no-git foundry-rs/forge-std
+          forge install --no-git foundry-rs/forge-std@v1.16.0
           forge install --no-git OpenZeppelin/openzeppelin-contracts@v5.5.0
-          forge install --no-git Vectorized/solady
-          forge install --no-git Uniswap/v4-core
-          forge install --no-git Uniswap/v4-periphery
+          forge install --no-git Vectorized/solady@v0.1.26
+          forge install --no-git Uniswap/v4-core@v1.0.2
+          forge install --no-git Uniswap/v4-periphery@v1.0.4
 
       - name: Build
         run: forge build --sizes
