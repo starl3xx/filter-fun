@@ -8,14 +8,14 @@ import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 import {IBonusFunding} from "../src/SeasonVault.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
-import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {MockWETH} from "./mocks/MockWETH.sol";
 import {MockFilterFactory} from "./mocks/MockFilterFactory.sol";
 
 contract FilterLauncherTest is Test {
     FilterLauncher launcher;
     MockFilterFactory factory;
     BonusDistributor bonus;
-    MockUSDC usdc;
+    MockWETH weth;
 
     address owner = address(this);
     address oracle = address(0xCAFE);
@@ -26,12 +26,12 @@ contract FilterLauncherTest is Test {
     address aliceCreator = address(0xA1);
 
     function setUp() public {
-        usdc = new MockUSDC();
-        bonus = new BonusDistributor(address(0), address(usdc), oracle);
+        weth = new MockWETH();
+        bonus = new BonusDistributor(address(0), address(weth), oracle);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(usdc)
+            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(weth)
         );
-        factory = new MockFilterFactory(address(launcher), address(usdc));
+        factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
     }
 

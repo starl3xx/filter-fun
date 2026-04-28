@@ -17,17 +17,17 @@ export interface RolloverTree {
   entries: ReadonlyArray<RolloverEntry>;
 }
 
-/// Per-loser, the LP's recoverable USDC at settlement time and the slippage budget the
+/// Per-loser, the LP's recoverable WETH at settlement time and the slippage budget the
 /// liquidation keeper is allowed to accept. Caller produces this from on-chain quotes.
 export interface RecoverableQuote {
   token: Address;
-  recoverableUsdc: bigint;
+  recoverableWeth: bigint;
 }
 
 export interface SettlementInputs {
   /// Tokens currently in the season, ranked. Index 0 is the winner.
   ranking: ReadonlyArray<Address>;
-  /// Per-loser recoverable USDC (used to compute the liquidation floor).
+  /// Per-loser recoverable WETH (used to compute the liquidation floor).
   recoverable: ReadonlyMap<Address, bigint>;
   /// BPS of slippage allowed when liquidating each loser. minOut = recoverable * (10_000 - slippageBps) / 10_000.
   slippageBps: number;

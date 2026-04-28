@@ -9,11 +9,11 @@ import {MockLpLocker} from "./MockLpLocker.sol";
 
 contract MockFilterFactory is IFilterFactory {
     address public immutable launcher;
-    address public immutable usdc;
+    address public immutable weth;
 
-    constructor(address launcher_, address usdc_) {
+    constructor(address launcher_, address weth_) {
         launcher = launcher_;
-        usdc = usdc_;
+        weth = weth_;
     }
 
     function deployToken(IFilterFactory.DeployArgs calldata args)
@@ -24,7 +24,7 @@ contract MockFilterFactory is IFilterFactory {
         require(msg.sender == launcher, "not launcher");
         MintableERC20 t = new MintableERC20(args.name, args.symbol);
         token = address(t);
-        MockLpLocker l = new MockLpLocker(token, usdc, args.seasonVault);
+        MockLpLocker l = new MockLpLocker(token, weth, args.seasonVault);
         locker = address(l);
         key;
     }

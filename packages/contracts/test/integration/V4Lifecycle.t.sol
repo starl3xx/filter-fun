@@ -24,7 +24,7 @@ import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
 
-import {MockUSDC} from "../mocks/MockUSDC.sol";
+import {MockWETH} from "../mocks/MockWETH.sol";
 import {HookMiner} from "../utils/HookMiner.sol";
 
 /// @notice End-to-end V4 integration: spins up a real PoolManager, mines the hook salt,
@@ -37,7 +37,7 @@ contract V4LifecycleTest is Test, Deployers {
     FilterFactory factory;
     FilterHook hook;
     BonusDistributor bonus;
-    MockUSDC usdc;
+    MockWETH weth;
 
     address owner = address(this);
     address oracle = makeAddr("oracle");
@@ -51,11 +51,11 @@ contract V4LifecycleTest is Test, Deployers {
         // Boot V4 PoolManager + helpers (sets `manager`, swap router, etc).
         deployFreshManagerAndRouters();
 
-        usdc = new MockUSDC();
-        bonus = new BonusDistributor(address(0), address(usdc), oracle);
+        weth = new MockWETH();
+        bonus = new BonusDistributor(address(0), address(weth), oracle);
 
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(usdc)
+            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(weth)
         );
 
         // Mine hook salt for required flags = BEFORE_ADD_LIQUIDITY (1<<11) | BEFORE_REMOVE_LIQUIDITY (1<<9) = 0xA00.
@@ -66,7 +66,7 @@ contract V4LifecycleTest is Test, Deployers {
         hook = new FilterHook{salt: hookSalt}();
         require(address(hook) == expectedHookAddr, "hook addr mismatch");
 
-        factory = new FilterFactory(manager, hook, address(launcher), address(usdc));
+        factory = new FilterFactory(manager, hook, address(launcher), address(weth));
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));
 
@@ -101,14 +101,14 @@ contract V4LifecycleTest is Test, Deployers {
         (address token,) = launcher.launchProtocolToken("filter.fun", "FILTER", "");
         PoolKey memory key = FilterLpLocker(launcher.lockerOf(1, token)).poolKey();
 
-        // Trader gets USDC and approves the V4 swap router.
-        usdc.mint(trader, 100e6);
+        // Trader gets WETH and approves the V4 swap router.
+        weth.mint(trader, 1 ether);
         vm.prank(trader);
-        usdc.approve(address(swapRouter), type(uint256).max);
+        weth.approve(address(swapRouter), type(uint256).max);
 
-        // Decide swap direction: input is USDC.
+        // Decide swap direction: input is WETH.
         bool tokenIsZero = Currency.unwrap(key.currency0) == token;
-        bool zeroForOne = !tokenIsZero; // USDC → token
+        bool zeroForOne = !tokenIsZero; // WETH → token
 
         uint256 traderTokenBefore = IERC20(token).balanceOf(trader);
 
@@ -117,7 +117,7 @@ contract V4LifecycleTest is Test, Deployers {
             key,
             SwapParams({
                 zeroForOne: zeroForOne,
-                amountSpecified: -int256(50e6), // exactIn 50 USDC
+                amountSpecified: -int256(0.05 ether), // exactIn 0.05 WETH
                 sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
@@ -128,14 +128,14 @@ contract V4LifecycleTest is Test, Deployers {
         assertGt(traderTokenAfter, traderTokenBefore, "trader received tokens");
     }
 
-    function test_LockerLiquidatesToUSDC() public {
+    function test_LockerLiquidatesToWETH() public {
         (address token,) = launcher.launchProtocolToken("filter.fun", "FILTER", "");
         FilterLpLocker locker = FilterLpLocker(launcher.lockerOf(1, token));
 
-        // Drive some USDC into the LP via a trade so liquidation has something to recover.
-        usdc.mint(trader, 1000e6);
+        // Drive some WETH into the LP via a trade so liquidation has something to recover.
+        weth.mint(trader, 1 ether);
         vm.prank(trader);
-        usdc.approve(address(swapRouter), type(uint256).max);
+        weth.approve(address(swapRouter), type(uint256).max);
         PoolKey memory key = locker.poolKey();
         bool tokenIsZero = Currency.unwrap(key.currency0) == token;
         bool zeroForOne = !tokenIsZero;
@@ -144,31 +144,31 @@ contract V4LifecycleTest is Test, Deployers {
             key,
             SwapParams({
                 zeroForOne: zeroForOne,
-                amountSpecified: -int256(500e6),
+                amountSpecified: -int256(0.5 ether),
                 sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
         );
 
-        // Now the pool holds ~500 USDC + remaining tokens. Liquidate.
+        // Now the pool holds ~0.5 WETH + remaining tokens. Liquidate.
         address vault = launcher.vaultOf(1);
-        uint256 vaultUsdcBefore = usdc.balanceOf(vault);
+        uint256 vaultWethBefore = weth.balanceOf(vault);
         vm.prank(vault);
-        uint256 out = locker.liquidateToUSDC(vault, 0);
-        assertGt(out, 0, "recovered USDC");
-        assertEq(usdc.balanceOf(vault), vaultUsdcBefore + out);
+        uint256 out = locker.liquidateToWETH(vault, 0);
+        assertGt(out, 0, "recovered WETH");
+        assertEq(weth.balanceOf(vault), vaultWethBefore + out);
         assertEq(locker.liquidated(), true);
     }
 
-    function test_LockerBuysTokenWithUSDC() public {
+    function test_LockerBuysTokenWithWETH() public {
         (address token,) = launcher.launchProtocolToken("filter.fun", "FILTER", "");
         FilterLpLocker locker = FilterLpLocker(launcher.lockerOf(1, token));
 
-        // Drive USDC into the pool first so there's something to buy from.
-        usdc.mint(trader, 1000e6);
+        // Drive WETH into the pool first so there's something to buy from.
+        weth.mint(trader, 1 ether);
         vm.prank(trader);
-        usdc.approve(address(swapRouter), type(uint256).max);
+        weth.approve(address(swapRouter), type(uint256).max);
         PoolKey memory key = locker.poolKey();
         bool tokenIsZero = Currency.unwrap(key.currency0) == token;
         bool zeroForOne = !tokenIsZero;
@@ -177,22 +177,22 @@ contract V4LifecycleTest is Test, Deployers {
             key,
             SwapParams({
                 zeroForOne: zeroForOne,
-                amountSpecified: -int256(800e6),
+                amountSpecified: -int256(0.8 ether),
                 sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
         );
 
-        // Vault prepares to buy more tokens with USDC.
+        // Vault prepares to buy more tokens with WETH.
         address vault = launcher.vaultOf(1);
-        usdc.mint(vault, 100e6);
+        weth.mint(vault, 0.1 ether);
         vm.prank(vault);
-        usdc.approve(address(locker), 100e6);
+        weth.approve(address(locker), 0.1 ether);
 
         address recipient = makeAddr("buyRecipient");
         vm.prank(vault);
-        uint256 tokensOut = locker.buyTokenWithUSDC(100e6, recipient, 0);
+        uint256 tokensOut = locker.buyTokenWithWETH(0.1 ether, recipient, 0);
         assertGt(tokensOut, 0, "received tokens");
         assertEq(IERC20(token).balanceOf(recipient), tokensOut);
     }

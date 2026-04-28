@@ -9,7 +9,7 @@ export const BonusDistributorAbi = [
         "internalType": "address"
       },
       {
-        "name": "usdc_",
+        "name": "weth_",
         "type": "address",
         "internalType": "address"
       },
@@ -211,7 +211,7 @@ export const BonusDistributorAbi = [
   },
   {
     "type": "function",
-    "name": "usdc",
+    "name": "weth",
     "inputs": [],
     "outputs": [
       {

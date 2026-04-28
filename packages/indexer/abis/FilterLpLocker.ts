@@ -142,10 +142,10 @@ export const FilterLpLockerAbi = [
   },
   {
     "type": "function",
-    "name": "buyTokenWithUSDC",
+    "name": "buyTokenWithWETH",
     "inputs": [
       {
-        "name": "usdcIn",
+        "name": "wethIn",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -191,7 +191,7 @@ export const FilterLpLockerAbi = [
   },
   {
     "type": "function",
-    "name": "liquidateToUSDC",
+    "name": "liquidateToWETH",
     "inputs": [
       {
         "name": "recipient",
@@ -199,14 +199,14 @@ export const FilterLpLockerAbi = [
         "internalType": "address"
       },
       {
-        "name": "minOutUSDC",
+        "name": "minOutWETH",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "usdcOut",
+        "name": "wethOut",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -433,7 +433,7 @@ export const FilterLpLockerAbi = [
     "name": "Bought",
     "inputs": [
       {
-        "name": "usdcIn",
+        "name": "wethIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

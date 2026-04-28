@@ -16,7 +16,7 @@ import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 ///
 ///         Required env:
 ///         - PRIVATE_KEY               deployer EOA
-///         - BASE_USDC                 USDC ERC-20 address on the target chain
+///         - BASE_WETH                 WETH ERC-20 address on the target chain
 ///         - V4_POOL_MANAGER           Uniswap V4 PoolManager address on the target chain
 ///         - ORACLE_MULTISIG           2-of-3 oracle Safe
 ///         - TREASURY_PROPOSER_0..2    treasury timelock proposer signers
@@ -30,7 +30,7 @@ import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 contract DeployGenesis is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
-        address usdc = vm.envAddress("BASE_USDC");
+        address weth = vm.envAddress("BASE_WETH");
         address pmAddr = vm.envAddress("V4_POOL_MANAGER");
         address oracle = vm.envAddress("ORACLE_MULTISIG");
         address mechanics = vm.envAddress("MECHANICS_WALLET");
@@ -53,12 +53,12 @@ contract DeployGenesis is Script {
         // 2. BonusDistributor (launcher set later via setLauncher pattern -- not implemented;
         //    for genesis, BonusDistributor.launcher is immutable so we encode a placeholder
         //    and rotate by redeploy. Production: introduce setLauncher gated by previous launcher).
-        BonusDistributor bonus = new BonusDistributor(deployer, usdc, oracle);
+        BonusDistributor bonus = new BonusDistributor(deployer, weth, oracle);
         console2.log("BonusDistributor:", address(bonus));
 
         // 3. FilterLauncher.
         FilterLauncher launcher = new FilterLauncher(
-            deployer, oracle, address(treasury), mechanics, polRecipient, IBonusFunding(address(bonus)), usdc
+            deployer, oracle, address(treasury), mechanics, polRecipient, IBonusFunding(address(bonus)), weth
         );
         console2.log("FilterLauncher:", address(launcher));
 
@@ -67,8 +67,8 @@ contract DeployGenesis is Script {
         FilterHook hook = new FilterHook{salt: hookSalt}();
         console2.log("FilterHook:", address(hook));
 
-        // 5. FilterFactory wires hook + manager + launcher + usdc.
-        FilterFactory factory = new FilterFactory(IPoolManager(pmAddr), hook, address(launcher), usdc);
+        // 5. FilterFactory wires hook + manager + launcher + weth.
+        FilterFactory factory = new FilterFactory(IPoolManager(pmAddr), hook, address(launcher), weth);
         console2.log("FilterFactory:", address(factory));
 
         // 6. Initialize hook with factory address (one-shot).

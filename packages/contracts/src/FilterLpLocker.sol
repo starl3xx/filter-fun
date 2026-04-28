@@ -54,7 +54,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     address public immutable factory;
     address public immutable vault;
     address public immutable override token;
-    address public immutable override baseAsset; // USDC
+    address public immutable override baseAsset; // WETH
     address public immutable treasury;
     address public immutable mechanics;
     bool public immutable tokenIsCurrency0;
@@ -69,7 +69,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     // -------- Events / errors
     event FeesCollected(uint256 toVault, uint256 toTreasury, uint256 toMechanics, address asset);
     event LiquidatedToBase(uint256 baseRecovered, uint256 tokenStranded);
-    event Bought(uint256 usdcIn, uint256 tokensOut);
+    event Bought(uint256 wethIn, uint256 tokensOut);
 
     error NotPoolManager();
     error NotVault();
@@ -139,30 +139,30 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         poolManager.unlock(data);
     }
 
-    function liquidateToUSDC(address recipient, uint256 minOutUSDC)
+    function liquidateToWETH(address recipient, uint256 minOutWETH)
         external
         override
         onlyVault
         nonReentrant
-        returns (uint256 usdcOut)
+        returns (uint256 wethOut)
     {
         if (liquidated) revert AlreadyLiquidated();
         liquidated = true;
-        bytes memory data = abi.encode(ACTION_LIQUIDATE, uint256(0), recipient, minOutUSDC);
+        bytes memory data = abi.encode(ACTION_LIQUIDATE, uint256(0), recipient, minOutWETH);
         bytes memory ret = poolManager.unlock(data);
-        usdcOut = abi.decode(ret, (uint256));
-        if (usdcOut < minOutUSDC) revert InsufficientOutput();
+        wethOut = abi.decode(ret, (uint256));
+        if (wethOut < minOutWETH) revert InsufficientOutput();
     }
 
-    function buyTokenWithUSDC(uint256 usdcIn, address recipient, uint256 minOutTokens)
+    function buyTokenWithWETH(uint256 wethIn, address recipient, uint256 minOutTokens)
         external
         override
         onlyVault
         nonReentrant
         returns (uint256 tokensOut)
     {
-        IERC20(baseAsset).safeTransferFrom(msg.sender, address(this), usdcIn);
-        bytes memory data = abi.encode(ACTION_BUY, usdcIn, recipient, minOutTokens);
+        IERC20(baseAsset).safeTransferFrom(msg.sender, address(this), wethIn);
+        bytes memory data = abi.encode(ACTION_BUY, wethIn, recipient, minOutTokens);
         bytes memory ret = poolManager.unlock(data);
         tokensOut = abi.decode(ret, (uint256));
         if (tokensOut < minOutTokens) revert InsufficientOutput();
@@ -269,7 +269,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     }
 
     function _doBuy(
-        uint256 usdcIn,
+        uint256 wethIn,
         address recipient,
         uint256 /* minOut */
     )
@@ -284,7 +284,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
             _key,
             SwapParams({
                 zeroForOne: zeroForOne,
-                amountSpecified: -int256(usdcIn),
+                amountSpecified: -int256(wethIn),
                 sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
             ""
@@ -292,14 +292,14 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
 
         // Settle input owed: sync, transfer, settle.
         poolManager.sync(inputCurrency);
-        IERC20(Currency.unwrap(inputCurrency)).safeTransfer(address(poolManager), usdcIn);
+        IERC20(Currency.unwrap(inputCurrency)).safeTransfer(address(poolManager), wethIn);
         poolManager.settle();
 
         int128 outAmt = zeroForOne ? delta.amount1() : delta.amount0();
         require(outAmt > 0, "no output");
         tokensOut = uint256(uint128(outAmt));
         poolManager.take(outputCurrency, recipient, tokensOut);
-        emit Bought(usdcIn, tokensOut);
+        emit Bought(wethIn, tokensOut);
     }
 
     function _takeAndSplit(Currency currency, uint256 amount) internal {

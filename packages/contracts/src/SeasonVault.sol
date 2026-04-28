@@ -26,8 +26,8 @@ interface ILauncherView {
 ///         - 35% rollover (winner-token buy, distributed via Merkle)
 ///         - 15% bonus reserve (forwarded to BonusDistributor)
 ///         - 20% POL (winner-token buy retained by `polRecipient`)
-///         - 20% treasury (USDC to TreasuryTimelock)
-///         - 10% mechanics (USDC to events/missions wallet)
+///         - 20% treasury (WETH to TreasuryTimelock)
+///         - 10% mechanics (WETH to events/missions wallet)
 contract SeasonVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -49,7 +49,7 @@ contract SeasonVault is ReentrancyGuard {
     // Immutable wiring
     address public immutable launcher;
     uint256 public immutable seasonId;
-    address public immutable usdc;
+    address public immutable weth;
     address public immutable treasury;
     address public immutable mechanics;
     address public immutable polRecipient;
@@ -84,7 +84,7 @@ contract SeasonVault is ReentrancyGuard {
         uint256 totalRolloverShares,
         uint256 liquidationDeadline
     );
-    event Liquidated(address indexed token, uint256 usdcOut);
+    event Liquidated(address indexed token, uint256 wethOut);
     event Finalized(uint256 totalPot, uint256 rolloverWinnerTokens, uint256 bonusReserve);
     event RolloverClaimed(address indexed user, uint256 share, uint256 winnerTokens);
     event ForceClosed(address by);
@@ -117,7 +117,7 @@ contract SeasonVault is ReentrancyGuard {
     constructor(
         address launcher_,
         uint256 seasonId_,
-        address usdc_,
+        address weth_,
         address oracle_,
         address treasury_,
         address mechanics_,
@@ -127,7 +127,7 @@ contract SeasonVault is ReentrancyGuard {
     ) {
         launcher = launcher_;
         seasonId = seasonId_;
-        usdc = usdc_;
+        weth = weth_;
         oracle = oracle_;
         treasury = treasury_;
         mechanics = mechanics_;
@@ -170,7 +170,7 @@ contract SeasonVault is ReentrancyGuard {
         emit SettlementSubmitted(winner_, losers_.length, rolloverRoot_, totalRolloverShares_, liquidationDeadline_);
     }
 
-    /// @notice Permissionless. Drives one loser through `FilterLpLocker.liquidateToUSDC`.
+    /// @notice Permissionless. Drives one loser through `FilterLpLocker.liquidateToWETH`.
     function liquidate(address loserToken, uint256 minOutOverride)
         external
         nonReentrant
@@ -185,7 +185,7 @@ contract SeasonVault is ReentrancyGuard {
         ++liquidatedCount;
 
         address locker = ILauncherView(launcher).lockerOf(seasonId, loserToken);
-        uint256 out = ILpLocker(locker).liquidateToUSDC(address(this), minOut);
+        uint256 out = ILpLocker(locker).liquidateToWETH(address(this), minOut);
         emit Liquidated(loserToken, out);
 
         if (liquidatedCount == losers.length) {
@@ -199,7 +199,7 @@ contract SeasonVault is ReentrancyGuard {
         nonReentrant
         inPhase(Phase.Aggregating)
     {
-        uint256 pot = IERC20(usdc).balanceOf(address(this));
+        uint256 pot = IERC20(weth).balanceOf(address(this));
         totalPot = pot;
 
         uint256 rolloverSlice = (pot * ROLLOVER_BPS) / BPS_DENOMINATOR;
@@ -211,27 +211,27 @@ contract SeasonVault is ReentrancyGuard {
         // Bonus reserve → BonusDistributor
         bonusReserve = bonusSlice;
         if (bonusSlice > 0) {
-            IERC20(usdc).forceApprove(address(bonusDistributor), bonusSlice);
+            IERC20(weth).forceApprove(address(bonusDistributor), bonusSlice);
             bonusDistributor.fundBonus(seasonId, winner, block.timestamp + bonusUnlockDelay, bonusSlice);
         }
 
-        // Treasury & mechanics → flat USDC transfer
-        if (treasurySlice > 0) IERC20(usdc).safeTransfer(treasury, treasurySlice);
-        if (mechanicsSlice > 0) IERC20(usdc).safeTransfer(mechanics, mechanicsSlice);
+        // Treasury & mechanics → flat WETH transfer
+        if (treasurySlice > 0) IERC20(weth).safeTransfer(treasury, treasurySlice);
+        if (mechanicsSlice > 0) IERC20(weth).safeTransfer(mechanics, mechanicsSlice);
 
         address winnerLocker = ILauncherView(launcher).lockerOf(seasonId, winner);
 
         // POL → buy winner tokens, send to polRecipient
         if (polSlice > 0) {
-            IERC20(usdc).forceApprove(winnerLocker, polSlice);
-            ILpLocker(winnerLocker).buyTokenWithUSDC(polSlice, polRecipient, minWinnerTokensPol);
+            IERC20(weth).forceApprove(winnerLocker, polSlice);
+            ILpLocker(winnerLocker).buyTokenWithWETH(polSlice, polRecipient, minWinnerTokensPol);
         }
 
         // Rollover → buy winner tokens, retained for Merkle claim
         if (rolloverSlice > 0) {
-            IERC20(usdc).forceApprove(winnerLocker, rolloverSlice);
+            IERC20(weth).forceApprove(winnerLocker, rolloverSlice);
             rolloverWinnerTokens = ILpLocker(winnerLocker)
-                .buyTokenWithUSDC(rolloverSlice, address(this), minWinnerTokensRollover);
+                .buyTokenWithWETH(rolloverSlice, address(this), minWinnerTokensRollover);
         }
 
         phase = Phase.Distributing;
@@ -263,7 +263,7 @@ contract SeasonVault is ReentrancyGuard {
     // ============================================================ Admin
 
     /// @notice After deadline, the launcher (multisig) advances the state machine so finalize()
-    ///         can run on whatever USDC was actually gathered.
+    ///         can run on whatever WETH was actually gathered.
     function forceClose() external {
         if (msg.sender != launcher) revert NotLauncher();
         if (block.timestamp < liquidationDeadline) revert DeadlineNotPassed();

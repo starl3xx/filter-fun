@@ -5,11 +5,11 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {BonusDistributor} from "../src/BonusDistributor.sol";
-import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {MockWETH} from "./mocks/MockWETH.sol";
 import {MiniMerkle} from "./utils/MiniMerkle.sol";
 
 contract BonusDistributorTest is Test {
-    MockUSDC usdc;
+    MockWETH weth;
     BonusDistributor bonus;
 
     address launcher = address(0xAAAA);
@@ -21,18 +21,18 @@ contract BonusDistributorTest is Test {
     address bobUser = address(0xB2);
 
     function setUp() public {
-        usdc = new MockUSDC();
-        bonus = new BonusDistributor(launcher, address(usdc), oracle);
+        weth = new MockWETH();
+        bonus = new BonusDistributor(launcher, address(weth), oracle);
 
         // Vault prepares to fund.
-        usdc.mint(vault, 1000e6);
+        weth.mint(vault, 1 ether);
         vm.prank(vault);
-        usdc.approve(address(bonus), 1000e6);
+        weth.approve(address(bonus), 1 ether);
     }
 
     function _fund(uint256 unlockTime) internal {
         vm.prank(vault);
-        bonus.fundBonus(1, winnerToken, unlockTime, 1000e6);
+        bonus.fundBonus(1, winnerToken, unlockTime, 1 ether);
     }
 
     function _postRoot(uint256 amountA, uint256 amountB) internal returns (bytes32) {
@@ -55,56 +55,56 @@ contract BonusDistributorTest is Test {
 
         vm.warp(block.timestamp + 13 days);
 
-        bytes32 leafA = keccak256(abi.encodePacked(aliceUser, uint256(600e6)));
-        bytes32 leafB = keccak256(abi.encodePacked(bobUser, uint256(400e6)));
-        _postRoot(600e6, 400e6);
+        bytes32 leafA = keccak256(abi.encodePacked(aliceUser, uint256(0.6 ether)));
+        bytes32 leafB = keccak256(abi.encodePacked(bobUser, uint256(0.4 ether)));
+        _postRoot(0.6 ether, 0.4 ether);
 
         bytes32[2] memory leaves = [leafA, leafB];
 
         bytes32[] memory proofA = MiniMerkle.proofForTwo(leaves, 0);
         vm.prank(aliceUser);
-        bonus.claim(1, 600e6, proofA);
-        assertEq(usdc.balanceOf(aliceUser), 600e6);
+        bonus.claim(1, 0.6 ether, proofA);
+        assertEq(weth.balanceOf(aliceUser), 0.6 ether);
 
         bytes32[] memory proofB = MiniMerkle.proofForTwo(leaves, 1);
         vm.prank(bobUser);
-        bonus.claim(1, 400e6, proofB);
-        assertEq(usdc.balanceOf(bobUser), 400e6);
+        bonus.claim(1, 0.4 ether, proofB);
+        assertEq(weth.balanceOf(bobUser), 0.4 ether);
 
-        assertEq(usdc.balanceOf(address(bonus)), 0);
+        assertEq(weth.balanceOf(address(bonus)), 0);
     }
 
     function test_BadProofReverts() public {
         _fund(block.timestamp);
-        _postRoot(600e6, 400e6);
+        _postRoot(0.6 ether, 0.4 ether);
         bytes32[] memory bad = new bytes32[](1);
         bad[0] = bytes32(uint256(0xDEADBEEF));
         vm.prank(aliceUser);
         vm.expectRevert(BonusDistributor.InvalidProof.selector);
-        bonus.claim(1, 600e6, bad);
+        bonus.claim(1, 0.6 ether, bad);
     }
 
     function test_DoubleClaimReverts() public {
         _fund(block.timestamp);
-        bytes32 leafA = keccak256(abi.encodePacked(aliceUser, uint256(600e6)));
-        bytes32 leafB = keccak256(abi.encodePacked(bobUser, uint256(400e6)));
-        _postRoot(600e6, 400e6);
+        bytes32 leafA = keccak256(abi.encodePacked(aliceUser, uint256(0.6 ether)));
+        bytes32 leafB = keccak256(abi.encodePacked(bobUser, uint256(0.4 ether)));
+        _postRoot(0.6 ether, 0.4 ether);
         bytes32[2] memory leaves = [leafA, leafB];
         bytes32[] memory proofA = MiniMerkle.proofForTwo(leaves, 0);
         vm.prank(aliceUser);
-        bonus.claim(1, 600e6, proofA);
+        bonus.claim(1, 0.6 ether, proofA);
         vm.prank(aliceUser);
         vm.expectRevert(BonusDistributor.AlreadyClaimed.selector);
-        bonus.claim(1, 600e6, proofA);
+        bonus.claim(1, 0.6 ether, proofA);
     }
 
     function test_DoubleFundReverts() public {
         _fund(block.timestamp);
-        usdc.mint(vault, 100e6);
+        weth.mint(vault, 0.1 ether);
         vm.prank(vault);
-        usdc.approve(address(bonus), 100e6);
+        weth.approve(address(bonus), 0.1 ether);
         vm.prank(vault);
         vm.expectRevert(BonusDistributor.AlreadyFunded.selector);
-        bonus.fundBonus(1, winnerToken, block.timestamp + 14 days, 100e6);
+        bonus.fundBonus(1, winnerToken, block.timestamp + 14 days, 0.1 ether);
     }
 }

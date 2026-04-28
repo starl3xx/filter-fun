@@ -34,7 +34,7 @@ export const FilterLauncherAbi = [
         "internalType": "contract IBonusFunding"
       },
       {
-        "name": "usdc_",
+        "name": "weth_",
         "type": "address",
         "internalType": "address"
       }
@@ -551,8 +551,14 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "usdc",
-    "inputs": [],
+    "name": "vaultOf",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "outputs": [
       {
         "name": "",
@@ -564,14 +570,8 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "vaultOf",
-    "inputs": [
-      {
-        "name": "seasonId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
+    "name": "weth",
+    "inputs": [],
     "outputs": [
       {
         "name": "",

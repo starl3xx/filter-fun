@@ -7,7 +7,7 @@ const BPS_DENOMINATOR = 10_000n;
 
 /// Build the calldata-shaped payload + sidecar Merkle tree for `SeasonVault.submitSettlement`.
 /// Caller is responsible for: choosing the winner (here: `ranking[0]`), producing per-loser
-/// recoverable USDC quotes, and computing the per-wallet `share` weights from holder snapshots.
+/// recoverable WETH quotes, and computing the per-wallet `share` weights from holder snapshots.
 ///
 /// This module deliberately knows nothing about scoring algorithm or holder snapshot policy —
 /// it only does the deterministic transform from inputs → on-chain calldata + claim artifact.

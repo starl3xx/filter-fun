@@ -7,14 +7,14 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 
 /// @title BonusDistributor
 /// @notice 14-day hold-bonus payout. Each season's `SeasonVault` calls `fundBonus(...)` at
-///         finalize, transferring the USDC reserve in. The oracle posts a Merkle root over the
+///         finalize, transferring the WETH reserve in. The oracle posts a Merkle root over the
 ///         eligible-holders set during the hold window, where each leaf is `(user, bonusAmount)`
 ///         and the oracle has already enforced the "≥80% balance across N snapshots" criterion.
 contract BonusDistributor {
     using SafeERC20 for IERC20;
 
     address public immutable launcher;
-    address public immutable usdc;
+    address public immutable weth;
 
     address public oracle;
 
@@ -43,9 +43,9 @@ contract BonusDistributor {
     error AlreadyClaimed();
     error InvalidProof();
 
-    constructor(address launcher_, address usdc_, address oracle_) {
+    constructor(address launcher_, address weth_, address oracle_) {
         launcher = launcher_;
-        usdc = usdc_;
+        weth = weth_;
         oracle = oracle_;
     }
 
@@ -53,7 +53,7 @@ contract BonusDistributor {
         return _bonuses[seasonId];
     }
 
-    /// @notice Vault calls this during `SeasonVault.finalize`. Pulls `amount` USDC.
+    /// @notice Vault calls this during `SeasonVault.finalize`. Pulls `amount` WETH.
     function fundBonus(uint256 seasonId, address winnerToken, uint256 unlockTime, uint256 amount) external {
         SeasonBonus storage b = _bonuses[seasonId];
         if (b.vault != address(0)) revert AlreadyFunded();
@@ -61,7 +61,7 @@ contract BonusDistributor {
         b.winnerToken = winnerToken;
         b.unlockTime = unlockTime;
         b.reserve = amount;
-        IERC20(usdc).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(weth).safeTransferFrom(msg.sender, address(this), amount);
         emit BonusFunded(seasonId, msg.sender, amount, unlockTime);
     }
 
@@ -85,7 +85,7 @@ contract BonusDistributor {
         if (!MerkleProof.verifyCalldata(proof, b.root, leaf)) revert InvalidProof();
         claimed[seasonId][msg.sender] = true;
         b.claimedTotal += amount;
-        IERC20(usdc).safeTransfer(msg.sender, amount);
+        IERC20(weth).safeTransfer(msg.sender, amount);
         emit BonusClaimed(seasonId, msg.sender, amount);
     }
 

@@ -19,7 +19,7 @@ export const FilterFactoryAbi = [
         "internalType": "address"
       },
       {
-        "name": "usdc_",
+        "name": "weth_",
         "type": "address",
         "internalType": "address"
       }
@@ -303,7 +303,7 @@ export const FilterFactoryAbi = [
   },
   {
     "type": "function",
-    "name": "usdc",
+    "name": "weth",
     "inputs": [],
     "outputs": [
       {

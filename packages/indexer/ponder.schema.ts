@@ -56,7 +56,7 @@ export const liquidation = onchainTable("liquidation", (t) => ({
   id: t.text().primaryKey(), // `${seasonId}:${token}`
   seasonId: t.bigint().notNull(),
   token: t.hex().notNull(),
-  usdcOut: t.bigint().notNull(),
+  wethOut: t.bigint().notNull(),
   blockTimestamp: t.bigint().notNull(),
 }));
 

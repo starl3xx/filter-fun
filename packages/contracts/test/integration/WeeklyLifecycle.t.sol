@@ -10,7 +10,7 @@ import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
 
-import {MockUSDC} from "../mocks/MockUSDC.sol";
+import {MockWETH} from "../mocks/MockWETH.sol";
 import {MockFilterFactory} from "../mocks/MockFilterFactory.sol";
 import {MockLpLocker} from "../mocks/MockLpLocker.sol";
 import {MiniMerkle} from "../utils/MiniMerkle.sol";
@@ -22,7 +22,7 @@ contract WeeklyLifecycleTest is Test {
     FilterLauncher launcher;
     MockFilterFactory factory;
     BonusDistributor bonus;
-    MockUSDC usdc;
+    MockWETH weth;
 
     address owner = address(this);
     address oracle = address(0xCAFE);
@@ -36,12 +36,12 @@ contract WeeklyLifecycleTest is Test {
     address holderB = address(0xB2);
 
     function setUp() public {
-        usdc = new MockUSDC();
-        bonus = new BonusDistributor(address(0), address(usdc), oracle);
+        weth = new MockWETH();
+        bonus = new BonusDistributor(address(0), address(weth), oracle);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(usdc)
+            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(weth)
         );
-        factory = new MockFilterFactory(address(launcher), address(usdc));
+        factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
     }
 
@@ -83,13 +83,13 @@ contract WeeklyLifecycleTest is Test {
         vm.prank(oracle);
         launcher.advancePhase(sid, IFilterLauncher.Phase.Settlement);
 
-        // Pretend each losing token unwinds to a known USDC amount (mock).
+        // Pretend each losing token unwinds to a known WETH amount (mock).
         // Winner is $FILTER. Losers: tokenA, tokenB.
         SeasonVault vault = SeasonVault(launcher.vaultOf(sid));
-        MockLpLocker(launcher.lockerOf(sid, tokenA)).setLiquidationProceeds(1500e6);
-        MockLpLocker(launcher.lockerOf(sid, tokenB)).setLiquidationProceeds(2500e6);
-        // $FILTER (winner) mints at 100 winner-tokens / 1 USDC.
-        MockLpLocker(filterLocker).setMintRate(100e18);
+        MockLpLocker(launcher.lockerOf(sid, tokenA)).setLiquidationProceeds(1.5 ether);
+        MockLpLocker(launcher.lockerOf(sid, tokenB)).setLiquidationProceeds(2.5 ether);
+        // $FILTER (winner) mints at 100_000 winner-tokens / 1 WETH.
+        MockLpLocker(filterLocker).setMintRate(100_000e18);
 
         // Settlement Merkle: rollover share weights — holderA=60, holderB=40, total=100.
         // After finalize, vault holds 140_000e18 winner tokens; payouts will be
@@ -111,18 +111,18 @@ contract WeeklyLifecycleTest is Test {
         vault.liquidate(tokenA, 0);
         vault.liquidate(tokenB, 0);
 
-        // Pot = 4_000 USDC. Allocations:
-        // rollover 35% = 1400, bonus 15% = 600, POL 20% = 800, treasury 20% = 800, mechanics 10% = 400.
-        assertEq(usdc.balanceOf(address(vault)), 4000e6);
+        // Pot = 4 WETH. Allocations:
+        //   rollover 35% = 1.4,  bonus 15% = 0.6,  POL 20% = 0.8,  treasury 20% = 0.8,  mechanics 10% = 0.4.
+        assertEq(weth.balanceOf(address(vault)), 4 ether);
         vault.finalize(0, 0);
 
-        assertEq(usdc.balanceOf(treasury), 800e6);
-        assertEq(usdc.balanceOf(mechanics), 400e6);
-        assertEq(usdc.balanceOf(address(bonus)), 600e6);
+        assertEq(weth.balanceOf(treasury), 0.8 ether);
+        assertEq(weth.balanceOf(mechanics), 0.4 ether);
+        assertEq(weth.balanceOf(address(bonus)), 0.6 ether);
 
-        // Rollover bought 1400e6 * 100e18 / 1e6 = 1.4e23 winner tokens, held by vault.
+        // Rollover bought 1.4e18 * 100_000e18 / 1e18 = 140_000e18 winner tokens, held by vault.
         assertEq(IERC20(filterToken).balanceOf(address(vault)), 140_000e18);
-        // POL bought 800e6 * 100e18 / 1e6 = 80_000e18 winner tokens, sent to polRecipient.
+        // POL bought 0.8e18 * 100_000e18 / 1e18 = 80_000e18 winner tokens, sent to polRecipient.
         assertEq(IERC20(filterToken).balanceOf(polRecipient), 80_000e18);
 
         // Holders claim rollover.
@@ -140,7 +140,7 @@ contract WeeklyLifecycleTest is Test {
         // 14 days pass; oracle posts bonus eligibility root.
         vm.warp(block.timestamp + 14 days);
         // Pretend only holderA was eligible for the bonus (held ≥80% across snapshots).
-        bytes32 bonusLeafA = keccak256(abi.encodePacked(holderA, uint256(600e6))); // gets full reserve
+        bytes32 bonusLeafA = keccak256(abi.encodePacked(holderA, uint256(0.6 ether))); // gets full reserve
         bytes32 bonusLeafB = keccak256(abi.encodePacked(holderB, uint256(0)));
         bytes32 bonusRoot = MiniMerkle.rootOfTwo(bonusLeafA, bonusLeafB);
 
@@ -150,7 +150,7 @@ contract WeeklyLifecycleTest is Test {
         bytes32[2] memory bonusLeaves = [bonusLeafA, bonusLeafB];
         bytes32[] memory bonusProofA = MiniMerkle.proofForTwo(bonusLeaves, 0);
         vm.prank(holderA);
-        bonus.claim(sid, 600e6, bonusProofA);
-        assertEq(usdc.balanceOf(holderA), 600e6);
+        bonus.claim(sid, 0.6 ether, bonusProofA);
+        assertEq(weth.balanceOf(holderA), 0.6 ether);
     }
 }

@@ -14,7 +14,7 @@ export const SeasonVaultAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "usdc_",
+        "name": "weth_",
         "type": "address",
         "internalType": "address"
       },
@@ -540,7 +540,7 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
-    "name": "usdc",
+    "name": "weth",
     "inputs": [],
     "outputs": [
       {
@@ -613,7 +613,7 @@ export const SeasonVaultAbi = [
         "internalType": "address"
       },
       {
-        "name": "usdcOut",
+        "name": "wethOut",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

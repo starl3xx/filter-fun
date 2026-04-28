@@ -41,7 +41,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
     address public mechanics;
     address public polRecipient;
     IBonusFunding public bonusDistributor;
-    address public usdc;
+    address public weth;
     uint256 public bonusUnlockDelay = 14 days;
     uint256 public maxLaunchesPerWallet = 2;
 
@@ -59,14 +59,14 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
         address mechanics_,
         address polRecipient_,
         IBonusFunding bonusDistributor_,
-        address usdc_
+        address weth_
     ) Ownable(owner_) {
         oracle = oracle_;
         treasury = treasury_;
         mechanics = mechanics_;
         polRecipient = polRecipient_;
         bonusDistributor = bonusDistributor_;
-        usdc = usdc_;
+        weth = weth_;
     }
 
     modifier onlyOracle() {
@@ -101,7 +101,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
         SeasonVault v = new SeasonVault(
             address(this),
             seasonId,
-            usdc,
+            weth,
             oracle,
             treasury,
             mechanics,

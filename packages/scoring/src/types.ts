@@ -5,12 +5,12 @@ export type Address = `0x${string}`;
 export interface TokenStats {
   /// Token contract address.
   token: Address;
-  /// Cumulative buy volume per wallet, in USDC raw units.
+  /// Cumulative buy volume per wallet, in WETH raw units (1e18).
   volumeByWallet: Map<Address, bigint>;
   /// Each individual buy, time-stamped — used for time-decayed velocity.
-  buys: ReadonlyArray<{wallet: Address; ts: bigint; amountUsdc: bigint}>;
-  /// Current LP base-asset depth (USDC) — proxy for recoverable settlement value.
-  liquidityDepthUsdc: bigint;
+  buys: ReadonlyArray<{wallet: Address; ts: bigint; amountWeth: bigint}>;
+  /// Current LP base-asset depth (WETH) — proxy for recoverable settlement value.
+  liquidityDepthWeth: bigint;
   /// Set of wallets currently holding any positive balance.
   currentHolders: ReadonlySet<Address>;
   /// Holders at a fixed earlier snapshot (e.g. 24h ago) — used for retention.
@@ -50,12 +50,12 @@ export interface ScoringConfig {
   weights: ScoringWeights;
   /// Half-life (seconds) for buy-volume time decay. 24h default.
   velocityHalfLifeSec: number;
-  /// USDC threshold below which per-wallet log-cap doesn't kick in.
-  walletCapFloorUsdc: bigint;
+  /// WETH threshold below which per-wallet log-cap doesn't kick in.
+  walletCapFloorWeth: bigint;
 }
 
 export const DEFAULT_CONFIG: ScoringConfig = {
   weights: DEFAULT_WEIGHTS,
   velocityHalfLifeSec: 24 * 3600,
-  walletCapFloorUsdc: 1_000_000n, // 1 USDC
+  walletCapFloorWeth: 1_000_000_000_000_000n, // 0.001 WETH
 } as const;

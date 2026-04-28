@@ -18,12 +18,12 @@ ponder.on("SeasonVault:Liquidated", async ({event, context}) => {
     id: `${lookup.seasonId.toString()}:${event.args.token}`,
     seasonId: lookup.seasonId,
     token: event.args.token,
-    usdcOut: event.args.usdcOut,
+    wethOut: event.args.wethOut,
     blockTimestamp: event.block.timestamp,
   });
   await context.db.update(token, {id: event.args.token}).set({
     liquidated: true,
-    liquidationProceeds: event.args.usdcOut,
+    liquidationProceeds: event.args.wethOut,
   });
 });
 

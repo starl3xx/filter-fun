@@ -14,7 +14,7 @@ function makeStats(overrides: Partial<TokenStats> & Pick<TokenStats, "token">): 
   return {
     volumeByWallet: new Map(),
     buys: [],
-    liquidityDepthUsdc: 0n,
+    liquidityDepthWeth: 0n,
     currentHolders: new Set(),
     holdersAtRetentionAnchor: new Set(),
     ...overrides,
@@ -31,19 +31,19 @@ describe("score", () => {
         [wallet(3), 1_000_000n],
       ]),
       buys: [
-        {wallet: wallet(1), ts: NOW - 100n, amountUsdc: 1_000_000n},
-        {wallet: wallet(2), ts: NOW - 100n, amountUsdc: 1_000_000n},
-        {wallet: wallet(3), ts: NOW - 100n, amountUsdc: 1_000_000n},
+        {wallet: wallet(1), ts: NOW - 100n, amountWeth: 1_000_000n},
+        {wallet: wallet(2), ts: NOW - 100n, amountWeth: 1_000_000n},
+        {wallet: wallet(3), ts: NOW - 100n, amountWeth: 1_000_000n},
       ],
-      liquidityDepthUsdc: 5_000_000n,
+      liquidityDepthWeth: 5_000_000n,
       currentHolders: new Set([wallet(1), wallet(2), wallet(3)]),
       holdersAtRetentionAnchor: new Set([wallet(1), wallet(2), wallet(3)]),
     });
     const b = makeStats({
       token: tokenB,
       volumeByWallet: new Map([[wallet(4), 100_000n]]),
-      buys: [{wallet: wallet(4), ts: NOW - 100n, amountUsdc: 100_000n}],
-      liquidityDepthUsdc: 500_000n,
+      buys: [{wallet: wallet(4), ts: NOW - 100n, amountWeth: 100_000n}],
+      liquidityDepthWeth: 500_000n,
       currentHolders: new Set([wallet(4)]),
       holdersAtRetentionAnchor: new Set([wallet(4)]),
     });
@@ -59,22 +59,22 @@ describe("score", () => {
     const aBuys = Array.from({length: 10}, (_, i) => ({
       wallet: wallet(i + 1),
       ts: NOW - 100n,
-      amountUsdc: 100_000n,
+      amountWeth: 100_000n,
     }));
-    const aVolume = new Map(aBuys.map((b) => [b.wallet, b.amountUsdc]));
+    const aVolume = new Map(aBuys.map((b) => [b.wallet, b.amountWeth]));
     const a = makeStats({
       token: tokenA,
       volumeByWallet: aVolume,
       buys: aBuys,
-      liquidityDepthUsdc: 1_000_000n,
+      liquidityDepthWeth: 1_000_000n,
       currentHolders: new Set(aBuys.map((b) => b.wallet)),
       holdersAtRetentionAnchor: new Set(aBuys.map((b) => b.wallet)),
     });
     const b = makeStats({
       token: tokenB,
       volumeByWallet: new Map([[wallet(99), 1_000_000n]]),
-      buys: [{wallet: wallet(99), ts: NOW - 100n, amountUsdc: 1_000_000n}],
-      liquidityDepthUsdc: 1_000_000n,
+      buys: [{wallet: wallet(99), ts: NOW - 100n, amountWeth: 1_000_000n}],
+      liquidityDepthWeth: 1_000_000n,
       currentHolders: new Set([wallet(99)]),
       holdersAtRetentionAnchor: new Set([wallet(99)]),
     });
@@ -89,7 +89,7 @@ describe("score", () => {
     const fresh = makeStats({
       token: tokenA,
       volumeByWallet: new Map([[wallet(1), 1_000_000n]]),
-      buys: [{wallet: wallet(1), ts: NOW - 100n, amountUsdc: 1_000_000n}],
+      buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: 1_000_000n}],
       currentHolders: new Set([wallet(1)]),
       holdersAtRetentionAnchor: new Set([wallet(1)]),
     });
@@ -98,7 +98,7 @@ describe("score", () => {
       volumeByWallet: new Map([[wallet(2), 1_000_000n]]),
       buys: [
         // 5 half-lives older
-        {wallet: wallet(2), ts: NOW - BigInt(5 * DEFAULT_CONFIG.velocityHalfLifeSec), amountUsdc: 1_000_000n},
+        {wallet: wallet(2), ts: NOW - BigInt(5 * DEFAULT_CONFIG.velocityHalfLifeSec), amountWeth: 1_000_000n},
       ],
       currentHolders: new Set([wallet(2)]),
       holdersAtRetentionAnchor: new Set([wallet(2)]),
@@ -113,14 +113,14 @@ describe("score", () => {
     const sticky = makeStats({
       token: tokenA,
       volumeByWallet: new Map([[wallet(1), 1_000n]]),
-      buys: [{wallet: wallet(1), ts: NOW - 100n, amountUsdc: 1_000n}],
+      buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: 1_000n}],
       currentHolders: new Set([wallet(1), wallet(2), wallet(3)]),
       holdersAtRetentionAnchor: new Set([wallet(1), wallet(2), wallet(3)]),
     });
     const churning = makeStats({
       token: tokenB,
       volumeByWallet: new Map([[wallet(1), 1_000n]]),
-      buys: [{wallet: wallet(1), ts: NOW - 100n, amountUsdc: 1_000n}],
+      buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: 1_000n}],
       currentHolders: new Set([wallet(99)]),
       holdersAtRetentionAnchor: new Set([wallet(1), wallet(2), wallet(3)]),
     });
@@ -139,7 +139,7 @@ describe("score", () => {
     const onlyOne = makeStats({
       token: tokenC,
       volumeByWallet: new Map([[wallet(1), 1_000n]]),
-      buys: [{wallet: wallet(1), ts: NOW - 100n, amountUsdc: 1_000n}],
+      buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: 1_000n}],
       currentHolders: new Set([wallet(1)]),
       holdersAtRetentionAnchor: new Set([wallet(1)]),
     });

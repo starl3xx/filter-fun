@@ -19,7 +19,7 @@ export function score(
     token: t.token,
     volumeVelocity: computeVolumeVelocity(t, currentTime, config),
     uniqueBuyers: computeUniqueBuyers(t),
-    liquidityDepth: bigintToFloat(t.liquidityDepthUsdc),
+    liquidityDepth: bigintToFloat(t.liquidityDepthWeth),
     retention: computeRetention(t),
   }));
 
@@ -56,7 +56,7 @@ function computeVolumeVelocity(
 ): number {
   let total = 0;
   const halfLife = config.velocityHalfLifeSec;
-  const floor = bigintToFloat(config.walletCapFloorUsdc);
+  const floor = bigintToFloat(config.walletCapFloorWeth);
 
   for (const buy of t.buys) {
     const ageSec = Number(currentTime - buy.ts);
@@ -64,7 +64,7 @@ function computeVolumeVelocity(
     const decay = Math.pow(0.5, ageSec / halfLife);
 
     const walletTotal = bigintToFloat(t.volumeByWallet.get(buy.wallet) ?? 0n);
-    const amount = bigintToFloat(buy.amountUsdc);
+    const amount = bigintToFloat(buy.amountWeth);
 
     // Diminishing returns at the wallet level: a wallet with very large cumulative volume
     // contributes log-scaled weight rather than linear, dampening single-whale effects.
@@ -104,6 +104,6 @@ function normalizeMinMax(values: number[]): number[] {
 }
 
 function bigintToFloat(b: bigint): number {
-  // Lossy at very large magnitudes but fine for USDC / token-volume scoring scales.
+  // Lossy at very large magnitudes but fine for WETH / token-volume scoring scales.
   return Number(b);
 }

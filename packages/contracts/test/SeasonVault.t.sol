@@ -7,13 +7,13 @@ import {MiniMerkle} from "./utils/MiniMerkle.sol";
 
 import {SeasonVault, IBonusFunding} from "../src/SeasonVault.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
-import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {MockWETH} from "./mocks/MockWETH.sol";
 import {MintableERC20} from "./mocks/MintableERC20.sol";
 import {MockLpLocker} from "./mocks/MockLpLocker.sol";
 import {MockLauncherView} from "./mocks/MockLauncherView.sol";
 
 contract SeasonVaultTest is Test {
-    MockUSDC usdc;
+    MockWETH weth;
     MockLauncherView launcher;
     BonusDistributor bonus;
     SeasonVault vault;
@@ -35,13 +35,13 @@ contract SeasonVaultTest is Test {
     MockLpLocker loserBLocker;
 
     function setUp() public {
-        usdc = new MockUSDC();
+        weth = new MockWETH();
         launcher = new MockLauncherView();
-        bonus = new BonusDistributor(address(launcher), address(usdc), oracle);
+        bonus = new BonusDistributor(address(launcher), address(weth), oracle);
         vault = new SeasonVault(
             address(launcher),
             1,
-            address(usdc),
+            address(weth),
             oracle,
             treasury,
             mechanics,
@@ -54,19 +54,19 @@ contract SeasonVaultTest is Test {
         loserA = address(new MintableERC20("LoserA", "LA"));
         loserB = address(new MintableERC20("LoserB", "LB"));
 
-        winnerLocker = new MockLpLocker(winnerToken, address(usdc), address(vault));
-        loserALocker = new MockLpLocker(loserA, address(usdc), address(vault));
-        loserBLocker = new MockLpLocker(loserB, address(usdc), address(vault));
+        winnerLocker = new MockLpLocker(winnerToken, address(weth), address(vault));
+        loserALocker = new MockLpLocker(loserA, address(weth), address(vault));
+        loserBLocker = new MockLpLocker(loserB, address(weth), address(vault));
 
         launcher.setLocker(1, winnerToken, address(winnerLocker));
         launcher.setLocker(1, loserA, address(loserALocker));
         launcher.setLocker(1, loserB, address(loserBLocker));
 
-        // Each loser produces 1000 USDC on liquidation.
-        loserALocker.setLiquidationProceeds(1000e6);
-        loserBLocker.setLiquidationProceeds(1000e6);
-        // Winner mints at 100 winner-tokens per 1 USDC (token has 18 decimals).
-        winnerLocker.setMintRate(100e18);
+        // Each loser produces 1 WETH on liquidation.
+        loserALocker.setLiquidationProceeds(1 ether);
+        loserBLocker.setLiquidationProceeds(1 ether);
+        // Winner mints at 100_000 winner-tokens per 1 WETH (both 18-decimal).
+        winnerLocker.setMintRate(100_000e18);
     }
 
     // Share weights chosen so the share/winner-token math is exact:
@@ -105,28 +105,28 @@ contract SeasonVaultTest is Test {
         vault.liquidate(loserB, 0);
         assertEq(uint8(vault.phase()), uint8(SeasonVault.Phase.Aggregating));
 
-        // Pot is 2000 USDC. Allocations should be:
-        // rollover 35% = 700, bonus 15% = 300, POL 20% = 400, treasury 20% = 400, mechanics 10% = 200.
-        uint256 potBefore = usdc.balanceOf(address(vault));
-        assertEq(potBefore, 2000e6);
+        // Pot is 2 WETH. Allocations:
+        //   rollover 35% = 0.7,  bonus 15% = 0.3,  POL 20% = 0.4,  treasury 20% = 0.4,  mechanics 10% = 0.2.
+        uint256 potBefore = weth.balanceOf(address(vault));
+        assertEq(potBefore, 2 ether);
 
         vault.finalize(0, 0);
 
-        // Treasury & mechanics paid in USDC.
-        assertEq(usdc.balanceOf(treasury), 400e6);
-        assertEq(usdc.balanceOf(mechanics), 200e6);
+        // Treasury & mechanics paid in WETH.
+        assertEq(weth.balanceOf(treasury), 0.4 ether);
+        assertEq(weth.balanceOf(mechanics), 0.2 ether);
 
         // Bonus reserve in BonusDistributor.
-        assertEq(usdc.balanceOf(address(bonus)), 300e6);
+        assertEq(weth.balanceOf(address(bonus)), 0.3 ether);
         BonusDistributor.SeasonBonus memory b = bonus.bonusOf(1);
-        assertEq(b.reserve, 300e6);
+        assertEq(b.reserve, 0.3 ether);
         assertEq(b.winnerToken, winnerToken);
         assertEq(b.unlockTime, block.timestamp + 14 days);
 
-        // POL bought winner tokens at rate 100 tokens/USDC: 400e6 USDC * 100e18 / 1e6 = 4e22 = 40_000e18
+        // POL bought winner tokens at rate 100_000 tokens/WETH: 0.4e18 * 100_000e18 / 1e18 = 40_000e18.
         assertEq(IERC20(winnerToken).balanceOf(polRecipient), 40_000e18);
 
-        // Rollover bought winner tokens: 700e6 * 100e18 / 1e6 = 70_000e18, held by vault for claim.
+        // Rollover bought winner tokens: 0.7e18 * 100_000e18 / 1e18 = 70_000e18, held by vault for claim.
         assertEq(vault.rolloverWinnerTokens(), 70_000e18);
         assertEq(IERC20(winnerToken).balanceOf(address(vault)), 70_000e18);
 
@@ -185,11 +185,11 @@ contract SeasonVaultTest is Test {
     }
 
     function test_MinOutFloorEnforced() public {
-        // Floor 1500e6, locker proceeds 1000e6 → reverts at locker level via mock require.
+        // Floor 1.5 WETH, locker proceeds 1 WETH → reverts at locker level via mock require.
         address[] memory losers = new address[](1);
         losers[0] = loserA;
         uint256[] memory minOuts = new uint256[](1);
-        minOuts[0] = 1500e6;
+        minOuts[0] = 1.5 ether;
         vm.prank(oracle);
         vault.submitSettlement(winnerToken, losers, minOuts, bytes32(0), 1, block.timestamp + 1 days);
         vm.expectRevert(bytes("minOut"));
@@ -204,9 +204,9 @@ contract SeasonVaultTest is Test {
         vm.prank(address(launcher));
         vault.forceClose();
         assertEq(uint8(vault.phase()), uint8(SeasonVault.Phase.Aggregating));
-        // Pot only includes A's 1000.
+        // Pot only includes A's 1 WETH.
         vault.finalize(0, 0);
-        assertEq(vault.totalPot(), 1000e6);
+        assertEq(vault.totalPot(), 1 ether);
     }
 
     function test_ForceCloseRequiresLauncher() public {

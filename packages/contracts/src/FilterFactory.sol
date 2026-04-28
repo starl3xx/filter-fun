@@ -30,7 +30,7 @@ contract FilterFactory is IFilterFactory {
     IPoolManager public immutable poolManager;
     FilterHook public immutable hook;
     address public immutable launcher;
-    address public immutable usdc;
+    address public immutable weth;
 
     uint24 public constant FEE = 10_000; // 1.00%
     int24 public constant TICK_SPACING = 200;
@@ -50,11 +50,11 @@ contract FilterFactory is IFilterFactory {
 
     event TokenDeployed(address indexed token, address indexed locker, PoolId poolId, address creator);
 
-    constructor(IPoolManager poolManager_, FilterHook hook_, address launcher_, address usdc_) {
+    constructor(IPoolManager poolManager_, FilterHook hook_, address launcher_, address weth_) {
         poolManager = poolManager_;
         hook = hook_;
         launcher = launcher_;
-        usdc = usdc_;
+        weth = weth_;
     }
 
     function deployToken(IFilterFactory.DeployArgs calldata args)
@@ -72,9 +72,9 @@ contract FilterFactory is IFilterFactory {
         token = address(t);
 
         // 2. Build pool key with proper currency ordering.
-        bool tokenIsZero = token < usdc;
-        Currency c0 = Currency.wrap(tokenIsZero ? token : usdc);
-        Currency c1 = Currency.wrap(tokenIsZero ? usdc : token);
+        bool tokenIsZero = token < weth;
+        Currency c0 = Currency.wrap(tokenIsZero ? token : weth);
+        Currency c1 = Currency.wrap(tokenIsZero ? weth : token);
         key = PoolKey({
             currency0: c0, currency1: c1, fee: FEE, tickSpacing: TICK_SPACING, hooks: IHooks(address(hook))
         });
@@ -99,7 +99,7 @@ contract FilterFactory is IFilterFactory {
             address(this),
             args.seasonVault,
             token,
-            usdc,
+            weth,
             args.treasury,
             args.mechanics,
             key,

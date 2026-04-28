@@ -22,8 +22,8 @@ import {buildSettlementPayload} from "@filter-fun/oracle";
 const payload = buildSettlementPayload({
   ranking: ["0xWinner...", "0xLoserA...", "0xLoserB..."],
   recoverable: new Map([
-    ["0xLoserA...", 1_500_000_000n], // USDC raw units
-    ["0xLoserB...", 2_500_000_000n],
+    ["0xLoserA...", 1_500_000_000_000_000_000n], // WETH raw units (1.5 ETH)
+    ["0xLoserB...", 2_500_000_000_000_000_000n], // 2.5 ETH
   ]),
   slippageBps: 250, // 2.5%
   shares: new Map([

@@ -141,10 +141,10 @@
   },
   {
     "type": "function",
-    "name": "buyTokenWithUSDC",
+    "name": "buyTokenWithWETH",
     "inputs": [
       {
-        "name": "usdcIn",
+        "name": "wethIn",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -190,7 +190,7 @@
   },
   {
     "type": "function",
-    "name": "liquidateToUSDC",
+    "name": "liquidateToWETH",
     "inputs": [
       {
         "name": "recipient",
@@ -198,14 +198,14 @@
         "internalType": "address"
       },
       {
-        "name": "minOutUSDC",
+        "name": "minOutWETH",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "usdcOut",
+        "name": "wethOut",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -432,7 +432,7 @@
     "name": "Bought",
     "inputs": [
       {
-        "name": "usdcIn",
+        "name": "wethIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
