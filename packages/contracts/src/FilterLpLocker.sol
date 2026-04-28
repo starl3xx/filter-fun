@@ -1,0 +1,276 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
+import {IUnlockCallback} from "v4-core/src/interfaces/callback/IUnlockCallback.sol";
+import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {Currency} from "v4-core/src/types/Currency.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation.sol";
+import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
+
+import {ILpLocker} from "./interfaces/ILpLocker.sol";
+
+/// @title FilterLpLocker
+/// @notice One per filter.fun-launched token. Permanently holds the V4 full-range LP position.
+///         Splits collected fees per BPS, and exposes settlement primitives the season's vault
+///         calls during week-end unwinding.
+///
+///         Fee split (matching the spec's 2% trading fee breakdown):
+///         - 50.0% → seasonVault   (1.00 / 2.00 of trade fee)
+///         - 37.5% → treasury      (0.75 / 2.00)
+///         - 12.5% → mechanics     (0.25 / 2.00)
+///
+///         Liquidation is single-pool by design: the pool is the only source of liquidity
+///         for the launched token, so we cannot swap loser-tokens to base after removal.
+///         Instead, we extract the base-asset leg of the LP. The token leg is left in this
+///         contract as effectively worthless dust.
+contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+    using StateLibrary for IPoolManager;
+    using PoolIdLibrary for PoolKey;
+    using BalanceDeltaLibrary for BalanceDelta;
+
+    // -------- BPS split policy
+    uint256 internal constant BPS_DENOMINATOR = 10_000;
+    uint256 public constant VAULT_BPS = 5000;
+    uint256 public constant TREASURY_BPS = 3750;
+    uint256 public constant MECHANICS_BPS = 1250;
+
+    // -------- Action codes for unlockCallback dispatch
+    uint8 internal constant ACTION_COLLECT = 1;
+    uint8 internal constant ACTION_LIQUIDATE = 2;
+    uint8 internal constant ACTION_BUY = 3;
+
+    // -------- Immutable wiring
+    IPoolManager public immutable poolManager;
+    address public immutable factory;
+    address public immutable vault;
+    address public immutable override token;
+    address public immutable override baseAsset; // USDC
+    address public immutable treasury;
+    address public immutable mechanics;
+    bool public immutable tokenIsCurrency0;
+    PoolKey internal _key;
+    int24 public immutable tickLower;
+    int24 public immutable tickUpper;
+    bytes32 public immutable positionSalt;
+
+    // -------- Mutable state
+    bool public override liquidated;
+
+    // -------- Events / errors
+    event FeesCollected(uint256 toVault, uint256 toTreasury, uint256 toMechanics, address asset);
+    event LiquidatedToBase(uint256 baseRecovered, uint256 tokenStranded);
+    event Bought(uint256 usdcIn, uint256 tokensOut);
+
+    error NotPoolManager();
+    error NotVault();
+    error NotFactory();
+    error AlreadyLiquidated();
+    error InsufficientOutput();
+    error UnknownAction();
+
+    modifier onlyVault() {
+        if (msg.sender != vault) revert NotVault();
+        _;
+    }
+
+    modifier onlyManager() {
+        if (msg.sender != address(poolManager)) revert NotPoolManager();
+        _;
+    }
+
+    constructor(
+        IPoolManager poolManager_,
+        address factory_,
+        address vault_,
+        address token_,
+        address baseAsset_,
+        address treasury_,
+        address mechanics_,
+        PoolKey memory key_,
+        int24 tickLower_,
+        int24 tickUpper_,
+        bytes32 positionSalt_
+    ) {
+        poolManager = poolManager_;
+        factory = factory_;
+        vault = vault_;
+        token = token_;
+        baseAsset = baseAsset_;
+        treasury = treasury_;
+        mechanics = mechanics_;
+        _key = key_;
+        tickLower = tickLower_;
+        tickUpper = tickUpper_;
+        positionSalt = positionSalt_;
+        tokenIsCurrency0 = Currency.unwrap(key_.currency0) == token_;
+    }
+
+    function poolKey() external view returns (PoolKey memory) {
+        return _key;
+    }
+
+    // ============================================================ Public actions
+
+    function collectFees() external override nonReentrant {
+        bytes memory data = abi.encode(ACTION_COLLECT, uint256(0), address(0), uint256(0));
+        poolManager.unlock(data);
+    }
+
+    function liquidateToUSDC(address recipient, uint256 minOutUSDC)
+        external
+        override
+        onlyVault
+        nonReentrant
+        returns (uint256 usdcOut)
+    {
+        if (liquidated) revert AlreadyLiquidated();
+        liquidated = true;
+        bytes memory data = abi.encode(ACTION_LIQUIDATE, uint256(0), recipient, minOutUSDC);
+        bytes memory ret = poolManager.unlock(data);
+        usdcOut = abi.decode(ret, (uint256));
+        if (usdcOut < minOutUSDC) revert InsufficientOutput();
+    }
+
+    function buyTokenWithUSDC(uint256 usdcIn, address recipient, uint256 minOutTokens)
+        external
+        override
+        onlyVault
+        nonReentrant
+        returns (uint256 tokensOut)
+    {
+        IERC20(baseAsset).safeTransferFrom(msg.sender, address(this), usdcIn);
+        bytes memory data = abi.encode(ACTION_BUY, usdcIn, recipient, minOutTokens);
+        bytes memory ret = poolManager.unlock(data);
+        tokensOut = abi.decode(ret, (uint256));
+        if (tokensOut < minOutTokens) revert InsufficientOutput();
+    }
+
+    // ============================================================ Unlock callback
+
+    function unlockCallback(bytes calldata data) external override onlyManager returns (bytes memory) {
+        (uint8 action, uint256 amountIn, address recipient, uint256 minOut) =
+            abi.decode(data, (uint8, uint256, address, uint256));
+
+        if (action == ACTION_COLLECT) {
+            _doCollect();
+            return "";
+        } else if (action == ACTION_LIQUIDATE) {
+            uint256 out = _doLiquidate(recipient);
+            return abi.encode(out);
+        } else if (action == ACTION_BUY) {
+            uint256 out = _doBuy(amountIn, recipient, minOut);
+            return abi.encode(out);
+        } else {
+            revert UnknownAction();
+        }
+    }
+
+    // ============================================================ Internal action handlers
+
+    function _doCollect() internal {
+        // Poke the position with zero liquidity delta to accrue + materialize fees.
+        (, BalanceDelta feesAccrued) = poolManager.modifyLiquidity(
+            _key,
+            ModifyLiquidityParams({
+                tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: 0, salt: positionSalt
+            }),
+            ""
+        );
+        int128 fee0 = feesAccrued.amount0();
+        int128 fee1 = feesAccrued.amount1();
+        if (fee0 > 0) _takeAndSplit(_key.currency0, uint256(uint128(fee0)));
+        if (fee1 > 0) _takeAndSplit(_key.currency1, uint256(uint128(fee1)));
+    }
+
+    function _doLiquidate(address recipient) internal returns (uint256 baseOut) {
+        PoolId pid = _key.toId();
+        bytes32 positionId = keccak256(abi.encodePacked(address(this), tickLower, tickUpper, positionSalt));
+        uint128 liq = poolManager.getPositionLiquidity(pid, positionId);
+
+        BalanceDelta delta;
+        if (liq > 0) {
+            (delta,) = poolManager.modifyLiquidity(
+                _key,
+                ModifyLiquidityParams({
+                    tickLower: tickLower,
+                    tickUpper: tickUpper,
+                    liquidityDelta: -int256(uint256(liq)),
+                    salt: positionSalt
+                }),
+                ""
+            );
+        }
+
+        int128 amt0 = delta.amount0();
+        int128 amt1 = delta.amount1();
+
+        bool baseIsZero = baseAsset == Currency.unwrap(_key.currency0);
+        int128 baseAmt = baseIsZero ? amt0 : amt1;
+        int128 tokenAmt = baseIsZero ? amt1 : amt0;
+
+        if (baseAmt > 0) {
+            baseOut = uint256(uint128(baseAmt));
+            poolManager.take(Currency.wrap(baseAsset), recipient, baseOut);
+        }
+        if (tokenAmt > 0) {
+            // Token leg is dust once the pool's only liquidity is gone — take to self.
+            poolManager.take(Currency.wrap(token), address(this), uint256(uint128(tokenAmt)));
+        }
+        emit LiquidatedToBase(baseOut, tokenAmt > 0 ? uint256(uint128(tokenAmt)) : 0);
+    }
+
+    function _doBuy(
+        uint256 usdcIn,
+        address recipient,
+        uint256 /* minOut */
+    )
+        internal
+        returns (uint256 tokensOut)
+    {
+        bool zeroForOne = !tokenIsCurrency0; // base → token
+        Currency inputCurrency = zeroForOne ? _key.currency0 : _key.currency1;
+        Currency outputCurrency = zeroForOne ? _key.currency1 : _key.currency0;
+
+        BalanceDelta delta = poolManager.swap(
+            _key,
+            SwapParams({
+                zeroForOne: zeroForOne,
+                amountSpecified: -int256(usdcIn),
+                sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            }),
+            ""
+        );
+
+        // Settle input owed: sync, transfer, settle.
+        poolManager.sync(inputCurrency);
+        IERC20(Currency.unwrap(inputCurrency)).safeTransfer(address(poolManager), usdcIn);
+        poolManager.settle();
+
+        int128 outAmt = zeroForOne ? delta.amount1() : delta.amount0();
+        require(outAmt > 0, "no output");
+        tokensOut = uint256(uint128(outAmt));
+        poolManager.take(outputCurrency, recipient, tokensOut);
+        emit Bought(usdcIn, tokensOut);
+    }
+
+    function _takeAndSplit(Currency currency, uint256 amount) internal {
+        if (amount == 0) return;
+        uint256 toTreasury = (amount * TREASURY_BPS) / BPS_DENOMINATOR;
+        uint256 toMechanics = (amount * MECHANICS_BPS) / BPS_DENOMINATOR;
+        uint256 toVault = amount - toTreasury - toMechanics;
+        // Send fees directly out of the manager to recipients to skip a hop.
+        poolManager.take(currency, vault, toVault);
+        poolManager.take(currency, treasury, toTreasury);
+        poolManager.take(currency, mechanics, toMechanics);
+        emit FeesCollected(toVault, toTreasury, toMechanics, Currency.unwrap(currency));
+    }
+}

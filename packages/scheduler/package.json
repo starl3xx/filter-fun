@@ -1,0 +1,6 @@
+{
+  "name": "@filter-fun/scheduler",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stub. Cadence service: advances season phases, posts settlements, runs liquidate() keepers, posts hold-bonus snapshots."
+}

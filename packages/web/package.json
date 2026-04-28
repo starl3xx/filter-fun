@@ -1,0 +1,6 @@
+{
+  "name": "@filter-fun/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stub. Next.js + wagmi spectator app: leaderboard, filter watch, finals view, profiles, share cards."
+}

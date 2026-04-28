@@ -1,0 +1,6 @@
+{
+  "name": "@filter-fun/indexer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stub. On-chain event indexer for filter.fun (subgraph or custom Postgres consumer)."
+}

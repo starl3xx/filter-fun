@@ -1,0 +1,30 @@
+# Node
+node_modules/
+npm-debug.log*
+.npm/
+.env
+.env.*
+!.env.example
+
+# Foundry
+packages/contracts/cache/
+packages/contracts/out/
+packages/contracts/broadcast/
+packages/contracts/.gas-snapshot
+packages/contracts/lib/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+.next/
+.turbo/
+
+# Coverage
+coverage/
+lcov.info

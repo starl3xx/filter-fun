@@ -1,0 +1,6 @@
+{
+  "name": "@filter-fun/scoring",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stub. Off-chain scoring engine: volume velocity, unique buyers, liquidity depth, holder retention, sybil heuristics."
+}

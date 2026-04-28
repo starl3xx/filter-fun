@@ -1,0 +1,16 @@
+{
+  "name": "filter-fun",
+  "version": "0.0.0",
+  "private": true,
+  "description": "filter.fun — weekly token-launcher game on Base. Genesis monorepo.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:contracts": "npm --workspace packages/contracts run build",
+    "test:contracts": "npm --workspace packages/contracts run test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

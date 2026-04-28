@@ -1,0 +1,45 @@
+name: contracts CI
+
+on:
+  pull_request:
+    paths:
+      - 'packages/contracts/**'
+      - '.github/workflows/contracts-ci.yml'
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    working-directory: packages/contracts
+
+jobs:
+  build-and-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show forge version
+        run: forge --version
+
+      - name: Install dependencies
+        run: |
+          forge install --no-git foundry-rs/forge-std
+          forge install --no-git OpenZeppelin/openzeppelin-contracts@v5.5.0
+          forge install --no-git Vectorized/solady
+          forge install --no-git Uniswap/v4-core
+          forge install --no-git Uniswap/v4-periphery
+
+      - name: Build
+        run: forge build --sizes
+
+      - name: Test
+        run: forge test -vv
+
+      - name: Format check
+        run: forge fmt --check

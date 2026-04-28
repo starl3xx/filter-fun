@@ -1,0 +1,14 @@
+{
+  "name": "@filter-fun/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "filter.fun smart contract suite (Foundry).",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "test:gas": "forge test --gas-report",
+    "coverage": "forge coverage --report summary",
+    "fmt": "forge fmt",
+    "fmt:check": "forge fmt --check"
+  }
+}
