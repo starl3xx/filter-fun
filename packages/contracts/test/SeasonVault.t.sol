@@ -69,9 +69,16 @@ contract SeasonVaultTest is Test {
         winnerLocker.setMintRate(100e18);
     }
 
+    // Share weights chosen so the share/winner-token math is exact:
+    //   totalShares = 80, rolloverWinnerTokens = 70_000e18
+    //   alice (50/80) → 43_750e18, bob (30/80) → 26_250e18
+    uint256 internal constant ALICE_SHARE = 50;
+    uint256 internal constant BOB_SHARE = 30;
+    uint256 internal constant TOTAL_SHARES = 80;
+
     function _leaves() internal view returns (bytes32 leafA, bytes32 leafB) {
-        leafA = keccak256(abi.encodePacked(aliceUser, uint256(50e18)));
-        leafB = keccak256(abi.encodePacked(bobUser, uint256(30e18)));
+        leafA = keccak256(abi.encodePacked(aliceUser, ALICE_SHARE));
+        leafB = keccak256(abi.encodePacked(bobUser, BOB_SHARE));
     }
 
     function _submit() internal returns (bytes32) {
@@ -84,7 +91,7 @@ contract SeasonVaultTest is Test {
         bytes32 root = MiniMerkle.rootOfTwo(leafA, leafB);
 
         vm.prank(oracle);
-        vault.submitSettlement(winnerToken, losers, minOuts, root, block.timestamp + 7 days);
+        vault.submitSettlement(winnerToken, losers, minOuts, root, TOTAL_SHARES, block.timestamp + 7 days);
         return root;
     }
 
@@ -126,24 +133,24 @@ contract SeasonVaultTest is Test {
         // Phase advanced.
         assertEq(uint8(vault.phase()), uint8(SeasonVault.Phase.Distributing));
 
-        // Alice claims via Merkle proof.
+        // Alice claims via Merkle proof. Share 50/80 of 70_000e18 winner tokens = 43_750e18.
         (bytes32 leafA, bytes32 leafB) = _leaves();
         bytes32[2] memory leaves = [leafA, leafB];
         bytes32[] memory proofA = MiniMerkle.proofForTwo(leaves, 0);
         vm.prank(aliceUser);
-        vault.claimRollover(50e18, proofA);
-        assertEq(IERC20(winnerToken).balanceOf(aliceUser), 50e18);
+        vault.claimRollover(ALICE_SHARE, proofA);
+        assertEq(IERC20(winnerToken).balanceOf(aliceUser), 43_750e18);
 
-        // Bob claims.
+        // Bob claims. Share 30/80 of 70_000e18 = 26_250e18.
         bytes32[] memory proofB = MiniMerkle.proofForTwo(leaves, 1);
         vm.prank(bobUser);
-        vault.claimRollover(30e18, proofB);
-        assertEq(IERC20(winnerToken).balanceOf(bobUser), 30e18);
+        vault.claimRollover(BOB_SHARE, proofB);
+        assertEq(IERC20(winnerToken).balanceOf(bobUser), 26_250e18);
 
         // Double-claim reverts.
         vm.prank(aliceUser);
         vm.expectRevert(SeasonVault.AlreadyClaimed.selector);
-        vault.claimRollover(50e18, proofA);
+        vault.claimRollover(ALICE_SHARE, proofA);
 
         root;
     }
@@ -152,7 +159,7 @@ contract SeasonVaultTest is Test {
         address[] memory losers = new address[](0);
         uint256[] memory minOuts = new uint256[](0);
         vm.expectRevert(SeasonVault.NotOracle.selector);
-        vault.submitSettlement(winnerToken, losers, minOuts, bytes32(0), block.timestamp + 1);
+        vault.submitSettlement(winnerToken, losers, minOuts, bytes32(0), TOTAL_SHARES, block.timestamp + 1);
     }
 
     function test_RejectDoubleSettle() public {
@@ -161,7 +168,7 @@ contract SeasonVaultTest is Test {
         uint256[] memory minOuts = new uint256[](0);
         vm.prank(oracle);
         vm.expectRevert(SeasonVault.WrongPhase.selector);
-        vault.submitSettlement(winnerToken, losers, minOuts, bytes32(0), block.timestamp + 1);
+        vault.submitSettlement(winnerToken, losers, minOuts, bytes32(0), TOTAL_SHARES, block.timestamp + 1);
     }
 
     function test_RejectUnknownLoser() public {
@@ -184,7 +191,7 @@ contract SeasonVaultTest is Test {
         uint256[] memory minOuts = new uint256[](1);
         minOuts[0] = 1500e6;
         vm.prank(oracle);
-        vault.submitSettlement(winnerToken, losers, minOuts, bytes32(0), block.timestamp + 1 days);
+        vault.submitSettlement(winnerToken, losers, minOuts, bytes32(0), 1, block.timestamp + 1 days);
         vm.expectRevert(bytes("minOut"));
         vault.liquidate(loserA, 0);
     }

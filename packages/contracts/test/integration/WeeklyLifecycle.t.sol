@@ -91,9 +91,12 @@ contract WeeklyLifecycleTest is Test {
         // $FILTER (winner) mints at 100 winner-tokens / 1 USDC.
         MockLpLocker(filterLocker).setMintRate(100e18);
 
-        // Settlement Merkle: holderA gets 60 winner tokens, holderB gets 40.
-        bytes32 leafA = keccak256(abi.encodePacked(holderA, uint256(60e18)));
-        bytes32 leafB = keccak256(abi.encodePacked(holderB, uint256(40e18)));
+        // Settlement Merkle: rollover share weights — holderA=60, holderB=40, total=100.
+        // After finalize, vault holds 140_000e18 winner tokens; payouts will be
+        //   holderA: 60/100 * 140_000e18 = 84_000e18
+        //   holderB: 40/100 * 140_000e18 = 56_000e18
+        bytes32 leafA = keccak256(abi.encodePacked(holderA, uint256(60)));
+        bytes32 leafB = keccak256(abi.encodePacked(holderB, uint256(40)));
         bytes32 root = MiniMerkle.rootOfTwo(leafA, leafB);
 
         address[] memory losers = new address[](2);
@@ -102,7 +105,7 @@ contract WeeklyLifecycleTest is Test {
         uint256[] memory minOuts = new uint256[](2);
 
         vm.prank(oracle);
-        vault.submitSettlement(filterToken, losers, minOuts, root, block.timestamp + 1 days);
+        vault.submitSettlement(filterToken, losers, minOuts, root, 100, block.timestamp + 1 days);
 
         // Keeper liquidates each loser.
         vault.liquidate(tokenA, 0);
@@ -126,13 +129,13 @@ contract WeeklyLifecycleTest is Test {
         bytes32[2] memory leaves = [leafA, leafB];
         bytes32[] memory proofA = MiniMerkle.proofForTwo(leaves, 0);
         vm.prank(holderA);
-        vault.claimRollover(60e18, proofA);
-        assertEq(IERC20(filterToken).balanceOf(holderA), 60e18);
+        vault.claimRollover(60, proofA);
+        assertEq(IERC20(filterToken).balanceOf(holderA), 84_000e18);
 
         bytes32[] memory proofB = MiniMerkle.proofForTwo(leaves, 1);
         vm.prank(holderB);
-        vault.claimRollover(40e18, proofB);
-        assertEq(IERC20(filterToken).balanceOf(holderB), 40e18);
+        vault.claimRollover(40, proofB);
+        assertEq(IERC20(filterToken).balanceOf(holderB), 56_000e18);
 
         // 14 days pass; oracle posts bonus eligibility root.
         vm.warp(block.timestamp + 14 days);

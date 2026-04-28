@@ -62,6 +62,7 @@ contract SeasonVault is ReentrancyGuard {
 
     address public winner;
     bytes32 public rolloverRoot;
+    uint256 public totalRolloverShares;
     uint256 public liquidationDeadline;
 
     address[] internal losers;
@@ -73,15 +74,19 @@ contract SeasonVault is ReentrancyGuard {
     uint256 public totalPot;
     uint256 public rolloverWinnerTokens;
     uint256 public bonusReserve;
-    uint256 public claimedRolloverTokens;
+    uint256 public claimedRolloverShares;
     mapping(address => bool) public claimed;
 
     event SettlementSubmitted(
-        address indexed winner, uint256 loserCount, bytes32 rolloverRoot, uint256 liquidationDeadline
+        address indexed winner,
+        uint256 loserCount,
+        bytes32 rolloverRoot,
+        uint256 totalRolloverShares,
+        uint256 liquidationDeadline
     );
     event Liquidated(address indexed token, uint256 usdcOut);
     event Finalized(uint256 totalPot, uint256 rolloverWinnerTokens, uint256 bonusReserve);
-    event RolloverClaimed(address indexed user, uint256 winnerTokens);
+    event RolloverClaimed(address indexed user, uint256 share, uint256 winnerTokens);
     event ForceClosed(address by);
 
     error NotOracle();
@@ -96,6 +101,8 @@ contract SeasonVault is ReentrancyGuard {
     error BadWinner();
     error DuplicateLoser();
     error DeadlineTooClose();
+    error ZeroShares();
+    error NoRollover();
 
     modifier onlyOracle() {
         if (msg.sender != oracle) revert NotOracle();
@@ -137,14 +144,17 @@ contract SeasonVault is ReentrancyGuard {
         address[] calldata losers_,
         uint256[] calldata minOuts_,
         bytes32 rolloverRoot_,
+        uint256 totalRolloverShares_,
         uint256 liquidationDeadline_
     ) external onlyOracle inPhase(Phase.Active) {
         if (losers_.length != minOuts_.length) revert LengthMismatch();
         if (winner_ == address(0)) revert BadWinner();
+        if (totalRolloverShares_ == 0) revert ZeroShares();
         if (liquidationDeadline_ <= block.timestamp) revert DeadlineTooClose();
 
         winner = winner_;
         rolloverRoot = rolloverRoot_;
+        totalRolloverShares = totalRolloverShares_;
         liquidationDeadline = liquidationDeadline_;
 
         for (uint256 i = 0; i < losers_.length; ++i) {
@@ -157,7 +167,7 @@ contract SeasonVault is ReentrancyGuard {
         }
 
         phase = Phase.Liquidating;
-        emit SettlementSubmitted(winner_, losers_.length, rolloverRoot_, liquidationDeadline_);
+        emit SettlementSubmitted(winner_, losers_.length, rolloverRoot_, totalRolloverShares_, liquidationDeadline_);
     }
 
     /// @notice Permissionless. Drives one loser through `FilterLpLocker.liquidateToUSDC`.
@@ -230,19 +240,24 @@ contract SeasonVault is ReentrancyGuard {
 
     // ============================================================ Rollover claim
 
-    function claimRollover(uint256 amount, bytes32[] calldata proof)
+    /// @notice Claim a rollover allocation. The Merkle leaf encodes the user's `share` (an
+    ///         abstract weight committed at settlement time, before the AMM swap was executed).
+    ///         Winner tokens received = `share * rolloverWinnerTokens / totalRolloverShares`.
+    function claimRollover(uint256 share, bytes32[] calldata proof)
         external
         nonReentrant
         inPhase(Phase.Distributing)
     {
         if (claimed[msg.sender]) revert AlreadyClaimed();
-        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
+        if (rolloverWinnerTokens == 0) revert NoRollover();
+        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, share));
         if (!MerkleProof.verifyCalldata(proof, rolloverRoot, leaf)) revert InvalidProof();
 
+        uint256 amount = (share * rolloverWinnerTokens) / totalRolloverShares;
         claimed[msg.sender] = true;
-        claimedRolloverTokens += amount;
+        claimedRolloverShares += share;
         IERC20(winner).safeTransfer(msg.sender, amount);
-        emit RolloverClaimed(msg.sender, amount);
+        emit RolloverClaimed(msg.sender, share, amount);
     }
 
     // ============================================================ Admin
