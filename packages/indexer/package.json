@@ -1,0 +1,24 @@
+{
+  "name": "@filter-fun/indexer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "filter.fun on-chain event indexer (Ponder).",
+  "scripts": {
+    "abi:sync": "node scripts/sync-abis.mjs",
+    "dev": "ponder dev",
+    "start": "ponder start",
+    "codegen": "ponder codegen",
+    "lint": "ponder lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ponder/core": "^0.7.0",
+    "hono": "^4.5.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

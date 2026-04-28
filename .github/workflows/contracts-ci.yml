@@ -1,0 +1,52 @@
+name: contracts CI
+
+on:
+  pull_request:
+    paths:
+      - 'packages/contracts/**'
+      - '.github/workflows/contracts-ci.yml'
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    working-directory: packages/contracts
+
+jobs:
+  build-and-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show forge version
+        run: forge --version
+
+      # Every dep is pinned. Floating any of these makes CI builds non-reproducible —
+      # an upstream breaking change (V4 in particular ships them often) would fail CI on
+      # PRs that have nothing to do with the change. Bump these intentionally, locally first.
+      #
+      # v4-core and v4-periphery don't release on tags we can pin — v4-core has only
+      # `v4.0.0` (an old experimental tag), v4-periphery has none — so they're pinned to
+      # the commit SHAs of their package.json `1.0.2` and `1.0.4` bump commits.
+      - name: Install dependencies
+        run: |
+          forge install --no-git foundry-rs/forge-std@v1.16.0
+          forge install --no-git OpenZeppelin/openzeppelin-contracts@v5.5.0
+          forge install --no-git Vectorized/solady@v0.1.26
+          forge install --no-git Uniswap/v4-core@59d3ecf53afa9264a16bba0e38f4c5d2231f80bc
+          forge install --no-git Uniswap/v4-periphery@3231810e39b8c4d569b9d66907fa4ef8cd2cec22
+
+      - name: Build
+        run: forge build --sizes
+
+      - name: Test
+        run: forge test -vv
+
+      - name: Format check
+        run: forge fmt --check
