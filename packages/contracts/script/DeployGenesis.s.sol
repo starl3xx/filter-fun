@@ -63,14 +63,18 @@ contract DeployGenesis is Script {
         console2.log("FilterLauncher:", address(launcher));
 
         // 4. FilterHook (deterministic via CREATE2 salt to satisfy hook flag bits).
-        FilterHook hook = new FilterHook{salt: hookSalt}(address(launcher));
+        //    Constructor takes no args — factory is wired post-construction via initialize().
+        FilterHook hook = new FilterHook{salt: hookSalt}();
         console2.log("FilterHook:", address(hook));
 
         // 5. FilterFactory wires hook + manager + launcher + usdc.
         FilterFactory factory = new FilterFactory(IPoolManager(pmAddr), hook, address(launcher), usdc);
         console2.log("FilterFactory:", address(factory));
 
-        // 6. Wire factory into launcher.
+        // 6. Initialize hook with factory address (one-shot).
+        hook.initialize(address(factory));
+
+        // 7. Wire factory into launcher.
         launcher.setFactory(IFilterFactory(address(factory)));
 
         // 7. Open Season 1.

@@ -47,6 +47,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     uint8 internal constant ACTION_COLLECT = 1;
     uint8 internal constant ACTION_LIQUIDATE = 2;
     uint8 internal constant ACTION_BUY = 3;
+    uint8 internal constant ACTION_SEED = 4;
 
     // -------- Immutable wiring
     IPoolManager public immutable poolManager;
@@ -74,8 +75,11 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     error NotVault();
     error NotFactory();
     error AlreadyLiquidated();
+    error AlreadySeeded();
     error InsufficientOutput();
     error UnknownAction();
+
+    bool public seeded;
 
     modifier onlyVault() {
         if (msg.sender != vault) revert NotVault();
@@ -119,6 +123,16 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     }
 
     // ============================================================ Public actions
+
+    /// @notice Factory-only. Adds the initial liquidity owned by THIS locker contract using the
+    ///         token balance the factory has just transferred in.
+    function seed(uint128 liquidity) external nonReentrant {
+        if (msg.sender != factory) revert NotFactory();
+        if (seeded) revert AlreadySeeded();
+        seeded = true;
+        bytes memory data = abi.encode(ACTION_SEED, uint256(liquidity), address(0), uint256(0));
+        poolManager.unlock(data);
+    }
 
     function collectFees() external override nonReentrant {
         bytes memory data = abi.encode(ACTION_COLLECT, uint256(0), address(0), uint256(0));
@@ -169,12 +183,38 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         } else if (action == ACTION_BUY) {
             uint256 out = _doBuy(amountIn, recipient, minOut);
             return abi.encode(out);
+        } else if (action == ACTION_SEED) {
+            _doSeed(uint128(amountIn));
+            return "";
         } else {
             revert UnknownAction();
         }
     }
 
     // ============================================================ Internal action handlers
+
+    function _doSeed(uint128 liquidity) internal {
+        (BalanceDelta delta,) = poolManager.modifyLiquidity(
+            _key,
+            ModifyLiquidityParams({
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: int256(uint256(liquidity)),
+                salt: positionSalt
+            }),
+            ""
+        );
+        int128 a0 = delta.amount0();
+        int128 a1 = delta.amount1();
+        if (a0 < 0) _settleERC20(_key.currency0, uint256(uint128(-a0)));
+        if (a1 < 0) _settleERC20(_key.currency1, uint256(uint128(-a1)));
+    }
+
+    function _settleERC20(Currency currency, uint256 amount) internal {
+        poolManager.sync(currency);
+        IERC20(Currency.unwrap(currency)).safeTransfer(address(poolManager), amount);
+        poolManager.settle();
+    }
 
     function _doCollect() internal {
         // Poke the position with zero liquidity delta to accrue + materialize fees.

@@ -18,15 +18,18 @@ contract FilterHook is IHooks {
     error UnauthorizedLiquidityModifier();
     error AuthorityAlreadySet();
     error NotFactory();
+    error AlreadyInitialized();
 
-    address public immutable factory;
+    /// @dev Set once via `initialize`, after the factory contract is deployed.
+    ///      Hook ↔ Factory have a circular constructor dependency (factory needs hook
+    ///      address; hook needs factory address) — initializer breaks the cycle.
+    address public factory;
 
     /// @dev poolId => allowed liquidity modifier. The factory registers the locker right after
     ///      the initial liquidity seed; from then on only the locker may add or remove liquidity.
     mapping(PoolId => address) public authority;
 
-    constructor(address factory_) {
-        factory = factory_;
+    constructor() {
         Hooks.validateHookPermissions(
             IHooks(this),
             Hooks.Permissions({
@@ -46,6 +49,13 @@ contract FilterHook is IHooks {
                 afterRemoveLiquidityReturnDelta: false
             })
         );
+    }
+
+    /// @notice One-shot wiring. Callable exactly once, by anyone — the deployer is expected
+    ///         to call this immediately after factory deployment.
+    function initialize(address factory_) external {
+        if (factory != address(0)) revert AlreadyInitialized();
+        factory = factory_;
     }
 
     /// @notice Called by `FilterFactory` to hand off liquidity authority to the per-token locker.
