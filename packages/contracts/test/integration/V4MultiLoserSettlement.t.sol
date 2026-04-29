@@ -53,11 +53,19 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
 
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
-        polVault = new POLVault(polVaultOwner);
+        polVault = new POLVault(address(this));
 
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, address(polVault), IBonusFunding(address(bonus)), address(weth)
+            owner,
+            oracle,
+            treasury,
+            mechanics,
+            address(polVault),
+            IBonusFunding(address(bonus)),
+            address(weth)
         );
+        polVault.setLauncher(address(launcher));
+        polVault.transferOwnership(polVaultOwner);
 
         bytes memory hookCreationCode = type(FilterHook).creationCode;
         (address expectedHookAddr, bytes32 hookSalt) =

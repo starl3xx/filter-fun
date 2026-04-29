@@ -289,8 +289,8 @@ contract SeasonVault is ReentrancyGuard {
         rolloverReserve = 0;
         if (rolloverAmount > 0) {
             IERC20(weth).forceApprove(winnerLocker, rolloverAmount);
-            rolloverWinnerTokens =
-                ILpLocker(winnerLocker).buyTokenWithWETH(rolloverAmount, address(this), minWinnerTokensRollover);
+            rolloverWinnerTokens = ILpLocker(winnerLocker)
+                .buyTokenWithWETH(rolloverAmount, address(this), minWinnerTokensRollover);
         }
 
         // 3. POL → withdraw, buy winner tokens, deposit into POLVault.
@@ -298,7 +298,8 @@ contract SeasonVault is ReentrancyGuard {
         uint256 polTokensOut = 0;
         if (polAmount > 0) {
             IERC20(weth).forceApprove(winnerLocker, polAmount);
-            polTokensOut = ILpLocker(winnerLocker).buyTokenWithWETH(polAmount, address(this), minWinnerTokensPol);
+            polTokensOut =
+                ILpLocker(winnerLocker).buyTokenWithWETH(polAmount, address(this), minWinnerTokensPol);
             IERC20(winner_).forceApprove(polVault, polTokensOut);
             IPOLVault(polVault).deposit(seasonId, winner_, polTokensOut);
         }

@@ -50,11 +50,19 @@ contract V4SettlementTest is Test, Deployers {
 
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
-        polVault = new POLVault(polVaultOwner);
+        polVault = new POLVault(address(this));
 
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, address(polVault), IBonusFunding(address(bonus)), address(weth)
+            owner,
+            oracle,
+            treasury,
+            mechanics,
+            address(polVault),
+            IBonusFunding(address(bonus)),
+            address(weth)
         );
+        polVault.setLauncher(address(launcher));
+        polVault.transferOwnership(polVaultOwner);
 
         // Required hook flags: BEFORE_ADD_LIQUIDITY (1<<11) | BEFORE_REMOVE_LIQUIDITY (1<<9) = 0xA00.
         bytes memory hookCreationCode = type(FilterHook).creationCode;

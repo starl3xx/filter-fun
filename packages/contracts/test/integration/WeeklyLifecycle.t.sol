@@ -40,10 +40,18 @@ contract WeeklyLifecycleTest is Test {
     function setUp() public {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
-        polVault = new POLVault(polVaultOwner);
+        polVault = new POLVault(address(this));
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, address(polVault), IBonusFunding(address(bonus)), address(weth)
+            owner,
+            oracle,
+            treasury,
+            mechanics,
+            address(polVault),
+            IBonusFunding(address(bonus)),
+            address(weth)
         );
+        polVault.setLauncher(address(launcher));
+        polVault.transferOwnership(polVaultOwner);
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
     }

@@ -46,7 +46,9 @@ contract SeasonVaultTest is Test {
         weth = new MockWETH();
         launcher = new MockLauncherView();
         bonus = new BonusDistributor(address(launcher), address(weth), oracle);
-        polVault = new POLVault(polVaultOwner);
+        polVault = new POLVault(address(this));
+        polVault.setLauncher(address(launcher));
+        polVault.transferOwnership(polVaultOwner);
         vault = new SeasonVault(
             address(launcher),
             1,
@@ -58,6 +60,7 @@ contract SeasonVaultTest is Test {
             IBonusFunding(address(bonus)),
             14 days
         );
+        launcher.setVault(1, address(vault));
 
         winnerToken = address(new MintableERC20("Winner", "WIN"));
         loserA = address(new MintableERC20("LoserA", "LA"));
@@ -126,9 +129,9 @@ contract SeasonVaultTest is Test {
         // 1 WETH liquidated → 4500/2500/1000/1000/1000 BPS split.
         assertEq(vault.rolloverReserve(), 0.45 ether, "rollover acc");
         assertEq(vault.bonusReserve(), 0.25 ether, "bonus acc");
-        assertEq(weth.balanceOf(mechanics), 0.10 ether, "mechanics paid");
-        assertEq(weth.balanceOf(treasury), 0.10 ether, "treasury paid");
-        assertEq(vault.polReserveBalance(), 0.10 ether, "pol reserve");
+        assertEq(weth.balanceOf(mechanics), 0.1 ether, "mechanics paid");
+        assertEq(weth.balanceOf(treasury), 0.1 ether, "treasury paid");
+        assertEq(vault.polReserveBalance(), 0.1 ether, "pol reserve");
         assertEq(vault.totalLiquidationProceeds(), 1 ether, "total proceeds");
         assertEq(vault.filterEventCount(), 1, "event count");
     }
@@ -142,11 +145,11 @@ contract SeasonVaultTest is Test {
 
         assertEq(vault.rolloverReserve(), 1.35 ether, "rollover acc"); // 0.45 * 3
         assertEq(vault.bonusReserve(), 0.75 ether, "bonus acc"); // 0.25 * 3
-        assertEq(weth.balanceOf(mechanics), 0.30 ether, "mechanics");
-        assertEq(weth.balanceOf(treasury), 0.30 ether, "treasury");
-        assertEq(vault.polReserveBalance(), 0.30 ether, "pol reserve");
+        assertEq(weth.balanceOf(mechanics), 0.3 ether, "mechanics");
+        assertEq(weth.balanceOf(treasury), 0.3 ether, "treasury");
+        assertEq(vault.polReserveBalance(), 0.3 ether, "pol reserve");
         assertEq(vault.filterEventCount(), 3, "event count");
-        assertEq(vault.totalPolAccumulated(), 0.30 ether, "pol cumulative");
+        assertEq(vault.totalPolAccumulated(), 0.3 ether, "pol cumulative");
     }
 
     /// @notice POL is held as WETH; no winner-token purchase happens before submitWinner.
@@ -159,7 +162,7 @@ contract SeasonVaultTest is Test {
         assertEq(IERC20(winnerToken).balanceOf(address(polVault)), 0);
         // POL reserve holds WETH only.
         SeasonPOLReserve r = vault.polReserve();
-        assertEq(weth.balanceOf(address(r)), 0.20 ether);
+        assertEq(weth.balanceOf(address(r)), 0.2 ether);
         assertEq(r.deployed(), false);
     }
 
@@ -189,7 +192,7 @@ contract SeasonVaultTest is Test {
         assertEq(vault.bonusReserve(), 0, "bonus reserve drained");
 
         // POL: 0.30 WETH bought 30_000e18 winner tokens, deposited into POLVault.
-        assertEq(vault.polDeployedWeth(), 0.30 ether);
+        assertEq(vault.polDeployedWeth(), 0.3 ether);
         assertEq(vault.polDeployedTokens(), 30_000e18);
         assertEq(IERC20(winnerToken).balanceOf(address(polVault)), 30_000e18);
         assertEq(polVault.seasonDeposit(1), 30_000e18);
@@ -198,8 +201,8 @@ contract SeasonVaultTest is Test {
         assertEq(vault.polReserve().deployed(), true);
 
         // Mechanics + treasury were paid per-event, not at finalize.
-        assertEq(weth.balanceOf(mechanics), 0.30 ether);
-        assertEq(weth.balanceOf(treasury), 0.30 ether);
+        assertEq(weth.balanceOf(mechanics), 0.3 ether);
+        assertEq(weth.balanceOf(treasury), 0.3 ether);
 
         // Phase advanced.
         assertEq(uint8(vault.phase()), uint8(SeasonVault.Phase.Distributing));
@@ -247,16 +250,16 @@ contract SeasonVaultTest is Test {
         // Only the 1 WETH from liquidation got the BPS split.
         assertEq(vault.rolloverReserve(), 0.45 ether);
         assertEq(vault.bonusReserve(), 0.25 ether);
-        assertEq(weth.balanceOf(mechanics), 0.10 ether);
-        assertEq(weth.balanceOf(treasury), 0.10 ether);
-        assertEq(vault.polReserveBalance(), 0.10 ether);
+        assertEq(weth.balanceOf(mechanics), 0.1 ether);
+        assertEq(weth.balanceOf(treasury), 0.1 ether);
+        assertEq(vault.polReserveBalance(), 0.1 ether);
 
         // The pre-existing 1 WETH (trading fees) is still in the vault, untouched.
         assertEq(weth.balanceOf(address(vault)), 1 ether + 0.45 ether + 0.25 ether);
 
         // submitWinner sweeps trading-fee residue to treasury.
         _submit(bytes32(0));
-        assertEq(weth.balanceOf(treasury), 0.10 ether + 1 ether, "trading-fee residue swept to treasury");
+        assertEq(weth.balanceOf(treasury), 0.1 ether + 1 ether, "trading-fee residue swept to treasury");
         // Vault has only the rollover-bought winner tokens left.
         assertEq(weth.balanceOf(address(vault)), 0);
     }

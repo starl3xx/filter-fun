@@ -55,11 +55,14 @@ contract V4LifecycleTest is Test, Deployers {
 
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
-        polVault = address(new POLVault(polVaultOwner));
+        POLVault polVaultC = new POLVault(address(this));
+        polVault = address(polVaultC);
 
         launcher = new FilterLauncher(
             owner, oracle, treasury, mechanics, polVault, IBonusFunding(address(bonus)), address(weth)
         );
+        polVaultC.setLauncher(address(launcher));
+        polVaultC.transferOwnership(polVaultOwner);
 
         // Mine hook salt for required flags = BEFORE_ADD_LIQUIDITY (1<<11) | BEFORE_REMOVE_LIQUIDITY (1<<9) = 0xA00.
         bytes memory hookCreationCode = type(FilterHook).creationCode;
