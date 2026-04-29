@@ -10,8 +10,10 @@ export function TopBar() {
   return (
     <header
       style={{
-        height: 56,
-        padding: "0 22px",
+        // minHeight (not fixed height) — items wrap on narrow viewports and
+        // the bar grows to fit instead of spilling over the ticker tape below.
+        minHeight: 56,
+        padding: "8px 22px",
         display: "flex",
         alignItems: "center",
         gap: 22,

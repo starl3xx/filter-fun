@@ -5,7 +5,6 @@ export const C = {
   bg: "#0a0612",
   bg2: "#140828",
   panel: "#15091f",
-  panelAlt: "#1c0d2c",
   line: "rgba(255,255,255,0.08)",
   lineSoft: "rgba(255,255,255,0.04)",
 
