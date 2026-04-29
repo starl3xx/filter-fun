@@ -7,8 +7,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
 import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
-import {POLVault} from "../../src/POLVault.sol";
-import {POLManager, IPOLVaultRecord} from "../../src/POLManager.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
 
@@ -25,7 +23,6 @@ contract WeeklyLifecycleTest is Test {
     FilterLauncher launcher;
     MockFilterFactory factory;
     BonusDistributor bonus;
-    POLVault polVault;
     MockPOLManager polManager;
     MockWETH weth;
 
@@ -33,7 +30,6 @@ contract WeeklyLifecycleTest is Test {
     address oracle = address(0xCAFE);
     address treasury = address(0xD000);
     address mechanics = address(0xE000);
-    address polVaultOwner = address(0xF111);
 
     address creator1 = address(0xC1);
     address creator2 = address(0xC2);
@@ -43,14 +39,16 @@ contract WeeklyLifecycleTest is Test {
     function setUp() public {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
-        polVault = new POLVault(address(this));
+        // POLVault is deliberately omitted from this end-to-end mock test: the real POLVault
+        // is exercised by the V4 integration tests (where the locker actually mints LP). Here
+        // we use MockPOLManager which reports `(weth, tokens, liquidity)` synthetically; the
+        // SeasonVault → POLManager seam is what this test pins.
         polManager = new MockPOLManager(weth);
         polManager.setMintRate(100_000e18); // matches MockLpLocker default; see below
         launcher = new FilterLauncher(
             owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
         );
         launcher.setPolManager(IPOLManager(address(polManager)));
-        polVault.transferOwnership(polVaultOwner);
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
     }
@@ -114,8 +112,8 @@ contract WeeklyLifecycleTest is Test {
         assertEq(weth.balanceOf(mechanics), 0.243_75 ether, "mechanics paid mid-week");
         assertEq(weth.balanceOf(treasury), 0.243_75 ether, "treasury paid mid-week");
         assertEq(vault.polReserveBalance(), 0.243_75 ether, "POL accumulated");
-        // POL is held as WETH — no winner-token purchases yet.
-        assertEq(IERC20(filterToken).balanceOf(address(polVault)), 0, "POL not deployed mid-week");
+        // POL is held as WETH — no LP add yet (POLManager untouched until submitWinner).
+        assertEq(polManager.callCount(), 0, "POLManager not invoked mid-week");
 
         // Filter event 2 (final cut): tokenA. Proceeds 1.5 WETH:
         //   bounty 2.5%   = 0.0375 (cum 0.1)
