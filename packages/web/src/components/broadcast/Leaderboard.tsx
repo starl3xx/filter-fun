@@ -2,6 +2,7 @@ import {fmtCountdown, fmtNum, fmtUSD} from "@/lib/format";
 import {type Token} from "@/lib/seed";
 import {C, F, tickerColor} from "@/lib/tokens";
 
+import {HpBar} from "./HpBar";
 import {Sparkline} from "./Sparkline";
 
 type Props = {survive: Token[]; filtered: Token[]; filterIn: number};
@@ -254,36 +255,7 @@ function Row({token, rank, below}: {token: Token; rank: number; below?: boolean}
         {token.ch.toFixed(1)}%
       </div>
 
-      <div>
-        <div style={{height: 6, background: "rgba(255,255,255,0.07)", borderRadius: 99, overflow: "hidden"}}>
-          <div
-            style={{
-              height: "100%",
-              width: `${Math.min(100, token.score / 100)}%`,
-              borderRadius: 99,
-              background: below
-                ? `linear-gradient(90deg, ${C.red}, ${C.pink})`
-                : finalist
-                  ? `linear-gradient(90deg, ${C.yellow}, ${C.pink})`
-                  : `linear-gradient(90deg, ${C.cyan}, ${C.purple})`,
-              boxShadow: `0 0 8px ${below ? C.red : C.cyan}88`,
-            }}
-          />
-        </div>
-        <div
-          style={{
-            fontSize: 9,
-            fontFamily: F.mono,
-            color: C.dim,
-            marginTop: 2,
-            letterSpacing: "0.06em",
-            fontWeight: 700,
-            textAlign: "right",
-          }}
-        >
-          {fmtNum(token.score)}
-        </div>
-      </div>
+      <HpBar token={token} below={below} finalist={finalist} />
 
       <div style={{display: "flex", justifyContent: "flex-end"}}>
         <Sparkline values={token.spark} w={84} h={22} color={token.ch >= 0 ? C.green : C.red} strokeWidth={1.6} />

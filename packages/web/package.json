@@ -12,6 +12,7 @@
   "dependencies": {
     "@filter-fun/oracle": "*",
     "@filter-fun/scheduler": "*",
+    "@filter-fun/scoring": "*",
     "@tanstack/react-query": "^5.51.0",
     "next": "14.2.35",
     "react": "18.3.1",
