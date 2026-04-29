@@ -216,6 +216,11 @@ contract FilterLauncherTest is Test {
         assertEq(launcher.canLaunch(), false, "no season open");
         _openSeason();
         assertEq(launcher.canLaunch(), true);
+        // Regression (bugbot): canLaunch must reflect pause, since launchToken is whenNotPaused.
+        launcher.pause();
+        assertEq(launcher.canLaunch(), false, "paused");
+        launcher.unpause();
+        assertEq(launcher.canLaunch(), true, "unpaused");
         vm.warp(block.timestamp + 48 hours);
         assertEq(launcher.canLaunch(), false, "window expired");
     }

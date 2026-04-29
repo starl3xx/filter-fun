@@ -449,6 +449,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     // ============================================================ Views
 
     function canLaunch() external view returns (bool) {
+        if (paused()) return false;
         uint256 sid = currentSeasonId;
         if (_phase[sid] != Phase.Launch) return false;
         if (block.timestamp >= launchEndTime[sid]) return false;
