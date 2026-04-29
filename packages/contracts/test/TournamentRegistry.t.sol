@@ -29,7 +29,8 @@ contract TournamentRegistryTest is Test {
 
     function setUp() public {
         launcher = new MockLauncherView();
-        registry = new TournamentRegistry(address(launcher), oracle);
+        launcher.setOracle(oracle);
+        registry = new TournamentRegistry(address(launcher));
         launcher.setVault(SEASON, realVault);
     }
 
@@ -215,6 +216,30 @@ contract TournamentRegistryTest is Test {
         registry.recordQuarterlyChampion(2026, 1, tokenA);
     }
 
+    /// @notice Regression: a runner-up from Q1 retains QUARTERLY_FINALIST status indefinitely.
+    ///         A status-only check would let the oracle illegitimately crown that runner-up
+    ///         as Q2 champion (where they never competed). Per-period membership flag prevents
+    ///         this — bugbot Medium #2.
+    function test_RecordQuarterlyChampion_RejectsCrossPeriodFinalist() public {
+        // Q1: tokenA + tokenB compete; tokenA wins, tokenB is runner-up but keeps
+        // QUARTERLY_FINALIST status.
+        address[] memory q1Winners = new address[](2);
+        q1Winners[0] = tokenA;
+        q1Winners[1] = tokenB;
+        _stampWeeklyWinners(q1Winners);
+        vm.prank(oracle);
+        registry.recordQuarterlyFinalists(2026, 1, q1Winners);
+        vm.prank(oracle);
+        registry.recordQuarterlyChampion(2026, 1, tokenA);
+        // tokenB still QUARTERLY_FINALIST — but ONLY for Q1, never enrolled in Q2.
+
+        // Oracle attempts to crown tokenB as Q2 champion — must revert because tokenB is
+        // not in `isQuarterlyFinalist[2026][2]`.
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.NotEligible.selector);
+        registry.recordQuarterlyChampion(2026, 2, tokenB);
+    }
+
     function test_RecordQuarterlyChampion_RejectsDouble() public {
         address[] memory winners = new address[](2);
         winners[0] = tokenA;
@@ -296,6 +321,52 @@ contract TournamentRegistryTest is Test {
         vm.prank(oracle);
         vm.expectRevert(TournamentRegistry.NotEligible.selector);
         registry.recordAnnualChampion(2026, tokenA);
+    }
+
+    /// @notice Annual counterpart of the cross-period regression: a 2026 finalist (with
+    ///         status ANNUAL_FINALIST) cannot be crowned 2027 champion. Per-year membership
+    ///         flag is the gate.
+    function test_RecordAnnualChampion_RejectsCrossYearFinalist() public {
+        _crownFourQuarterlyChampions();
+        address[] memory four = new address[](4);
+        four[0] = tokenA;
+        four[1] = tokenB;
+        four[2] = tokenC;
+        four[3] = tokenD;
+        vm.prank(oracle);
+        registry.recordAnnualFinalists(2026, four);
+        // tokenA is now ANNUAL_FINALIST (for 2026). Oracle attempts to crown it 2027
+        // champion — must revert.
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.NotEligible.selector);
+        registry.recordAnnualChampion(2027, tokenA);
+    }
+
+    // ============================================================ Oracle rotation
+
+    /// @notice Regression: registry's onlyOracle modifier reads `launcher.oracle()`
+    ///         dynamically rather than caching at construction. After the launcher rotates
+    ///         its oracle, the new oracle must be able to call quarterly/annual record
+    ///         functions immediately — bugbot Medium #1.
+    function test_OracleRotation_NewOracleCanRecord() public {
+        address newOracle = makeAddr("newOracle");
+        launcher.setOracle(newOracle);
+        // Old oracle is no longer authorized.
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.NotOracle.selector);
+        registry.recordQuarterlyFinalists(2026, 1, new address[](0));
+
+        // New oracle drives a weekly winner in directly (mocked).
+        vm.prank(realVault);
+        registry.recordWeeklyWinner(SEASON, tokenA);
+        // New oracle records quarterly finalist successfully.
+        address[] memory ents = new address[](1);
+        ents[0] = tokenA;
+        vm.prank(newOracle);
+        registry.recordQuarterlyFinalists(2026, 1, ents);
+        assertEq(uint8(registry.statusOf(tokenA)), uint8(TournamentRegistry.TokenStatus.QUARTERLY_FINALIST));
+        // The view also reflects the rotation.
+        assertEq(registry.oracle(), newOracle);
     }
 
     // ============================================================ Qualification view

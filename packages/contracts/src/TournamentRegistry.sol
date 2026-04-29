@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 interface ILauncherViewTR {
     function vaultOf(uint256 seasonId) external view returns (address);
+    function oracle() external view returns (address);
 }
 
 /// @title TournamentRegistry
@@ -55,7 +56,6 @@ contract TournamentRegistry {
     }
 
     address public immutable launcher;
-    address public immutable oracle;
 
     /// @notice Per-token status. Defaults to ACTIVE (zero) for any token never seen — caller
     ///         disambiguates via the launcher's `entryOf` / `creatorRegistry` if they need to
@@ -74,11 +74,18 @@ contract TournamentRegistry {
     /// @notice Quarterly Filter Bowl entrants per (year, quarter). Recorded when the oracle
     ///         opens a quarterly competition. Year is the calendar year, quarter is 1-4.
     mapping(uint16 => mapping(uint8 => address[])) internal _quarterlyFinalists;
+    /// @notice Per-period membership flag. Lets `recordQuarterlyChampion` confirm the named
+    ///         champion was actually a finalist in *that* (year, quarter) — not just any
+    ///         current QUARTERLY_FINALIST anywhere. Without this, a Q1 runner-up retaining
+    ///         QUARTERLY_FINALIST status could be illegitimately crowned Q2 champion.
+    mapping(uint16 => mapping(uint8 => mapping(address => bool))) public isQuarterlyFinalist;
     mapping(uint16 => mapping(uint8 => address)) public quarterlyChampionOf;
 
     /// @notice Annual Championship entrants per year. Recorded when the oracle opens an annual
     ///         competition. Must contain exactly 4 quarterly champions for that year.
     mapping(uint16 => address[]) internal _annualFinalists;
+    /// @notice Per-year membership flag, mirroring `isQuarterlyFinalist`.
+    mapping(uint16 => mapping(address => bool)) public isAnnualFinalist;
     mapping(uint16 => address) public annualChampionOf;
 
     // -------- Events
@@ -99,14 +106,21 @@ contract TournamentRegistry {
     error EmptyEntrants();
     error AlreadyRecorded();
 
+    /// @dev Read the oracle from the launcher dynamically rather than caching at deploy
+    ///      time. The launcher's oracle is rotatable via `setOracle`; if we cached here,
+    ///      a rotated oracle could drive weekly settlement but not call our quarterly /
+    ///      annual record functions, breaking the championship ladder mid-rotation.
     modifier onlyOracle() {
-        if (msg.sender != oracle) revert NotOracle();
+        if (msg.sender != ILauncherViewTR(launcher).oracle()) revert NotOracle();
         _;
     }
 
-    constructor(address launcher_, address oracle_) {
+    function oracle() external view returns (address) {
+        return ILauncherViewTR(launcher).oracle();
+    }
+
+    constructor(address launcher_) {
         launcher = launcher_;
-        oracle = oracle_;
     }
 
     // ============================================================ Weekly hooks (SeasonVault)
@@ -162,18 +176,21 @@ contract TournamentRegistry {
             if (statusOf[t] != TokenStatus.WEEKLY_WINNER) revert NotEligible();
             statusOf[t] = TokenStatus.QUARTERLY_FINALIST;
             _quarterlyFinalists[year][quarter].push(t);
+            isQuarterlyFinalist[year][quarter][t] = true;
         }
         emit QuarterlyFinalistsRecorded(year, quarter, entrants);
     }
 
     /// @notice Oracle records the quarterly champion. Must be a registered finalist for that
-    ///         (year, quarter). Status bumps to QUARTERLY_CHAMPION; the runners-up retain
-    ///         QUARTERLY_FINALIST (terminal — they can't re-enter unless they win a future
-    ///         weekly, which the registry itself permits).
+    ///         specific (year, quarter) — verified via `isQuarterlyFinalist`, not just by
+    ///         global status. The membership flag is necessary because a Q1 runner-up retains
+    ///         QUARTERLY_FINALIST status indefinitely; a status-only check would let it be
+    ///         crowned champion of a different quarter where it never competed. Status bumps
+    ///         to QUARTERLY_CHAMPION on success.
     function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external onlyOracle {
         if (champion == address(0)) revert ZeroToken();
         if (quarterlyChampionOf[year][quarter] != address(0)) revert AlreadyFinalized();
-        if (statusOf[champion] != TokenStatus.QUARTERLY_FINALIST) revert NotEligible();
+        if (!isQuarterlyFinalist[year][quarter][champion]) revert NotEligible();
         quarterlyChampionOf[year][quarter] = champion;
         statusOf[champion] = TokenStatus.QUARTERLY_CHAMPION;
         emit QuarterlyChampionRecorded(year, quarter, champion);
@@ -193,15 +210,18 @@ contract TournamentRegistry {
             if (statusOf[t] != TokenStatus.QUARTERLY_CHAMPION) revert NotEligible();
             statusOf[t] = TokenStatus.ANNUAL_FINALIST;
             _annualFinalists[year].push(t);
+            isAnnualFinalist[year][t] = true;
         }
         emit AnnualFinalistsRecorded(year, entrants);
     }
 
-    /// @notice Oracle records the annual champion. Must be a registered annual finalist.
+    /// @notice Oracle records the annual champion. Must be a registered finalist for that
+    ///         specific year — verified via `isAnnualFinalist`, not just by global status.
+    ///         Same reasoning as the quarterly champion check.
     function recordAnnualChampion(uint16 year, address champion) external onlyOracle {
         if (champion == address(0)) revert ZeroToken();
         if (annualChampionOf[year] != address(0)) revert AlreadyFinalized();
-        if (statusOf[champion] != TokenStatus.ANNUAL_FINALIST) revert NotEligible();
+        if (!isAnnualFinalist[year][champion]) revert NotEligible();
         annualChampionOf[year] = champion;
         statusOf[champion] = TokenStatus.ANNUAL_CHAMPION;
         emit AnnualChampionRecorded(year, champion);

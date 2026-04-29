@@ -92,7 +92,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
         weth = weth_;
         creatorRegistry = new CreatorRegistry(address(this));
         creatorFeeDistributor = new CreatorFeeDistributor(address(this), weth_, treasury_, creatorRegistry);
-        tournamentRegistry = new TournamentRegistry(address(this), oracle_);
+        tournamentRegistry = new TournamentRegistry(address(this));
     }
 
     /// @notice One-shot wire of the POLManager. Owner-only; reverts if already set or zero.
