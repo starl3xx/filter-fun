@@ -21,7 +21,7 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "filter.fun",
-  description: "Get filtered or get funded 🔻",
+  description: "Most get filtered. One gets funded. 🔻",
 };
 
 export default function RootLayout({children}: {children: ReactNode}) {

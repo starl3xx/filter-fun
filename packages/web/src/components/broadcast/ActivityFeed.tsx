@@ -128,7 +128,7 @@ export function ActivityFeed({feed}: {feed: FeedItem[]}) {
           letterSpacing: "0.04em",
         }}
       >
-        “Get filtered or get funded 🔻”
+        “Most get filtered. One gets funded. 🔻”
       </div>
     </section>
   );
