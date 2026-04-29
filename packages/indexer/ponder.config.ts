@@ -11,6 +11,10 @@ const launcherAddr = (process.env.FILTER_LAUNCHER_ADDRESS ?? "0x0000000000000000
 const factoryAddr = (process.env.FILTER_FACTORY_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
 const bonusAddr = (process.env.BONUS_DISTRIBUTOR_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
 
+/// Pin to one network per indexer instance. Default to base mainnet so production deploys
+/// don't need extra env. Override to "baseSepolia" for testnet via `PONDER_NETWORK`.
+const network = (process.env.PONDER_NETWORK ?? "base") as "base" | "baseSepolia";
+
 /// Indexes the canonical filter.fun deployment. `SeasonVault` and `FilterLpLocker` are deployed
 /// dynamically — Ponder's factory pattern picks them up via the parent contract's emit log.
 export default createConfig({
@@ -26,19 +30,19 @@ export default createConfig({
   },
   contracts: {
     FilterLauncher: {
-      network: "base",
+      network,
       abi: FilterLauncherAbi,
       address: launcherAddr,
       startBlock,
     },
     BonusDistributor: {
-      network: "base",
+      network,
       abi: BonusDistributorAbi,
       address: bonusAddr,
       startBlock,
     },
     SeasonVault: {
-      network: "base",
+      network,
       abi: SeasonVaultAbi,
       factory: {
         address: launcherAddr,
@@ -48,7 +52,7 @@ export default createConfig({
       startBlock,
     },
     FilterLpLocker: {
-      network: "base",
+      network,
       abi: FilterLpLockerAbi,
       factory: {
         address: factoryAddr,
