@@ -53,17 +53,19 @@ Each package has its own README. Cross-package contracts are intentional: the or
 
 ### On-chain — Uniswap V4-native, **not** a clanker wrap
 
-| Contract             | Role                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------- |
-| `FilterLauncher`     | Top-level. Season state machine. Per-wallet caps. Launches the protocol token ($FILTER).          |
-| `FilterFactory`      | Single-tx ERC-20 deploy → V4 pool init → seed single-sided LP → per-token `FilterLpLocker`.       |
-| `FilterHook`         | V4 hook gating add/remove-liquidity to the factory (seed) and locker (post-seed) only.            |
-| `FilterLpLocker`     | Per-token. Holds the V4 LP. Splits collected fees per BPS. Exposes liquidate-to-WETH primitives.  |
-| `SeasonVault`        | Per-season escrow. Multi-filter event accounting. Allocates pot. Serves rollover Merkle claims.   |
-| `SeasonPOLReserve`   | Per-season WETH-only POL holder. Accumulates the 10% slice across filter events.                  |
-| `POLVault`           | Singleton. Receives winner-token POL exposure across all seasons.                                 |
-| `BonusDistributor`   | 14-day hold-bonus payout via multi-snapshot Merkle roots posted by the oracle.                    |
-| `TreasuryTimelock`   | OZ `TimelockController` on the 10% treasury cut. 48h delay.                                       |
+| Contract                | Role                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `FilterLauncher`        | Top-level. Season state machine. Per-wallet caps. Launches the protocol token ($FILTER).          |
+| `FilterFactory`         | Single-tx ERC-20 deploy → V4 pool init → seed single-sided LP → per-token `FilterLpLocker`.       |
+| `FilterHook`            | V4 hook gating add/remove-liquidity to the factory (seed) and locker (post-seed) only.            |
+| `FilterLpLocker`        | Per-token. Holds the V4 LP. Splits collected fees 4-way (prize/treasury/mechanics/creator).      |
+| `SeasonVault`           | Per-season escrow. Multi-filter event accounting. Champion bounty. Rollover Merkle claims.       |
+| `SeasonPOLReserve`      | Per-season WETH-only POL holder. Accumulates the POL slice across filter events.                  |
+| `POLVault`              | Singleton. Receives winner-token POL exposure across all seasons.                                 |
+| `BonusDistributor`      | 14-day hold-bonus payout via multi-snapshot Merkle roots posted by the oracle.                    |
+| `CreatorRegistry`       | Singleton (token → creator + launchedAt). Permanent record set by the launcher at launch.         |
+| `CreatorFeeDistributor` | Singleton sink for the 0.20% creator slice of every swap. 72h eligibility, filter-aware.          |
+| `TreasuryTimelock`      | OZ `TimelockController` on the treasury cut. 48h delay.                                           |
 
 All settlement-side accounting is **WETH**: pot, treasury, mechanics, bonus reserve, rollover all denominated and held in WETH.
 
@@ -92,14 +94,29 @@ indexer → scoring → oracle → scheduler → contracts
 ### Losers-pot allocation (applied at every filter event)
 
 ```
-45% rollover  → accumulate as WETH; buy winner tokens at final settlement, distribute via Merkle
-25% bonus     → accumulate as WETH; forward to BonusDistributor at final settlement
-10% mechanics → WETH to events/missions wallet (immediate)
-10% POL       → accumulate as WETH in SeasonPOLReserve; deploy at final settlement only
-10% treasury  → WETH to TreasuryTimelock (immediate)
+2.5% champion bounty → off-the-top; paid to the WINNER's creator at submitWinner
+
+Then the remaining 97.5% splits per the user-aligned BPS:
+45% rollover         → accumulate as WETH; buy winner tokens at final settlement, distribute via Merkle
+25% bonus            → accumulate as WETH; forward to BonusDistributor at final settlement
+10% mechanics        → WETH to events/missions wallet (immediate)
+10% POL              → accumulate as WETH in SeasonPOLReserve; deploy at final settlement only
+10% treasury         → WETH to TreasuryTimelock (immediate)
 ```
 
-80% of every losers-pot dollar is user-aligned (rollover + bonus + mechanics). POL is silent during the week — accumulates as WETH, never deployed mid-competition. At final settlement the reserve is drained, used to buy winner tokens, and parked in `POLVault`. Trading-fee streams are separate; `processFilterEvent` only splits the WETH delta produced by the loser liquidations.
+80% of every losers-pot dollar is user-aligned (rollover + bonus + mechanics) and 2.5% goes to the winner's creator. POL is silent during the week — accumulates as WETH, never deployed mid-competition. At final settlement the reserve is drained, used to buy winner tokens, and parked in `POLVault`. Trading-fee streams are separate; `processFilterEvent` only splits the WETH delta produced by the loser liquidations.
+
+### Trading fee allocation (every swap, at `collectFees` time)
+
+```
+2.00% trading fee = 200 BPS, split on the WETH-side leg as:
+  0.95% → prize pool (SeasonVault)
+  0.65% → TreasuryTimelock
+  0.25% → mechanics
+  0.20% → CreatorFeeDistributor (eligible token's creator, within 72h of launch and pre-filter)
+```
+
+The token-leg fee dust is routed entirely to the season vault — too small in $ terms to merit a per-recipient split. Creator-fee accrual is auto-redirected to treasury once a token is filtered or 72h have elapsed since launch.
 
 ### Trust model
 
