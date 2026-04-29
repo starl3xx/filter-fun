@@ -16,6 +16,7 @@ import {
 import {CreatorRegistry} from "./CreatorRegistry.sol";
 import {CreatorFeeDistributor} from "./CreatorFeeDistributor.sol";
 import {TournamentRegistry} from "./TournamentRegistry.sol";
+import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "./TournamentVault.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "./interfaces/IFilterLauncher.sol";
 
@@ -67,6 +68,12 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
     ///         here so SeasonVault can record weekly winners + filtered tokens without a
     ///         post-construction wire-up step.
     TournamentRegistry public immutable tournamentRegistry;
+    /// @notice Singleton quarterly Filter Bowl settlement vault. Per-(year, quarter) escrow
+    ///         + 45/25/10/10/10 + 2.5% bounty distribution + Merkle rollover/bonus claims.
+    ///         Deployed inline here so the registry + vault are wired without a
+    ///         post-construction step. POL deployment for tournament settlements is
+    ///         intentionally not wired here yet (deferred to follow-up).
+    TournamentVault public immutable tournamentVault;
     uint256 public bonusUnlockDelay = 14 days;
     uint256 public maxLaunchesPerWallet = 2;
 
@@ -93,6 +100,15 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
         creatorRegistry = new CreatorRegistry(address(this));
         creatorFeeDistributor = new CreatorFeeDistributor(address(this), weth_, treasury_, creatorRegistry);
         tournamentRegistry = new TournamentRegistry(address(this));
+        tournamentVault = new TournamentVault(
+            address(this),
+            weth_,
+            treasury_,
+            mechanics_,
+            ITournamentRegistryView(address(tournamentRegistry)),
+            ICreatorRegistryView(address(creatorRegistry)),
+            bonusUnlockDelay
+        );
     }
 
     /// @notice One-shot wire of the POLManager. Owner-only; reverts if already set or zero.

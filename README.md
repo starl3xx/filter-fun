@@ -53,7 +53,11 @@ After four quarterly champions exist, they compete in the annual championship. O
 
 > Weekly creates winners. Quarterly creates assets. Annual creates legends.
 
-The metadata layer for this ladder lives in `TournamentRegistry`. Every weekly settlement automatically marks the winner as `WEEKLY_WINNER` and every filter event marks losers as `FILTERED`. The oracle records quarterly + annual finalists / champions. Tournament settlement contracts (TournamentVault, championship pots) are scaffolded in follow-up PRs — the registry is the source of truth they read from.
+### Tournament infrastructure
+
+- **`TournamentRegistry`** is the metadata layer for the ladder. Every weekly settlement automatically marks the winner as `WEEKLY_WINNER` and every filter event marks losers as `FILTERED`. The oracle records quarterly finalists; the `TournamentVault` records the quarterly champion atomically at settlement. The registry is the source of truth that all settlement contracts read from for qualification.
+- **`TournamentVault`** is the singleton settlement layer for the **quarterly Filter Bowl**. Per-(year, quarter) WETH escrow funded permissionlessly via `fundQuarterly` (entry stakes, fee shares forwarded by the protocol, protocol-seeded prize pools — never an automatic unwind of organic LP). Settlement applies the same 2.5% champion bounty + 45/25/10/10/10 split as weekly: rollover + bonus paid via Merkle proofs (WETH-denominated for genesis), mechanics + treasury immediate, POL slice accumulates as WETH for a follow-up POL deployment path. Stamps `QUARTERLY_CHAMPION` on the registry — the gate to annual eligibility.
+- **Annual championship settlement** is scaffolded in a follow-up PR.
 
 ## Repo layout
 
@@ -87,6 +91,7 @@ Each package has its own README. Cross-package contracts are intentional: the or
 | `CreatorRegistry`       | Singleton (token → creator + launchedAt). Permanent record set by the launcher at launch.         |
 | `CreatorFeeDistributor` | Singleton sink for the 0.20% creator slice of every swap. 72h eligibility, filter-aware.          |
 | `TournamentRegistry`    | Singleton metadata layer. Per-token status across weekly → quarterly → annual ladder.            |
+| `TournamentVault`       | Singleton settlement vault for the quarterly Filter Bowl. Per-(year, quarter) WETH escrow + 45/25/10/10/10 split + Merkle rollover/bonus claims. |
 | `TreasuryTimelock`      | OZ `TimelockController` on the treasury cut. 48h delay.                                           |
 
 All settlement-side accounting is **WETH**: pot, treasury, mechanics, bonus reserve, rollover all denominated and held in WETH.

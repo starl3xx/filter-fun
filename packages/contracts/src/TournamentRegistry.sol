@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 interface ILauncherViewTR {
     function vaultOf(uint256 seasonId) external view returns (address);
     function oracle() external view returns (address);
+    function tournamentVault() external view returns (address);
 }
 
 /// @title TournamentRegistry
@@ -193,13 +194,22 @@ contract TournamentRegistry {
         emit QuarterlyFinalistsRecorded(year, quarter, entrants);
     }
 
-    /// @notice Oracle records the quarterly champion. Must be a registered finalist for that
+    /// @notice Records the quarterly champion. Must be a registered finalist for that
     ///         specific (year, quarter) — verified via `isQuarterlyFinalist`, not just by
     ///         global status. The membership flag is necessary because a Q1 runner-up retains
     ///         QUARTERLY_FINALIST status indefinitely; a status-only check would let it be
     ///         crowned champion of a different quarter where it never competed. Status bumps
     ///         to QUARTERLY_CHAMPION on success.
-    function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external onlyOracle {
+    ///
+    ///         Auth: oracle OR the launcher's registered TournamentVault. The vault is the
+    ///         on-chain caller during quarterly Filter Bowl settlement — it stamps the
+    ///         champion atomically as part of `submitQuarterlyWinner`, so settlement and
+    ///         status update can never drift apart. Oracle is retained as a fallback caller
+    ///         (and pre-vault path before tournament infra is fully wired).
+    function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external {
+        address senderOracle = ILauncherViewTR(launcher).oracle();
+        address senderVault = ILauncherViewTR(launcher).tournamentVault();
+        if (msg.sender != senderOracle && msg.sender != senderVault) revert NotOracle();
         if (quarter == 0 || quarter > 4) revert BadQuarter();
         if (champion == address(0)) revert ZeroToken();
         if (quarterlyChampionOf[year][quarter] != address(0)) revert AlreadyFinalized();

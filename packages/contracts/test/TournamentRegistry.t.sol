@@ -261,6 +261,39 @@ contract TournamentRegistryTest is Test {
         registry.recordQuarterlyChampion(2026, 5, tokenA);
     }
 
+    /// @notice Auth widened in PR #26 to also accept the launcher's registered TournamentVault
+    ///         so quarterly settlement and the QUARTERLY_CHAMPION stamp happen atomically
+    ///         inside `submitQuarterlyWinner`. The vault path must work end-to-end.
+    function test_RecordQuarterlyChampion_AllowsTournamentVault() public {
+        address tournamentVault = makeAddr("tournamentVault");
+        launcher.setTournamentVault(tournamentVault);
+
+        address[] memory winners = new address[](1);
+        winners[0] = tokenA;
+        _stampWeeklyWinners(winners);
+        vm.prank(oracle);
+        registry.recordQuarterlyFinalists(2026, 1, winners);
+
+        vm.prank(tournamentVault);
+        registry.recordQuarterlyChampion(2026, 1, tokenA);
+        assertEq(registry.quarterlyChampionOf(2026, 1), tokenA);
+    }
+
+    /// @notice Auth still rejects unrelated callers even with a TournamentVault registered.
+    function test_RecordQuarterlyChampion_RejectsAttackerWhenVaultRegistered() public {
+        launcher.setTournamentVault(makeAddr("tournamentVault"));
+
+        address[] memory winners = new address[](1);
+        winners[0] = tokenA;
+        _stampWeeklyWinners(winners);
+        vm.prank(oracle);
+        registry.recordQuarterlyFinalists(2026, 1, winners);
+
+        vm.prank(attacker);
+        vm.expectRevert(TournamentRegistry.NotOracle.selector);
+        registry.recordQuarterlyChampion(2026, 1, tokenA);
+    }
+
     /// @notice Regression: a runner-up from Q1 retains QUARTERLY_FINALIST status indefinitely.
     ///         A status-only check would let the oracle illegitimately crown that runner-up
     ///         as Q2 champion (where they never competed). Per-period membership flag prevents
