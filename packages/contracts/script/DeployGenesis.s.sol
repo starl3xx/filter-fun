@@ -25,8 +25,8 @@ import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 ///
 ///         NOTE on the hook: `FilterHook` must be deployed at an address whose lower 14 bits
 ///         encode the BEFORE_ADD_LIQUIDITY (1<<11) and BEFORE_REMOVE_LIQUIDITY (1<<9) flags
-///         (0xA00). This script does NOT mine that salt — produce a valid salt offline and
-///         pass it via the `HOOK_SALT` env var. A separate `MineHookSalt.s.sol` follows.
+///         (0xA00). This script does NOT mine that salt — run `script/MineHookSalt.s.sol`
+///         first and export the printed `HOOK_SALT` into the env that drives this script.
 contract DeployGenesis is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
