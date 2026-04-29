@@ -2,7 +2,7 @@
 
 import type {Address, Hex} from "viem";
 
-import {claimRolloverCall} from "@filter-fun/scheduler";
+import {claimRolloverCall, SeasonVaultAbi} from "@filter-fun/scheduler";
 
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
 
@@ -40,6 +40,12 @@ export default function ClaimRolloverPage() {
       jsonPlaceholder='{"seasonId": "1", "vault": "0x…", "share": "100", "proof": ["0x…"]}'
       parseJson={parseRollover}
       buildCall={(c) => claimRolloverCall(c.contract, c.numeric, c.proof)}
+      buildClaimedRead={(c, user) => ({
+        address: c.contract,
+        abi: SeasonVaultAbi,
+        functionName: "claimed",
+        args: [user],
+      })}
     />
   );
 }

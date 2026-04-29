@@ -25,6 +25,16 @@ export const BonusDistributorAbi = [
   },
   {
     type: "function",
+    name: "claimed",
+    stateMutability: "view",
+    inputs: [
+      {name: "seasonId", type: "uint256"},
+      {name: "user", type: "address"},
+    ],
+    outputs: [{type: "bool"}],
+  },
+  {
+    type: "function",
     name: "bonusOf",
     stateMutability: "view",
     inputs: [{name: "seasonId", type: "uint256"}],
