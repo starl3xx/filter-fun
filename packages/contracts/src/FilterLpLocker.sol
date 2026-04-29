@@ -208,16 +208,22 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     ///         at the current tick range with both legs. The resulting position is keyed by
     ///         `POL_SALT` so it doesn't collide with the seed.
     ///
+    ///         `minTokensFromSwap` is the slippage guard on the swap leg — the WETH→token swap
+    ///         is the only sandwich-able step (LP adds at a manipulated price still produce a
+    ///         valid position, just at a worse ratio, but the swap loss is real WETH gone). The
+    ///         oracle computes a TWAP-based floor and passes it through; we revert if the swap
+    ///         output undercuts it. `_doPolAdd` performs the check inside the unlock callback.
+    ///
     ///         Returns the (wethUsed, tokensUsed, liquidity) actually deposited so POLManager
     ///         can record it on POLVault. Any rounding dust on either side stays in this locker.
-    function addPolLiquidity(uint256 wethIn)
+    function addPolLiquidity(uint256 wethIn, uint256 minTokensFromSwap)
         external
         nonReentrant
         returns (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity)
     {
         if (msg.sender != polManager) revert NotPolManager();
         IERC20(baseAsset).safeTransferFrom(msg.sender, address(this), wethIn);
-        bytes memory data = abi.encode(ACTION_POL_ADD, wethIn, address(0), uint256(0));
+        bytes memory data = abi.encode(ACTION_POL_ADD, wethIn, address(0), minTokensFromSwap);
         bytes memory ret = poolManager.unlock(data);
         (wethUsed, tokensUsed, liquidity) = abi.decode(ret, (uint256, uint256, uint128));
     }
@@ -241,7 +247,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
             _doSeed(uint128(amountIn));
             return "";
         } else if (action == ACTION_POL_ADD) {
-            (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity) = _doPolAdd(amountIn);
+            (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity) = _doPolAdd(amountIn, minOut);
             return abi.encode(wethUsed, tokensUsed, liquidity);
         } else {
             revert UnknownAction();
@@ -361,9 +367,11 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
 
     /// @dev Inside the unlock callback: swap half the WETH to tokens through this same pool,
     ///      then add a position keyed by `POL_SALT` at the existing tick range with both legs.
+    ///      `minTokensFromSwap` is the oracle-supplied slippage floor — we revert if the swap
+    ///      undercuts it (sandwich defense for a publicly-visible `submitWinner` tx).
     ///      Settles WETH (transfer in) and token (take from pool) deltas to zero. Any rounding
     ///      dust on either side stays in this contract.
-    function _doPolAdd(uint256 wethIn)
+    function _doPolAdd(uint256 wethIn, uint256 minTokensFromSwap)
         internal
         returns (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity)
     {
@@ -384,6 +392,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         int128 outAmt = zeroForOne ? swapDelta.amount1() : swapDelta.amount0();
         require(outAmt > 0, "no output");
         uint256 tokensReceived = uint256(uint128(outAmt));
+        if (tokensReceived < minTokensFromSwap) revert InsufficientOutput();
 
         // 2. Compute liquidity for the LP add. Both halves of the WETH are now claimable —
         //    swapAmount as input to the swap (we owe to pool) and wethIn - swapAmount that

@@ -22,7 +22,7 @@ interface ILauncherViewPM {
 }
 
 interface ILpLockerPolAdd {
-    function addPolLiquidity(uint256 wethIn)
+    function addPolLiquidity(uint256 wethIn, uint256 minTokensFromSwap)
         external
         returns (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity);
 }
@@ -75,12 +75,17 @@ contract POLManager {
     ///         must have approved this contract for `wethAmount` of WETH before invoking — this
     ///         function pulls it, forwards to the locker, and records the deployment.
     ///
+    ///         `minTokensFromSwap` is the slippage guard on the locker's swap leg (half the
+    ///         WETH is swapped to winner tokens before the LP add). The oracle computes a
+    ///         TWAP-based floor and threads it through SeasonVault → here → the locker. Without
+    ///         this, the publicly-visible `submitWinner` tx is sandwich-bait.
+    ///
     ///         The locker's `addPolLiquidity` swaps half the WETH to winner tokens and adds
     ///         a permanent LP position with both legs. Total WETH committed = `wethAmount`
     ///         (the locker's `wethUsed` return tracks the LP-leg specifically — half of
     ///         `wethAmount`). For POLVault accounting we use the full committed amount since
     ///         that's the protocol's actual outflow into the position.
-    function deployPOL(uint256 seasonId, address winner, uint256 wethAmount)
+    function deployPOL(uint256 seasonId, address winner, uint256 wethAmount, uint256 minTokensFromSwap)
         external
         returns (uint256 wethDeployed, uint256 tokensDeployed, uint128 liquidity)
     {
@@ -95,7 +100,7 @@ contract POLManager {
         IERC20(weth).safeTransferFrom(msg.sender, address(this), wethAmount);
         IERC20(weth).forceApprove(locker, wethAmount);
 
-        (, tokensDeployed, liquidity) = ILpLockerPolAdd(locker).addPolLiquidity(wethAmount);
+        (, tokensDeployed, liquidity) = ILpLockerPolAdd(locker).addPolLiquidity(wethAmount, minTokensFromSwap);
         wethDeployed = wethAmount;
 
         polVault.recordDeployment(seasonId, winner, wethDeployed, tokensDeployed, liquidity);

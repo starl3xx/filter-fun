@@ -23,6 +23,7 @@ contract MockPOLManager {
     uint256 public lastSeasonId;
     address public lastWinner;
     uint256 public lastWethAmount;
+    uint256 public lastMinTokensFromSwap;
     uint256 public lastTokens;
     uint128 public lastLiquidity;
 
@@ -38,7 +39,7 @@ contract MockPOLManager {
         liquidityReturn = liq;
     }
 
-    function deployPOL(uint256 seasonId, address winner, uint256 wethAmount)
+    function deployPOL(uint256 seasonId, address winner, uint256 wethAmount, uint256 minTokensFromSwap)
         external
         returns (uint256 wethDeployed, uint256 tokensDeployed, uint128 liquidity)
     {
@@ -49,9 +50,12 @@ contract MockPOLManager {
         lastSeasonId = seasonId;
         lastWinner = winner;
         lastWethAmount = wethAmount;
+        lastMinTokensFromSwap = minTokensFromSwap;
 
         wethDeployed = wethAmount;
         tokensDeployed = (wethAmount * mintRate) / 1e18;
+        // Mimic the real locker's slippage check on the swap leg (half of wethAmount).
+        require(tokensDeployed >= minTokensFromSwap, "minTokensFromSwap");
         liquidity = liquidityReturn;
 
         lastTokens = tokensDeployed;

@@ -14,7 +14,7 @@ interface IBonusFunding {
 }
 
 interface IPOLManager {
-    function deployPOL(uint256 seasonId, address winner, uint256 wethAmount)
+    function deployPOL(uint256 seasonId, address winner, uint256 wethAmount, uint256 minTokensFromSwap)
         external
         returns (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity);
 }
@@ -368,16 +368,14 @@ contract SeasonVault is ReentrancyGuard {
 
         // 3. POL → withdraw WETH, hand to POLManager which adds a permanent V4 LP position
         //    on the winner pool (swap-half + addLiquidity owned by the locker). The
-        //    `minWinnerTokensPol` arg is reserved for a future iteration that pre-validates
-        //    the swap leg's expected output; today the locker uses the same swap path as
-        //    `buyTokenWithWETH` and inherits its sqrt-price-limit guard.
-        minWinnerTokensPol; // reserved; see comment above
+        //    `minWinnerTokensPol` floor is the oracle's TWAP-based slippage guard on the
+        //    locker's swap leg — without it, this publicly-visible tx is sandwich-bait.
         uint256 polAmount = polReserve.withdrawAll();
         uint256 polTokensOut = 0;
         uint128 polLiq = 0;
         if (polAmount > 0) {
             IERC20(weth).forceApprove(address(polManager), polAmount);
-            (, polTokensOut, polLiq) = polManager.deployPOL(seasonId, winner_, polAmount);
+            (, polTokensOut, polLiq) = polManager.deployPOL(seasonId, winner_, polAmount, minWinnerTokensPol);
         }
         polDeployedWeth = polAmount;
         polDeployedTokens = polTokensOut;

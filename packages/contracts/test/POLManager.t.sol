@@ -26,15 +26,19 @@ contract StubLocker {
         liquidityReturn = liquidityReturn_;
     }
 
-    function addPolLiquidity(uint256 wethIn)
+    uint256 public lastMinTokens;
+
+    function addPolLiquidity(uint256 wethIn, uint256 minTokensFromSwap)
         external
         returns (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity)
     {
         weth.transferFrom(msg.sender, address(this), wethIn);
         lastWethIn = wethIn;
+        lastMinTokens = minTokensFromSwap;
         // Mimic locker semantics: only the LP-leg comes back as wethUsed (≈ half).
         wethUsed = wethIn / 2;
         tokensUsed = (wethIn * mintRate) / 1e18;
+        require(tokensUsed >= minTokensFromSwap, "minTokensFromSwap");
         liquidity = liquidityReturn;
     }
 }
@@ -85,7 +89,7 @@ contract POLManagerTest is Test {
         vm.prank(from);
         weth.approve(address(polManager), amount);
         vm.prank(from);
-        return polManager.deployPOL(seasonId, w, amount);
+        return polManager.deployPOL(seasonId, w, amount, 0);
     }
 
     // ============================================================ Auth
@@ -96,7 +100,7 @@ contract POLManagerTest is Test {
         weth.approve(address(polManager), 1 ether);
         vm.prank(attacker);
         vm.expectRevert(POLManager.NotRegisteredVault.selector);
-        polManager.deployPOL(SEASON, winner, 1 ether);
+        polManager.deployPOL(SEASON, winner, 1 ether, 0);
     }
 
     function test_DeployPOL_RejectsUnknownLocker() public {
@@ -106,13 +110,46 @@ contract POLManagerTest is Test {
         weth.approve(address(polManager), 1 ether);
         vm.prank(realVault);
         vm.expectRevert(POLManager.UnknownLocker.selector);
-        polManager.deployPOL(SEASON, otherWinner, 1 ether);
+        polManager.deployPOL(SEASON, otherWinner, 1 ether, 0);
     }
 
     function test_DeployPOL_RejectsZeroAmount() public {
         vm.prank(realVault);
         vm.expectRevert(POLManager.ZeroAmount.selector);
-        polManager.deployPOL(SEASON, winner, 0);
+        polManager.deployPOL(SEASON, winner, 0, 0);
+    }
+
+    /// @notice Slippage guard on the swap leg propagates to the locker. With a floor above
+    ///         what the stub will produce, the call reverts inside the locker — proving the
+    ///         oracle's `minWinnerTokensPol` actually reaches the swap check.
+    function test_DeployPOL_RejectsBelowMinTokensFromSwap() public {
+        weth.mint(realVault, 1 ether);
+        vm.prank(realVault);
+        weth.approve(address(polManager), 1 ether);
+        // Stub mints MINT_RATE (= 100_000e18) per 1 WETH; demand more than that.
+        vm.prank(realVault);
+        vm.expectRevert(bytes("minTokensFromSwap"));
+        polManager.deployPOL(SEASON, winner, 1 ether, MINT_RATE + 1);
+    }
+
+    function test_DeployPOL_PassesMinTokensThrough() public {
+        // Floor matches expected output exactly — should pass and the locker records it.
+        _approveAndCallWithMin(realVault, SEASON, winner, 1 ether, MINT_RATE);
+        assertEq(locker.lastMinTokens(), MINT_RATE);
+    }
+
+    function _approveAndCallWithMin(
+        address from,
+        uint256 seasonId,
+        address w,
+        uint256 amount,
+        uint256 minTokens
+    ) internal {
+        weth.mint(from, amount);
+        vm.prank(from);
+        weth.approve(address(polManager), amount);
+        vm.prank(from);
+        polManager.deployPOL(seasonId, w, amount, minTokens);
     }
 
     // ============================================================ Happy path + accounting
@@ -165,6 +202,6 @@ contract POLManagerTest is Test {
         weth.approve(address(polManager), 1 ether);
         vm.prank(realVault);
         vm.expectRevert(POLVault.AlreadyRecorded.selector);
-        polManager.deployPOL(SEASON, winner, 1 ether);
+        polManager.deployPOL(SEASON, winner, 1 ether, 0);
     }
 }
