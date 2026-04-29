@@ -2,15 +2,14 @@ import type {Address, Hash} from "viem";
 
 import type {SettlementPayload} from "@filter-fun/oracle";
 
-import {finalizeCall, liquidateCall, submitSettlementCall, type ContractCall} from "./calls.js";
+import {finalizeCall, liquidateCall, submitSettlementCall, type ContractCallShape} from "./calls.js";
 
 /// Narrow signer + receipt interface. Real callers pass viem's `WalletClient` +
-/// `PublicClient`; tests pass mocks. Keeping this narrow keeps the package off the
-/// viem-dependency hook for testability — the only thing that has to match viem's shape
-/// is the `writeContract` argument, which `ContractCall` already encodes.
+/// `PublicClient`; tests pass mocks. The structural `ContractCallShape` keeps writeContract
+/// abi-agnostic — both vault and launcher call builders satisfy it.
 export interface TransactionDriver {
   /// Send a transaction; returns the transaction hash once submitted (NOT mined).
-  writeContract: (call: ContractCall<string>) => Promise<Hash>;
+  writeContract: (call: ContractCallShape) => Promise<Hash>;
   /// Block until the transaction is mined; throw on revert.
   waitForReceipt: (hash: Hash) => Promise<void>;
 }

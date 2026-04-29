@@ -3,7 +3,7 @@ import type {Address, Hash} from "viem";
 
 import {buildSettlementPayload} from "@filter-fun/oracle";
 
-import type {ContractCall} from "../src/calls.js";
+import type {ContractCallShape} from "../src/calls.js";
 import {runSettlement, type TransactionDriver} from "../src/runner.js";
 
 const VAULT: Address = "0x000000000000000000000000000000000000fafe";
@@ -13,7 +13,7 @@ const L2: Address = "0x2222222222222222222222222222222222222222";
 const ALICE: Address = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 interface Sent {
-  call: ContractCall<string>;
+  call: ContractCallShape;
   hash: Hash;
 }
 
@@ -25,7 +25,7 @@ class FakeDriver implements TransactionDriver {
   // Counter for deterministic tx hashes.
   private nonce = 0;
 
-  async writeContract(call: ContractCall<string>): Promise<Hash> {
+  async writeContract(call: ContractCallShape): Promise<Hash> {
     const hash = `0x${(this.nonce++).toString(16).padStart(64, "0")}` as Hash;
     this.sent.push({call, hash});
     return hash;
