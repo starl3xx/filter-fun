@@ -72,7 +72,9 @@ contract V4LifecycleTest is Test, Deployers {
         hook = new FilterHook{salt: hookSalt}();
         require(address(hook) == expectedHookAddr, "hook addr mismatch");
 
-        factory = new FilterFactory(manager, hook, address(launcher), address(weth));
+        factory = new FilterFactory(
+            manager, hook, address(launcher), address(weth), address(launcher.creatorFeeDistributor())
+        );
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));
 

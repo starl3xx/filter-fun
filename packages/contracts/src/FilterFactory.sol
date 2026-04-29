@@ -14,7 +14,7 @@ import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol"
 
 import {FilterToken} from "./FilterToken.sol";
 import {FilterHook} from "./FilterHook.sol";
-import {FilterLpLocker} from "./FilterLpLocker.sol";
+import {FilterLpLocker, ICreatorFeeDistributor} from "./FilterLpLocker.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
 
 /// @title FilterFactory
@@ -31,6 +31,9 @@ contract FilterFactory is IFilterFactory {
     FilterHook public immutable hook;
     address public immutable launcher;
     address public immutable weth;
+    /// @notice Singleton creator-fee sink. Wired immutably so every per-token locker the
+    ///         factory deploys forwards its 0.20% creator slice to the same contract.
+    address public immutable creatorFeeDistributor;
 
     uint24 public constant FEE = 10_000; // 1.00%
     int24 public constant TICK_SPACING = 200;
@@ -50,11 +53,18 @@ contract FilterFactory is IFilterFactory {
 
     event TokenDeployed(address indexed token, address indexed locker, PoolId poolId, address creator);
 
-    constructor(IPoolManager poolManager_, FilterHook hook_, address launcher_, address weth_) {
+    constructor(
+        IPoolManager poolManager_,
+        FilterHook hook_,
+        address launcher_,
+        address weth_,
+        address creatorFeeDistributor_
+    ) {
         poolManager = poolManager_;
         hook = hook_;
         launcher = launcher_;
         weth = weth_;
+        creatorFeeDistributor = creatorFeeDistributor_;
     }
 
     function deployToken(IFilterFactory.DeployArgs calldata args)
@@ -102,6 +112,7 @@ contract FilterFactory is IFilterFactory {
             weth,
             args.treasury,
             args.mechanics,
+            ICreatorFeeDistributor(creatorFeeDistributor),
             key,
             tickLower,
             tickUpper,

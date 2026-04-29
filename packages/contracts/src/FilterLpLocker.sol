@@ -17,15 +17,24 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 
 import {ILpLocker} from "./interfaces/ILpLocker.sol";
 
+interface ICreatorFeeDistributor {
+    function notifyFee(address token, uint256 amount) external;
+}
+
 /// @title FilterLpLocker
 /// @notice One per filter.fun-launched token. Permanently holds the V4 full-range LP position.
 ///         Splits collected fees per BPS, and exposes settlement primitives the season's vault
 ///         calls during week-end unwinding.
 ///
-///         Fee split (matching the spec's 2% trading fee breakdown):
-///         - 50.0% → seasonVault   (1.00 / 2.00 of trade fee)
-///         - 37.5% → treasury      (0.75 / 2.00)
-///         - 12.5% → mechanics     (0.25 / 2.00)
+///         Trading fee = 2% of swap volume = 200 BPS, broken down on the WETH-side leg as:
+///         - 0.90% → prize pool (seasonVault)        PRIZE_FEE_BPS = 90
+///         - 0.65% → treasury                        TREASURY_FEE_BPS = 65
+///         - 0.25% → mechanics                       MECHANICS_FEE_BPS = 25
+///         - 0.20% → creator fee distributor         CREATOR_FEE_BPS = 20
+///         Sum = 200 BPS by construction (see compile-time check below).
+///
+///         The token-leg fee dust is routed entirely to the season vault — it's negligible
+///         in $ terms and doesn't merit a creator/treasury slice on every swap.
 ///
 ///         Liquidation is single-pool by design: the pool is the only source of liquidity
 ///         for the launched token, so we cannot swap loser-tokens to base after removal.
@@ -37,11 +46,14 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
     using BalanceDeltaLibrary for BalanceDelta;
 
-    // -------- BPS split policy
-    uint256 internal constant BPS_DENOMINATOR = 10_000;
-    uint256 public constant VAULT_BPS = 5000;
-    uint256 public constant TREASURY_BPS = 3750;
-    uint256 public constant MECHANICS_BPS = 1250;
+    // -------- Fee split policy. Constants are in basis points of total trade volume; sum
+    //          must equal `FEE_TOTAL_BPS` (= 200 BPS = 2%) so the math reads as "x BPS of
+    //          the trade goes to recipient y". A constructor invariant enforces the sum.
+    uint256 internal constant FEE_TOTAL_BPS = 200;
+    uint256 public constant PRIZE_FEE_BPS = 90;
+    uint256 public constant TREASURY_FEE_BPS = 65;
+    uint256 public constant MECHANICS_FEE_BPS = 25;
+    uint256 public constant CREATOR_FEE_BPS = 20;
 
     // -------- Action codes for unlockCallback dispatch
     uint8 internal constant ACTION_COLLECT = 1;
@@ -57,6 +69,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     address public immutable override baseAsset; // WETH
     address public immutable treasury;
     address public immutable mechanics;
+    ICreatorFeeDistributor public immutable creatorFeeDistributor;
     bool public immutable tokenIsCurrency0;
     PoolKey internal _key;
     int24 public immutable tickLower;
@@ -67,7 +80,9 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     bool public override liquidated;
 
     // -------- Events / errors
-    event FeesCollected(uint256 toVault, uint256 toTreasury, uint256 toMechanics, address asset);
+    event FeesCollected(
+        uint256 toVault, uint256 toTreasury, uint256 toMechanics, uint256 toCreator, address asset
+    );
     event LiquidatedToBase(uint256 baseRecovered, uint256 tokenStranded);
     event Bought(uint256 wethIn, uint256 tokensOut);
 
@@ -99,11 +114,16 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         address baseAsset_,
         address treasury_,
         address mechanics_,
+        ICreatorFeeDistributor creatorFeeDistributor_,
         PoolKey memory key_,
         int24 tickLower_,
         int24 tickUpper_,
         bytes32 positionSalt_
     ) {
+        // Invariant: BPS slices must sum to FEE_TOTAL_BPS so the WETH split is exact.
+        require(
+            PRIZE_FEE_BPS + TREASURY_FEE_BPS + MECHANICS_FEE_BPS + CREATOR_FEE_BPS == FEE_TOTAL_BPS, "fee bps"
+        );
         poolManager = poolManager_;
         factory = factory_;
         vault = vault_;
@@ -111,6 +131,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         baseAsset = baseAsset_;
         treasury = treasury_;
         mechanics = mechanics_;
+        creatorFeeDistributor = creatorFeeDistributor_;
         _key = key_;
         tickLower = tickLower_;
         tickUpper = tickUpper_;
@@ -304,13 +325,30 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
 
     function _takeAndSplit(Currency currency, uint256 amount) internal {
         if (amount == 0) return;
-        uint256 toTreasury = (amount * TREASURY_BPS) / BPS_DENOMINATOR;
-        uint256 toMechanics = (amount * MECHANICS_BPS) / BPS_DENOMINATOR;
-        uint256 toVault = amount - toTreasury - toMechanics;
-        // Send fees directly out of the manager to recipients to skip a hop.
+        // Token-leg fee dust → vault. Splitting per-BPS across four recipients on the
+        // token-side adds bookkeeping for negligible value (the fee is denominated in the
+        // launched-token, which has no external market until a winner is picked).
+        if (Currency.unwrap(currency) != baseAsset) {
+            poolManager.take(currency, vault, amount);
+            emit FeesCollected(amount, 0, 0, 0, Currency.unwrap(currency));
+            return;
+        }
+        // WETH-leg: 4-way split per the user-aligned BPS. Vault takes whatever rounding
+        // dust falls out of the integer math so the fixed slices (treasury, mechanics,
+        // creator) are exact.
+        uint256 toTreasury = (amount * TREASURY_FEE_BPS) / FEE_TOTAL_BPS;
+        uint256 toMechanics = (amount * MECHANICS_FEE_BPS) / FEE_TOTAL_BPS;
+        uint256 toCreator = (amount * CREATOR_FEE_BPS) / FEE_TOTAL_BPS;
+        uint256 toVault = amount - toTreasury - toMechanics - toCreator;
         poolManager.take(currency, vault, toVault);
         poolManager.take(currency, treasury, toTreasury);
         poolManager.take(currency, mechanics, toMechanics);
-        emit FeesCollected(toVault, toTreasury, toMechanics, Currency.unwrap(currency));
+        if (toCreator > 0) {
+            poolManager.take(currency, address(creatorFeeDistributor), toCreator);
+            // Notify is separate from `take` so the distributor can verify the WETH
+            // actually arrived (vs. trusting a bookkeeping-only call); see notifyFee.
+            creatorFeeDistributor.notifyFee(token, toCreator);
+        }
+        emit FeesCollected(toVault, toTreasury, toMechanics, toCreator, Currency.unwrap(currency));
     }
 }
