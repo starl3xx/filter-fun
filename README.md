@@ -12,7 +12,7 @@ packages/
 ├── oracle/        Settlement + bonus payload builders (Merkle, pro-rata)
 ├── scheduler/     viem-based on-chain driver (phase, settlement, bonus arcs)
 ├── indexer/       Ponder event indexer
-├── scoring/       Composite scoring engine (volume, buyers, depth, retention)
+├── scoring/       HP engine — velocity, effective buyers, sticky liq, retention, momentum
 └── web/           Next.js 14 + wagmi v2 — claim flows live, leaderboard next
 ```
 
@@ -43,7 +43,7 @@ indexer → scoring → oracle → scheduler → contracts
 ```
 
 - **indexer** ingests `FilterLauncher`, `SeasonVault`, `FilterLpLocker`, `BonusDistributor` events into a Postgres-backed query layer (Ponder, factory pattern).
-- **scoring** consumes per-token aggregated metrics → ranked leaderboard. Composite of velocity / unique buyers / liquidity depth / retention.
+- **scoring** consumes per-token aggregated metrics → ranked leaderboard. The HP composite is velocity (decayed net buys, sybil-dampened, churn-discounted) + effective buyers (log-flattened, dust-filtered) + sticky liquidity (time-weighted, withdrawal-penalized) + retention (two-anchor) + momentum (capped). Phase-aware weights — pre-filter rewards discovery, finals rewards conviction. Mcap is intentionally **not** an input: a token with strong distributed demand beats a whale-pumped fat one.
 - **oracle** builds the on-chain payloads:
   - `buildSettlementPayload` — winner + losers + per-loser min-out floors + rollover Merkle root over `(user, share)` leaves.
   - `buildBonusPayload` — eligibility check across N snapshots (default ≥80% of rolled tokens held), pro-rata allocation by rolledAmount, Merkle root over `(user, amount)` leaves.
@@ -79,7 +79,7 @@ npm run build:contracts                    # forge build
 npm run test:contracts                     # forge test (31 tests, V4 integration included)
 npm --workspace @filter-fun/oracle test    # 30 tests
 npm --workspace @filter-fun/scheduler test # 25 tests
-npm --workspace @filter-fun/scoring test   # 6 tests
+npm --workspace @filter-fun/scoring test   # 14 tests
 npm --workspace @filter-fun/web build      # Next.js production build
 ```
 
