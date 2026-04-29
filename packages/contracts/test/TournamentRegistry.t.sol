@@ -292,46 +292,75 @@ contract TournamentRegistryTest is Test {
         }
     }
 
-    function test_RecordAnnualFinalists_RequiresExactlyFour() public {
-        _crownFourQuarterlyChampions();
-        address[] memory three = new address[](3);
-        three[0] = tokenA;
-        three[1] = tokenB;
-        three[2] = tokenC;
+    /// @notice Annual finalists are read directly from `quarterlyChampionOf[year][1..4]`.
+    ///         If any quarter for the requested year lacks a recorded champion, the call
+    ///         reverts with `WrongQuarterCount`. Replaces the old "requires exactly four"
+    ///         + "requires QUARTERLY_CHAMPION status" pair: with the entrant array gone,
+    ///         both invariants collapse to a single per-year storage check (bugbot Medium).
+    function test_RecordAnnualFinalists_RequiresAllFourQuartersFilled() public {
+        // Only 3 quarters get champions — 2026 q4 is left empty.
+        address[3] memory champs = [tokenA, tokenB, tokenC];
+        for (uint256 i = 0; i < 3; ++i) {
+            uint256 sid = i + 1;
+            address v = makeAddr(string(abi.encodePacked("vault", vm.toString(sid))));
+            launcher.setVault(sid, v);
+            vm.prank(v);
+            registry.recordWeeklyWinner(sid, champs[i]);
+
+            address[] memory ents = new address[](1);
+            ents[0] = champs[i];
+            vm.prank(oracle);
+            registry.recordQuarterlyFinalists(2026, uint8(i + 1), ents);
+            vm.prank(oracle);
+            registry.recordQuarterlyChampion(2026, uint8(i + 1), champs[i]);
+        }
+
         vm.prank(oracle);
         vm.expectRevert(TournamentRegistry.WrongQuarterCount.selector);
-        registry.recordAnnualFinalists(2026, three);
+        registry.recordAnnualFinalists(2026);
     }
 
-    function test_RecordAnnualFinalists_RequiresQuarterlyChampionStatus() public {
-        // tokenA is just a fresh address — no champion title.
-        address[] memory four = new address[](4);
-        four[0] = tokenA;
-        four[1] = tokenB;
-        four[2] = tokenC;
-        four[3] = tokenD;
+    /// @notice Regression: enrolling annual finalists for a year with NO recorded quarterly
+    ///         champions reverts even when a different year is fully populated. Prevents the
+    ///         oracle from accidentally opening an annual for the wrong calendar year — the
+    ///         entrant list is per-year by storage construction, not by oracle-supplied input.
+    function test_RecordAnnualFinalists_RejectsCrossYearChampions() public {
+        // Populate 2026's four quarters fully.
+        _crownFourQuarterlyChampions();
+        // 2027 has no quarterly champions yet.
         vm.prank(oracle);
-        vm.expectRevert(TournamentRegistry.NotEligible.selector);
-        registry.recordAnnualFinalists(2026, four);
+        vm.expectRevert(TournamentRegistry.WrongQuarterCount.selector);
+        registry.recordAnnualFinalists(2027);
     }
 
     function test_AnnualHappyPath() public {
         _crownFourQuarterlyChampions();
-        address[] memory four = new address[](4);
-        four[0] = tokenA;
-        four[1] = tokenB;
-        four[2] = tokenC;
-        four[3] = tokenD;
         vm.prank(oracle);
-        registry.recordAnnualFinalists(2026, four);
+        registry.recordAnnualFinalists(2026);
+        address[4] memory expected = [tokenA, tokenB, tokenC, tokenD];
+        address[] memory got = registry.getAnnualFinalists(2026);
+        assertEq(got.length, 4);
         for (uint256 i = 0; i < 4; ++i) {
-            assertEq(uint8(registry.statusOf(four[i])), uint8(TournamentRegistry.TokenStatus.ANNUAL_FINALIST));
+            assertEq(got[i], expected[i]);
+            assertEq(
+                uint8(registry.statusOf(expected[i])), uint8(TournamentRegistry.TokenStatus.ANNUAL_FINALIST)
+            );
+            assertTrue(registry.isAnnualFinalist(2026, expected[i]));
         }
 
         vm.prank(oracle);
         registry.recordAnnualChampion(2026, tokenA);
         assertEq(registry.annualChampionOf(2026), tokenA);
         assertEq(uint8(registry.statusOf(tokenA)), uint8(TournamentRegistry.TokenStatus.ANNUAL_CHAMPION));
+    }
+
+    function test_RecordAnnualFinalists_RejectsDouble() public {
+        _crownFourQuarterlyChampions();
+        vm.prank(oracle);
+        registry.recordAnnualFinalists(2026);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.AlreadyRecorded.selector);
+        registry.recordAnnualFinalists(2026);
     }
 
     function test_RecordAnnualChampion_RejectsNonFinalist() public {
@@ -345,13 +374,8 @@ contract TournamentRegistryTest is Test {
     ///         flag is the gate.
     function test_RecordAnnualChampion_RejectsCrossYearFinalist() public {
         _crownFourQuarterlyChampions();
-        address[] memory four = new address[](4);
-        four[0] = tokenA;
-        four[1] = tokenB;
-        four[2] = tokenC;
-        four[3] = tokenD;
         vm.prank(oracle);
-        registry.recordAnnualFinalists(2026, four);
+        registry.recordAnnualFinalists(2026);
         // tokenA is now ANNUAL_FINALIST (for 2026). Oracle attempts to crown it 2027
         // champion — must revert.
         vm.prank(oracle);

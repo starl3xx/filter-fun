@@ -204,16 +204,21 @@ contract TournamentRegistry {
 
     // ============================================================ Annual hooks (oracle)
 
-    /// @notice Oracle records the annual championship entrant list. Must be exactly 4
-    ///         quarterly champions, one per quarter of `year`, all currently
-    ///         QUARTERLY_CHAMPION. Status bumps to ANNUAL_FINALIST.
-    function recordAnnualFinalists(uint16 year, address[] calldata entrants) external onlyOracle {
-        if (entrants.length != 4) revert WrongQuarterCount();
+    /// @notice Oracle opens the annual championship for `year`. The entrant list is the 4
+    ///         registered quarterly champions of that year (`quarterlyChampionOf[year][1..4]`)
+    ///         — the registry computes it itself, no entrant array passed. This makes
+    ///         per-year validation automatic and removes the oracle's ability to enroll
+    ///         a stray QUARTERLY_CHAMPION from a different year.
+    ///
+    ///         Reverts if any of the 4 quarters lacks a recorded champion, satisfying the
+    ///         "annual requires four quarterly champions" constraint exactly.
+    function recordAnnualFinalists(uint16 year) external onlyOracle {
         if (_annualFinalists[year].length != 0) revert AlreadyRecorded();
-        for (uint256 i = 0; i < entrants.length; ++i) {
-            address t = entrants[i];
-            if (t == address(0)) revert ZeroToken();
-            if (statusOf[t] != TokenStatus.QUARTERLY_CHAMPION) revert NotEligible();
+        address[] memory entrants = new address[](4);
+        for (uint8 q = 1; q <= 4; ++q) {
+            address t = quarterlyChampionOf[year][q];
+            if (t == address(0)) revert WrongQuarterCount();
+            entrants[q - 1] = t;
             statusOf[t] = TokenStatus.ANNUAL_FINALIST;
             _annualFinalists[year].push(t);
             isAnnualFinalist[year][t] = true;
