@@ -26,10 +26,19 @@ export function useActivityFeed(maxItems = 14): FeedItem[] {
   useEffect(() => {
     setItems(Array.from({length: 8}, (_, i) => makeFeedItem(i * 13)));
 
-    const newItem = setInterval(
-      () => setItems((prev) => [makeFeedItem(0), ...prev].slice(0, maxItems)),
-      2200 + Math.random() * 1800,
-    );
+    // New items every 2.2–4.0s, *re-randomized per tick*. setInterval would
+    // freeze the delay at mount; chained setTimeout gives true per-item jitter.
+    let cancelled = false;
+    let newItemTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleNext = () => {
+      if (cancelled) return;
+      newItemTimer = setTimeout(() => {
+        setItems((prev) => [makeFeedItem(0), ...prev].slice(0, maxItems));
+        scheduleNext();
+      }, 2200 + Math.random() * 1800);
+    };
+    scheduleNext();
+
     // Tick existing items' age once per second so "12s ago" actually advances.
     // Without this every prepended item is locked at ago=0 forever.
     const ageTick = setInterval(
@@ -37,7 +46,8 @@ export function useActivityFeed(maxItems = 14): FeedItem[] {
       1000,
     );
     return () => {
-      clearInterval(newItem);
+      cancelled = true;
+      if (newItemTimer !== undefined) clearTimeout(newItemTimer);
       clearInterval(ageTick);
     };
   }, [maxItems]);

@@ -86,38 +86,48 @@ export function Leaderboard({survive, filtered, filterIn}: Props) {
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: COL_TEMPLATE,
-          gap: 10,
-          padding: "7px 18px",
-          fontSize: 9,
-          fontFamily: F.mono,
-          color: C.faint,
-          letterSpacing: "0.1em",
-          fontWeight: 700,
-          textTransform: "uppercase",
-          borderBottom: `1px solid ${C.lineSoft}`,
-        }}
-      >
-        <div>#</div>
-        <div></div>
-        <div>Token</div>
-        <div style={{textAlign: "right"}}>Mcap</div>
-        <div style={{textAlign: "right"}}>24h</div>
-        <div>HP / Score</div>
-        <div style={{textAlign: "right"}}>Trend</div>
-      </div>
-
+      {/* Both column header and rows live inside the same scroll container,
+          inside a min-width wrapper, so they stay column-aligned even when the
+          center grid column is narrower than the leaderboard's natural width
+          (1100–1240px viewports). The column header is sticky-pinned to the
+          top so it stays visible while the rows scroll vertically. */}
       <div className="ff-scroll" style={{flex: 1, overflow: "auto"}}>
-        {survive.map((t, i) => (
-          <Row key={t.ticker} token={t} rank={i + 1} />
-        ))}
-        <FilterLine filterIn={filterIn} />
-        {filtered.map((t, i) => (
-          <Row key={t.ticker} token={t} rank={survive.length + i + 1} below />
-        ))}
+        <div style={{minWidth: 640}}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: COL_TEMPLATE,
+              gap: 10,
+              padding: "7px 18px",
+              fontSize: 9,
+              fontFamily: F.mono,
+              color: C.faint,
+              letterSpacing: "0.1em",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              borderBottom: `1px solid ${C.lineSoft}`,
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
+              background: C.panel,
+            }}
+          >
+            <div>#</div>
+            <div></div>
+            <div>Token</div>
+            <div style={{textAlign: "right"}}>Mcap</div>
+            <div style={{textAlign: "right"}}>24h</div>
+            <div>HP / Score</div>
+            <div style={{textAlign: "right"}}>Trend</div>
+          </div>
+          {survive.map((t, i) => (
+            <Row key={t.ticker} token={t} rank={i + 1} />
+          ))}
+          <FilterLine filterIn={filterIn} />
+          {filtered.map((t, i) => (
+            <Row key={t.ticker} token={t} rank={survive.length + i + 1} below />
+          ))}
+        </div>
       </div>
     </section>
   );
