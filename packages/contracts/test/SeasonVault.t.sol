@@ -10,7 +10,8 @@ import {
     IBonusFunding,
     IPOLManager,
     ICreatorRegistry,
-    ICreatorFeeDistributor
+    ICreatorFeeDistributor,
+    ITournamentRegistry
 } from "../src/SeasonVault.sol";
 import {SeasonPOLReserve} from "../src/SeasonPOLReserve.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
@@ -21,6 +22,7 @@ import {MockLauncherView} from "./mocks/MockLauncherView.sol";
 import {MockCreatorRegistry} from "./mocks/MockCreatorRegistry.sol";
 import {MockCreatorFeeDistributor} from "./mocks/MockCreatorFeeDistributor.sol";
 import {MockPOLManager} from "./mocks/MockPOLManager.sol";
+import {MockTournamentRegistry} from "./mocks/MockTournamentRegistry.sol";
 
 /// @notice Covers the user-aligned settlement model: BPS split per filter event, POL
 ///         accumulation across multiple events, one-shot final deployment, and rollover claims.
@@ -32,6 +34,7 @@ contract SeasonVaultTest is Test {
     MockPOLManager polManager;
     MockCreatorRegistry creatorRegistry;
     MockCreatorFeeDistributor creatorFeeDistributor;
+    MockTournamentRegistry tournamentRegistry;
     SeasonVault vault;
 
     address oracle = address(0xCAFE);
@@ -63,6 +66,7 @@ contract SeasonVaultTest is Test {
         polManager.setLiquidityReturn(uint128(123)); // arbitrary; only equality checks use it
         creatorRegistry = new MockCreatorRegistry();
         creatorFeeDistributor = new MockCreatorFeeDistributor();
+        tournamentRegistry = new MockTournamentRegistry();
         vault = new SeasonVault(
             address(launcher),
             1,
@@ -74,7 +78,8 @@ contract SeasonVaultTest is Test {
             IBonusFunding(address(bonus)),
             14 days,
             ICreatorRegistry(address(creatorRegistry)),
-            ICreatorFeeDistributor(address(creatorFeeDistributor))
+            ICreatorFeeDistributor(address(creatorFeeDistributor)),
+            ITournamentRegistry(address(tournamentRegistry))
         );
         launcher.setVault(1, address(vault));
 
@@ -324,6 +329,27 @@ contract SeasonVaultTest is Test {
         // Other tokens never touched.
         assertEq(creatorFeeDistributor.markFilteredCount(loserC), 0);
         assertEq(creatorFeeDistributor.markFilteredCount(winnerToken), 0);
+    }
+
+    /// @notice Tournament registry is notified on every filter event (status → FILTERED) and
+    ///         on submitWinner (status → WEEKLY_WINNER). Pins the multi-timescale qualification
+    ///         hook into the existing weekly settlement path.
+    function test_TournamentRegistry_NotifiedOnFilterAndWinner() public {
+        creatorRegistry.set(winnerToken, winnerCreator);
+        address[] memory cohort = new address[](2);
+        cohort[0] = loserA;
+        cohort[1] = loserB;
+        _filter(cohort);
+        assertEq(tournamentRegistry.filteredCount(loserA), 1);
+        assertEq(tournamentRegistry.filteredCount(loserB), 1);
+        assertEq(tournamentRegistry.filteredCount(loserC), 0);
+        assertEq(tournamentRegistry.winnerCallCount(), 0, "no winner recorded yet");
+
+        _submit(bytes32(0));
+        assertEq(tournamentRegistry.winnerCallCount(), 1, "winner recorded at submit");
+        (uint256 sid, address w) = tournamentRegistry.lastWinner();
+        assertEq(sid, 1);
+        assertEq(w, winnerToken);
     }
 
     /// @notice With a creator registered for the winner, the bounty pays out to that creator

@@ -1,0 +1,249 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+interface ILauncherViewTR {
+    function vaultOf(uint256 seasonId) external view returns (address);
+}
+
+/// @title TournamentRegistry
+/// @notice Singleton metadata layer for filter.fun's multi-timescale championship structure:
+///
+///         Weekly seasons → Quarterly Filter Bowl → Annual Championship
+///
+///         This contract is the **registry only** — it tracks token status (ACTIVE / FILTERED /
+///         WEEKLY_WINNER / QUARTERLY_FINALIST / QUARTERLY_CHAMPION / ANNUAL_FINALIST /
+///         ANNUAL_CHAMPION) plus the historical lists the oracle/UI need to determine
+///         qualification.
+///
+///         **Tournament settlement is NOT in this contract.** Quarterly + annual pot
+///         accounting, distribution (45/25/10/10/10), POL deployment, etc. live in a separate
+///         TournamentVault (next PR). The deliberate split:
+///         - this contract is read-mostly + cheap to write to (no fund movement)
+///         - settlement contracts can read from here without the registry having to know
+///           about pots, oracles, or distribution arithmetic
+///         - **organic LP on weekly winners is never touched by this contract**, satisfying
+///           the user-aligned "tournaments do not unwind established markets" principle. The
+///           registry just labels.
+///
+///         Auth model:
+///         - `recordWeeklyWinner` / `markFiltered` are gated to the launcher's registered
+///           SeasonVault for the given seasonId (same pattern as POLManager.deployPOL).
+///         - `recordQuarterlyFinalists` / `recordQuarterlyChampion` /
+///           `recordAnnualFinalists` / `recordAnnualChampion` are gated to the oracle. They
+///           validate that each entrant has the prerequisite status (e.g. quarterly finalists
+///           must be WEEKLY_WINNER first). Tournament settlement contracts will be the
+///           on-chain caller in a follow-up PR; in genesis the oracle multisig calls directly.
+contract TournamentRegistry {
+    enum CompetitionLevel {
+        WEEKLY,
+        QUARTERLY,
+        ANNUAL
+    }
+
+    /// @dev Status is monotonic in the "best title earned" direction:
+    ///      ACTIVE < FILTERED (terminal failure) and ACTIVE < WEEKLY_WINNER < QUARTERLY_FINALIST
+    ///      < QUARTERLY_CHAMPION < ANNUAL_FINALIST < ANNUAL_CHAMPION. Once a token is FILTERED
+    ///      it cannot be elevated; once it has a winning title it can't regress to FILTERED.
+    enum TokenStatus {
+        ACTIVE,
+        FILTERED,
+        WEEKLY_WINNER,
+        QUARTERLY_FINALIST,
+        QUARTERLY_CHAMPION,
+        ANNUAL_FINALIST,
+        ANNUAL_CHAMPION
+    }
+
+    address public immutable launcher;
+    address public immutable oracle;
+
+    /// @notice Per-token status. Defaults to ACTIVE (zero) for any token never seen — caller
+    ///         disambiguates via the launcher's `entryOf` / `creatorRegistry` if they need to
+    ///         distinguish "never registered" from "active".
+    mapping(address => TokenStatus) public statusOf;
+
+    /// @notice Per-season weekly-winner record. Set once when the SeasonVault calls
+    ///         `recordWeeklyWinner` from inside `submitWinner`. Zero address for seasons that
+    ///         haven't finalized yet.
+    mapping(uint256 => address) public weeklyWinnerOf;
+    /// @notice All weekly winners ever, in chronological order (push order). The oracle reads
+    ///         this off-chain to compute "weekly winners from quarter X" — no need to bucket
+    ///         on-chain since the oracle already signs the entrant list.
+    address[] internal _weeklyWinners;
+
+    /// @notice Quarterly Filter Bowl entrants per (year, quarter). Recorded when the oracle
+    ///         opens a quarterly competition. Year is the calendar year, quarter is 1-4.
+    mapping(uint16 => mapping(uint8 => address[])) internal _quarterlyFinalists;
+    mapping(uint16 => mapping(uint8 => address)) public quarterlyChampionOf;
+
+    /// @notice Annual Championship entrants per year. Recorded when the oracle opens an annual
+    ///         competition. Must contain exactly 4 quarterly champions for that year.
+    mapping(uint16 => address[]) internal _annualFinalists;
+    mapping(uint16 => address) public annualChampionOf;
+
+    // -------- Events
+    event TokenFiltered(uint256 indexed seasonId, address indexed token);
+    event WeeklyWinnerRecorded(uint256 indexed seasonId, address indexed winner);
+    event QuarterlyFinalistsRecorded(uint16 indexed year, uint8 indexed quarter, address[] entrants);
+    event QuarterlyChampionRecorded(uint16 indexed year, uint8 indexed quarter, address indexed champion);
+    event AnnualFinalistsRecorded(uint16 indexed year, address[] entrants);
+    event AnnualChampionRecorded(uint16 indexed year, address indexed champion);
+
+    // -------- Errors
+    error NotRegisteredVault();
+    error NotOracle();
+    error ZeroToken();
+    error AlreadyFinalized();
+    error NotEligible();
+    error WrongQuarterCount();
+    error EmptyEntrants();
+    error AlreadyRecorded();
+
+    modifier onlyOracle() {
+        if (msg.sender != oracle) revert NotOracle();
+        _;
+    }
+
+    constructor(address launcher_, address oracle_) {
+        launcher = launcher_;
+        oracle = oracle_;
+    }
+
+    // ============================================================ Weekly hooks (SeasonVault)
+
+    /// @notice Called by the season's registered SeasonVault inside `submitWinner` to mark the
+    ///         winner with WEEKLY_WINNER status (qualifying it for the next quarterly Filter
+    ///         Bowl). Auth: msg.sender == launcher.vaultOf(seasonId).
+    ///
+    ///         Idempotent per season — reverts if already recorded so a misbehaving vault
+    ///         can't double-credit.
+    function recordWeeklyWinner(uint256 seasonId, address token) external {
+        if (token == address(0)) revert ZeroToken();
+        if (msg.sender != ILauncherViewTR(launcher).vaultOf(seasonId)) revert NotRegisteredVault();
+        if (weeklyWinnerOf[seasonId] != address(0)) revert AlreadyRecorded();
+
+        weeklyWinnerOf[seasonId] = token;
+        _weeklyWinners.push(token);
+        // Don't downgrade tokens that already have a higher title (e.g. last quarter's
+        // champion couldn't realistically re-enter as a token, but defend the invariant).
+        if (statusOf[token] == TokenStatus.ACTIVE) {
+            statusOf[token] = TokenStatus.WEEKLY_WINNER;
+        }
+        emit WeeklyWinnerRecorded(seasonId, token);
+    }
+
+    /// @notice Called by the season's registered SeasonVault inside `processFilterEvent` for
+    ///         every loser. Marks status as FILTERED. Auth: msg.sender == launcher.vaultOf.
+    ///
+    ///         No-op if the token already has a non-ACTIVE status (e.g. a token that won a
+    ///         prior week and was somehow re-launched — shouldn't happen, defensive only).
+    function markFiltered(uint256 seasonId, address token) external {
+        if (token == address(0)) revert ZeroToken();
+        if (msg.sender != ILauncherViewTR(launcher).vaultOf(seasonId)) revert NotRegisteredVault();
+        if (statusOf[token] != TokenStatus.ACTIVE) return;
+        statusOf[token] = TokenStatus.FILTERED;
+        emit TokenFiltered(seasonId, token);
+    }
+
+    // ============================================================ Quarterly hooks (oracle)
+
+    /// @notice Oracle records the quarterly Filter Bowl entrant list. Each entrant must
+    ///         currently be WEEKLY_WINNER (so quarterly finalists can only come from weekly
+    ///         winners — the qualification ladder). Status is bumped to QUARTERLY_FINALIST.
+    function recordQuarterlyFinalists(uint16 year, uint8 quarter, address[] calldata entrants)
+        external
+        onlyOracle
+    {
+        if (entrants.length == 0) revert EmptyEntrants();
+        if (_quarterlyFinalists[year][quarter].length != 0) revert AlreadyRecorded();
+        for (uint256 i = 0; i < entrants.length; ++i) {
+            address t = entrants[i];
+            if (t == address(0)) revert ZeroToken();
+            if (statusOf[t] != TokenStatus.WEEKLY_WINNER) revert NotEligible();
+            statusOf[t] = TokenStatus.QUARTERLY_FINALIST;
+            _quarterlyFinalists[year][quarter].push(t);
+        }
+        emit QuarterlyFinalistsRecorded(year, quarter, entrants);
+    }
+
+    /// @notice Oracle records the quarterly champion. Must be a registered finalist for that
+    ///         (year, quarter). Status bumps to QUARTERLY_CHAMPION; the runners-up retain
+    ///         QUARTERLY_FINALIST (terminal — they can't re-enter unless they win a future
+    ///         weekly, which the registry itself permits).
+    function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external onlyOracle {
+        if (champion == address(0)) revert ZeroToken();
+        if (quarterlyChampionOf[year][quarter] != address(0)) revert AlreadyFinalized();
+        if (statusOf[champion] != TokenStatus.QUARTERLY_FINALIST) revert NotEligible();
+        quarterlyChampionOf[year][quarter] = champion;
+        statusOf[champion] = TokenStatus.QUARTERLY_CHAMPION;
+        emit QuarterlyChampionRecorded(year, quarter, champion);
+    }
+
+    // ============================================================ Annual hooks (oracle)
+
+    /// @notice Oracle records the annual championship entrant list. Must be exactly 4
+    ///         quarterly champions, one per quarter of `year`, all currently
+    ///         QUARTERLY_CHAMPION. Status bumps to ANNUAL_FINALIST.
+    function recordAnnualFinalists(uint16 year, address[] calldata entrants) external onlyOracle {
+        if (entrants.length != 4) revert WrongQuarterCount();
+        if (_annualFinalists[year].length != 0) revert AlreadyRecorded();
+        for (uint256 i = 0; i < entrants.length; ++i) {
+            address t = entrants[i];
+            if (t == address(0)) revert ZeroToken();
+            if (statusOf[t] != TokenStatus.QUARTERLY_CHAMPION) revert NotEligible();
+            statusOf[t] = TokenStatus.ANNUAL_FINALIST;
+            _annualFinalists[year].push(t);
+        }
+        emit AnnualFinalistsRecorded(year, entrants);
+    }
+
+    /// @notice Oracle records the annual champion. Must be a registered annual finalist.
+    function recordAnnualChampion(uint16 year, address champion) external onlyOracle {
+        if (champion == address(0)) revert ZeroToken();
+        if (annualChampionOf[year] != address(0)) revert AlreadyFinalized();
+        if (statusOf[champion] != TokenStatus.ANNUAL_FINALIST) revert NotEligible();
+        annualChampionOf[year] = champion;
+        statusOf[champion] = TokenStatus.ANNUAL_CHAMPION;
+        emit AnnualChampionRecorded(year, champion);
+    }
+
+    // ============================================================ Views
+
+    /// @notice All weekly winners ever recorded, in chronological order. Off-chain consumers
+    ///         use this to compute "weekly winners in quarter X" and feed
+    ///         `recordQuarterlyFinalists`.
+    function getWeeklyWinners() external view returns (address[] memory) {
+        return _weeklyWinners;
+    }
+
+    function weeklyWinnerCount() external view returns (uint256) {
+        return _weeklyWinners.length;
+    }
+
+    /// @notice Quarterly Filter Bowl entrants for (year, quarter). Empty if not yet opened.
+    function getQuarterlyFinalists(uint16 year, uint8 quarter) external view returns (address[] memory) {
+        return _quarterlyFinalists[year][quarter];
+    }
+
+    /// @notice Annual Championship entrants for `year`. Empty if not yet opened.
+    function getAnnualFinalists(uint16 year) external view returns (address[] memory) {
+        return _annualFinalists[year];
+    }
+
+    /// @notice True iff `token` qualifies for `level`. Mirrors the qualification ladder:
+    ///         ACTIVE → can compete at WEEKLY (always — weekly is open registration via the
+    ///         launcher); WEEKLY_WINNER → qualifies for QUARTERLY; QUARTERLY_CHAMPION →
+    ///         qualifies for ANNUAL.
+    function qualifiedFor(address token, CompetitionLevel level) external view returns (bool) {
+        TokenStatus s = statusOf[token];
+        if (level == CompetitionLevel.WEEKLY) {
+            // Weekly is open via the launcher; this contract's view is just "not filtered".
+            return s == TokenStatus.ACTIVE;
+        }
+        if (level == CompetitionLevel.QUARTERLY) {
+            return s == TokenStatus.WEEKLY_WINNER;
+        }
+        // ANNUAL
+        return s == TokenStatus.QUARTERLY_CHAMPION;
+    }
+}

@@ -35,6 +35,26 @@ The winner receives:
 
 > **Most get filtered. One gets funded. 🔻**
 
+## Championship Structure
+
+filter.fun runs on three escalating timescales:
+
+### Weekly Seasons
+Every week, tokens compete. Most get filtered. One gets funded. The weekly winner qualifies for the quarterly Filter Bowl.
+
+### Quarterly Filter Bowl
+At the end of each quarter, that quarter's weekly winners compete against each other. The same filter logic applies: finalists compete, weaker winners are filtered, tournament liquidity accumulates, one quarterly champion gets funded. Quarterly champions qualify for the annual championship.
+
+### Annual Championship
+After four quarterly champions exist, they compete in the annual championship. One token becomes the annual champion.
+
+### Important
+**Championship tournaments do not automatically destroy organic liquidity from established tokens.** Quarterly + annual settlement applies to tournament-controlled liquidity, reserves, and eligible allocations only — entry stakes, fee shares, and protocol-seeded prize pools — never the organic LP that holders are trading against. This protects existing winner markets while still allowing capital to consolidate into champions.
+
+> Weekly creates winners. Quarterly creates assets. Annual creates legends.
+
+The metadata layer for this ladder lives in `TournamentRegistry`. Every weekly settlement automatically marks the winner as `WEEKLY_WINNER` and every filter event marks losers as `FILTERED`. The oracle records quarterly + annual finalists / champions. Tournament settlement contracts (TournamentVault, championship pots) are scaffolded in follow-up PRs — the registry is the source of truth they read from.
+
 ## Repo layout
 
 ```
@@ -66,6 +86,7 @@ Each package has its own README. Cross-package contracts are intentional: the or
 | `BonusDistributor`      | 14-day hold-bonus payout via multi-snapshot Merkle roots posted by the oracle.                    |
 | `CreatorRegistry`       | Singleton (token → creator + launchedAt). Permanent record set by the launcher at launch.         |
 | `CreatorFeeDistributor` | Singleton sink for the 0.20% creator slice of every swap. 72h eligibility, filter-aware.          |
+| `TournamentRegistry`    | Singleton metadata layer. Per-token status across weekly → quarterly → annual ladder.            |
 | `TreasuryTimelock`      | OZ `TimelockController` on the treasury cut. 48h delay.                                           |
 
 All settlement-side accounting is **WETH**: pot, treasury, mechanics, bonus reserve, rollover all denominated and held in WETH.
