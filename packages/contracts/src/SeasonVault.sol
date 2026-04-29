@@ -129,6 +129,7 @@ contract SeasonVault is ReentrancyGuard {
     error LengthMismatch();
     error EmptyEvent();
     error BadWinner();
+    error BadLoser();
     error WinnerWasFiltered();
     error ZeroShares();
     error AlreadyClaimed();
@@ -193,7 +194,7 @@ contract SeasonVault is ReentrancyGuard {
 
         for (uint256 i = 0; i < losers_.length; ++i) {
             address t = losers_[i];
-            if (t == address(0)) revert BadWinner();
+            if (t == address(0)) revert BadLoser();
             if (liquidated[t]) revert AlreadyLiquidated();
             liquidated[t] = true;
             _losers.push(t);
