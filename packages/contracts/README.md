@@ -68,8 +68,9 @@ forge test --gas-report
 ## Deploy
 
 ```sh
-# 1. Mine the FilterHook CREATE2 salt for your deployer EOA.
-DEPLOYER=$(cast wallet address $PRIVATE_KEY) forge script script/MineHookSalt.s.sol -vv
+# 1. Mine the FilterHook CREATE2 salt. Same salt on every machine — the salt is determined
+#    by FilterHook's creation code and Foundry's canonical CREATE2 factory address only.
+forge script script/MineHookSalt.s.sol -vv
 
 # 2. Export the printed HOOK_SALT, then run the genesis deploy.
 export HOOK_SALT=0x...
@@ -79,4 +80,4 @@ forge script script/DeployGenesis.s.sol --rpc-url $BASE_RPC_URL --broadcast --ve
 forge script script/LaunchFilterToken.s.sol --rpc-url $BASE_RPC_URL --broadcast
 ```
 
-V4 routes hook calls based on the lower 14 bits of the hook address. `FilterHook` requires `BEFORE_ADD_LIQUIDITY` (1<<11) | `BEFORE_REMOVE_LIQUIDITY` (1<<9) = `0xA00`. `MineHookSalt` brute-forces the CREATE2 salt that lands the hook at a matching address; deterministic per `DEPLOYER` + creation-code, so the same EOA always gets the same salt.
+V4 routes hook calls based on the lower 14 bits of the hook address. `FilterHook` requires `BEFORE_ADD_LIQUIDITY` (1<<11) | `BEFORE_REMOVE_LIQUIDITY` (1<<9) = `0xA00`. `MineHookSalt` brute-forces the CREATE2 salt that lands the hook at a matching address. Under `vm.broadcast`, Foundry routes `new Contract{salt: ...}()` through the Deterministic Deployer Proxy at `0x4e59b44847b379578588920cA78FbF26c0B4956C`, so the salt is mined against that — not the operator's EOA — and is therefore identical across machines.

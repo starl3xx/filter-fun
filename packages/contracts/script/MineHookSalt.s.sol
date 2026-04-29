@@ -12,23 +12,37 @@ import {HookMiner} from "../src/libraries/HookMiner.sol";
 ///         land at an address satisfying `addr & 0x3FFF == 0xA00` (BEFORE_ADD_LIQUIDITY |
 ///         BEFORE_REMOVE_LIQUIDITY).
 ///
-///         Usage:
-///             DEPLOYER=0x... forge script script/MineHookSalt.s.sol -vv
+///         IMPORTANT — CREATE2 deployer:
+///         Under `vm.startBroadcast()`, Foundry routes `new Contract{salt: ...}()` through
+///         the canonical Deterministic Deployer Proxy at
+///         `0x4e59b44847b379578588920ca78fbf26c0b4956c`, NOT the broadcasting EOA. So the
+///         salt has to be mined against the DDP, not the operator's address. Mining against
+///         the EOA produces a salt that lands at a different address at broadcast time and
+///         the deploy reverts on the hook flag-bit check.
 ///
-///         Output: copy `HOOK_SALT` and `HOOK_ADDRESS` into the env you'll pass to
-///         `DeployGenesis`. Salt is determined by deployer + creation-code, so re-running
-///         locally with the same DEPLOYER yields the same salt deterministically.
+///         (The integration tests use `address(this)` because they construct the hook
+///         directly without broadcast; that's the single-process path, deployer == caller.)
+///
+///         Usage:
+///             forge script script/MineHookSalt.s.sol -vv
+///
+///         Output: copy `HOOK_SALT` into the env that runs `DeployGenesis`. The salt is
+///         determined by `(creationCode, deployer=DDP)` only, so it's stable across machines
+///         and reproducible — no per-operator mining.
 contract MineHookSalt is Script {
+    /// @dev Foundry's canonical CREATE2 factory. All `vm.broadcast`'d CREATE2 deployments go
+    ///      through this address as the on-chain caller, regardless of the EOA broadcasting.
+    address internal constant DETERMINISTIC_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+
     function run() external view {
-        address deployer = vm.envAddress("DEPLOYER");
-
         bytes memory creationCode = type(FilterHook).creationCode;
-        (address hookAddress, bytes32 salt) = HookMiner.find(deployer, uint160(0xA00), creationCode);
+        (address hookAddress, bytes32 salt) =
+            HookMiner.find(DETERMINISTIC_DEPLOYER, uint160(0xA00), creationCode);
 
-        console2.log("Deployer:    ", deployer);
-        console2.log("Hook addr:   ", hookAddress);
-        console2.log("Flag bits:   ", uint160(hookAddress) & 0x3FFF);
+        console2.log("CREATE2 deployer:", DETERMINISTIC_DEPLOYER);
+        console2.log("Hook addr:       ", hookAddress);
+        console2.log("Flag bits:       ", uint160(hookAddress) & 0x3FFF);
         console2.logBytes32(salt);
-        console2.log(unicode"--- export this into the env that runs DeployGenesis ↑ ---");
+        console2.log(unicode"--- export HOOK_SALT=<bytes32 above> for DeployGenesis ↑ ---");
     }
 }
