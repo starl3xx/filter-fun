@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 interface ILauncherViewTR {
     function vaultOf(uint256 seasonId) external view returns (address);
     function oracle() external view returns (address);
+    function tournamentVault() external view returns (address);
 }
 
 /// @title TournamentRegistry
@@ -99,6 +100,9 @@ contract TournamentRegistry {
     // -------- Errors
     error NotRegisteredVault();
     error NotOracle();
+    /// @dev Distinct from `NotOracle` so off-chain decoders / incident response can tell
+    ///      a missing oracle multisig from a missing TournamentVault wiring.
+    error NotTournamentVault();
     error ZeroToken();
     error AlreadyFinalized();
     error NotEligible();
@@ -193,13 +197,25 @@ contract TournamentRegistry {
         emit QuarterlyFinalistsRecorded(year, quarter, entrants);
     }
 
-    /// @notice Oracle records the quarterly champion. Must be a registered finalist for that
+    /// @notice Records the quarterly champion. Must be a registered finalist for that
     ///         specific (year, quarter) — verified via `isQuarterlyFinalist`, not just by
     ///         global status. The membership flag is necessary because a Q1 runner-up retains
     ///         QUARTERLY_FINALIST status indefinitely; a status-only check would let it be
     ///         crowned champion of a different quarter where it never competed. Status bumps
     ///         to QUARTERLY_CHAMPION on success.
-    function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external onlyOracle {
+    ///
+    ///         Auth: **only** the launcher's registered TournamentVault. The vault is the
+    ///         on-chain caller during quarterly Filter Bowl settlement — it stamps the
+    ///         champion atomically as part of `submitQuarterlyWinner`, so settlement and
+    ///         status update can never drift apart.
+    ///
+    ///         An earlier draft also accepted the oracle as a direct caller. That path is
+    ///         removed: a one-shot oracle call here would set `quarterlyChampionOf[year][q]`
+    ///         and cause the vault's later `submitQuarterlyWinner` to revert with
+    ///         `AlreadyFinalized` — permanently locking that tournament's funded WETH
+    ///         (vault has no sweep / rescue path). Vault-only is the safe shape.
+    function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external {
+        if (msg.sender != ILauncherViewTR(launcher).tournamentVault()) revert NotTournamentVault();
         if (quarter == 0 || quarter > 4) revert BadQuarter();
         if (champion == address(0)) revert ZeroToken();
         if (quarterlyChampionOf[year][quarter] != address(0)) revert AlreadyFinalized();

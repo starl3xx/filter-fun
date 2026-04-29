@@ -5,6 +5,7 @@ interface ILauncherView {
     function lockerOf(uint256 seasonId, address token) external view returns (address);
     function vaultOf(uint256 seasonId) external view returns (address);
     function oracle() external view returns (address);
+    function tournamentVault() external view returns (address);
 }
 
 /// @notice Stand-in for `FilterLauncher` that exposes the lookups `SeasonVault`, `POLVault`,
@@ -14,6 +15,7 @@ contract MockLauncherView is ILauncherView {
     mapping(uint256 => mapping(address => address)) internal _locker;
     mapping(uint256 => address) internal _vault;
     address internal _oracle;
+    address internal _tournamentVault;
 
     function setLocker(uint256 seasonId, address token, address locker) external {
         _locker[seasonId][token] = locker;
@@ -27,6 +29,10 @@ contract MockLauncherView is ILauncherView {
         _oracle = oracle_;
     }
 
+    function setTournamentVault(address tournamentVault_) external {
+        _tournamentVault = tournamentVault_;
+    }
+
     function lockerOf(uint256 seasonId, address token) external view override returns (address) {
         return _locker[seasonId][token];
     }
@@ -37,5 +43,9 @@ contract MockLauncherView is ILauncherView {
 
     function oracle() external view override returns (address) {
         return _oracle;
+    }
+
+    function tournamentVault() external view override returns (address) {
+        return _tournamentVault;
     }
 }
