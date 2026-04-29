@@ -68,6 +68,22 @@ const payload = buildBonusPayload({
 
 Eligibility is `min(balance across snapshots) ≥ thresholdBps × rolledAmount / 10_000`. Allocation among eligible holders is pro-rata by `rolledAmount`. Leaves are `keccak256(abi.encodePacked(user, amount))` — matches `BonusDistributor.claim`.
 
+## Publishing claim entries
+
+Both payload builders return Merkle trees keyed by user. To publish per-user JSON for the web app's claim flow, use the publication helpers:
+
+```ts
+import {splitSettlementForPublication, splitBonusForPublication} from "@filter-fun/oracle";
+
+const rolloverEntries = splitSettlementForPublication(settlementPayload, vaultAddress, seasonId);
+//   → {"0xalice…": {seasonId, vault, share, proof}, "0xbob…": {…}, …}
+
+const bonusEntries = splitBonusForPublication(bonusPayload, distributorAddress, seasonId);
+//   → {"0xalice…": {seasonId, distributor, amount, proof}, …}
+```
+
+Bigints serialize as decimal strings (JSON has no native bigint). Keys are lowercase addresses; the web app's claim form parses these directly.
+
 ## Tests
 
 ```sh

@@ -12,3 +12,5 @@ export type {
   SettlementPayload,
 } from "./types.js";
 export type {BonusEntry, BonusInputs, BonusPayload} from "./bonus.js";
+export {splitBonusForPublication, splitSettlementForPublication} from "./publish.js";
+export type {BonusClaimEntry, RolloverClaimEntry} from "./publish.js";
