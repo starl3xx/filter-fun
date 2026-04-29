@@ -4,6 +4,16 @@ const nextConfig = {
   // Workspace packages compile from source rather than via prebuilt dist; tell Next to
   // run them through swc so it doesn't choke on TS imports across package boundaries.
   transpilePackages: ["@filter-fun/oracle", "@filter-fun/scheduler"],
+  // Workspace packages use NodeNext-style ".js" import specifiers that resolve to .ts
+  // sources. Without this, webpack errors with "Can't resolve './foo.js'" because the
+  // physical file is foo.ts. Standard pattern for ESM TS in monorepos.
+  webpack(config) {
+    config.resolve.extensionAlias = {
+      ".js": [".js", ".ts", ".tsx"],
+      ".mjs": [".mjs", ".mts"],
+    };
+    return config;
+  },
 };
 
 export default nextConfig;
