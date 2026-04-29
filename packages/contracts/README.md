@@ -68,8 +68,15 @@ forge test --gas-report
 ## Deploy
 
 ```sh
+# 1. Mine the FilterHook CREATE2 salt for your deployer EOA.
+DEPLOYER=$(cast wallet address $PRIVATE_KEY) forge script script/MineHookSalt.s.sol -vv
+
+# 2. Export the printed HOOK_SALT, then run the genesis deploy.
+export HOOK_SALT=0x...
 forge script script/DeployGenesis.s.sol --rpc-url $BASE_RPC_URL --broadcast --verify
+
+# 3. Launch $FILTER as the protocol's seed token.
 forge script script/LaunchFilterToken.s.sol --rpc-url $BASE_RPC_URL --broadcast
 ```
 
-`DeployGenesis` reads a pre-mined `HOOK_SALT` from the environment — the `FilterHook` address must encode the `BEFORE_ADD_LIQUIDITY` (1<<11) and `BEFORE_REMOVE_LIQUIDITY` (1<<9) flag bits (combined: lower-14-bit pattern `0xA00`). Use the `HookMiner` library (shared with the test suite) to compute the salt offline, then pass it via `HOOK_SALT`. A `MineHookSalt.s.sol` convenience wrapper ships in a follow-up.
+V4 routes hook calls based on the lower 14 bits of the hook address. `FilterHook` requires `BEFORE_ADD_LIQUIDITY` (1<<11) | `BEFORE_REMOVE_LIQUIDITY` (1<<9) = `0xA00`. `MineHookSalt` brute-forces the CREATE2 salt that lands the hook at a matching address; deterministic per `DEPLOYER` + creation-code, so the same EOA always gets the same salt.

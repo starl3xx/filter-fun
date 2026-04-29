@@ -21,7 +21,7 @@ import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
-import {HookMiner} from "../utils/HookMiner.sol";
+import {HookMiner} from "../../src/libraries/HookMiner.sol";
 import {MiniMerkle} from "../utils/MiniMerkle.sol";
 
 /// @notice Multi-loser counterpart to `V4Settlement`. A single-loser path passes through the

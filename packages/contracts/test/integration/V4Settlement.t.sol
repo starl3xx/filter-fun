@@ -21,7 +21,7 @@ import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
-import {HookMiner} from "../utils/HookMiner.sol";
+import {HookMiner} from "../../src/libraries/HookMiner.sol";
 
 /// @notice End-to-end V4-native settlement. Spins up a real PoolManager, deploys two tokens,
 ///         drives WETH into both via swaps, and runs `submitSettlement → liquidate → finalize

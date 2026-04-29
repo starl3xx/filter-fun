@@ -25,7 +25,7 @@ import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
-import {HookMiner} from "../utils/HookMiner.sol";
+import {HookMiner} from "../../src/libraries/HookMiner.sol";
 
 /// @notice End-to-end V4 integration: spins up a real PoolManager, mines the hook salt,
 ///         deploys the full filter.fun suite, and exercises the deployment + LP + swap +
