@@ -83,6 +83,23 @@ contract TournamentRegistryTest is Test {
         assertEq(registry.weeklyWinnerCount(), 2);
     }
 
+    /// @notice FILTERED is terminal. A token that's been filtered cannot later be recorded as
+    ///         a weekly winner — registry rejects to keep its mappings + array state
+    ///         consistent with the qualification view (bugbot Low #3).
+    function test_RecordWeeklyWinner_RejectsFilteredToken() public {
+        vm.prank(realVault);
+        registry.markFiltered(SEASON, tokenA);
+        // Open a second season; same token cannot win.
+        address vault2 = makeAddr("vault2");
+        launcher.setVault(2, vault2);
+        vm.prank(vault2);
+        vm.expectRevert(TournamentRegistry.NotEligible.selector);
+        registry.recordWeeklyWinner(2, tokenA);
+        // Mappings + array stay clean.
+        assertEq(registry.weeklyWinnerOf(2), address(0));
+        assertEq(registry.weeklyWinnerCount(), 0);
+    }
+
     /// @notice A token that already holds a higher title (e.g. the same address somehow won
     ///         both a weekly and is currently a quarterly finalist) keeps its better status.
     ///         Defensive — shouldn't actually happen in practice.

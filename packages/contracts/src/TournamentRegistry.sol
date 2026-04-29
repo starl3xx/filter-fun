@@ -135,6 +135,12 @@ contract TournamentRegistry {
         if (token == address(0)) revert ZeroToken();
         if (msg.sender != ILauncherViewTR(launcher).vaultOf(seasonId)) revert NotRegisteredVault();
         if (weeklyWinnerOf[seasonId] != address(0)) revert AlreadyRecorded();
+        // FILTERED is terminal: a token that's been filtered cannot later be recorded as a
+        // weekly winner. Without this, `_weeklyWinners` and `weeklyWinnerOf` would list a
+        // token that `qualifiedFor(., QUARTERLY)` reports as ineligible (state inconsistent).
+        // Practically unreachable today — fresh ERC-20s are deployed per season — but the
+        // registry shouldn't trust upstream for the invariant.
+        if (statusOf[token] == TokenStatus.FILTERED) revert NotEligible();
 
         weeklyWinnerOf[seasonId] = token;
         _weeklyWinners.push(token);
