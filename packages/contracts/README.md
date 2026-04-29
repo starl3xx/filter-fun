@@ -21,18 +21,20 @@ Plus `FilterToken` (the ERC-20 deployed for every launch).
 ## Allocation policy at settlement
 
 ```
-35% rollover  → buy winner tokens, distribute via Merkle
-15% bonus     → BonusDistributor reserve (14-day hold bonus)
+35% rollover  → buy winner tokens, distribute via Merkle (share-based)
+15% bonus     → BonusDistributor WETH reserve (14-day hold bonus)
 20% POL       → buy winner tokens, retain in protocol-owned wallet
-20% treasury  → USDC to TreasuryTimelock
-10% mechanics → USDC to events/missions wallet
+20% treasury  → WETH to TreasuryTimelock
+10% mechanics → WETH to events/missions wallet
 ────────────────
 100%
 ```
 
+All settlement-side accounting is WETH: tokens are paired against WETH at launch, and liquidations recover WETH from the pool. Stable-denomination accounting (e.g. USDC) was considered and rejected — it would force a swap leg per liquidation.
+
 ## Trust model
 
-- Oracle (2-of-3 multisig) submits per-season settlement payloads: winner, losers, per-loser USDC `minOut` floors, rollover Merkle root.
+- Oracle (2-of-3 multisig) submits per-season settlement payloads: winner, losers, per-loser WETH `minOut` floors, rollover Merkle root.
 - 24h timelock on settlement payloads (out of contract scope; enforced via `liquidationDeadline`).
 - Off-chain scoring algorithm + inputs published before each season opens. Trust comes from reproducibility, not on-chain verification.
 - Memecoin game, not Curve. Don't overengineer.
@@ -58,9 +60,10 @@ forge test
 forge test --gas-report
 ```
 
-23 tests pass on the genesis branch — `SeasonVault.t.sol`, `BonusDistributor.t.sol`, `FilterLauncher.t.sol`, and `integration/WeeklyLifecycle.t.sol` (full $FILTER launch → trade → filter → settle → claim → bonus).
+31 tests pass on the genesis branch:
 
-V4 integration tests (`FilterFactory` + `FilterLpLocker` + `FilterHook` against a live `PoolManager`) ship in the next iteration once the deploy + testnet bring-up lands.
+- Unit: `SeasonVault.t.sol`, `BonusDistributor.t.sol`, `FilterLauncher.t.sol`.
+- Integration: `WeeklyLifecycle.t.sol` (mock-based full lifecycle), `V4Lifecycle.t.sol` (factory + locker + hook against a live `PoolManager`), `V4Settlement.t.sol` (single-loser settlement on V4), `V4MultiLoserSettlement.t.sol` (multi-loser + multi-leaf Merkle claims, sequential liquidations, idempotency guard).
 
 ## Deploy
 
@@ -69,4 +72,4 @@ forge script script/DeployGenesis.s.sol --rpc-url $BASE_RPC_URL --broadcast --ve
 forge script script/LaunchFilterToken.s.sol --rpc-url $BASE_RPC_URL --broadcast
 ```
 
-`DeployGenesis` requires a pre-mined `HOOK_SALT` — `FilterHook`'s deployment address must encode the `BEFORE_ADD_LIQUIDITY` and `BEFORE_REMOVE_LIQUIDITY` flag bits (lower-14-bit pattern `0xA00`). A `MineHookSalt` script ships next iteration.
+`DeployGenesis` reads a pre-mined `HOOK_SALT` from the environment — the `FilterHook` address must encode the `BEFORE_ADD_LIQUIDITY` (1<<11) and `BEFORE_REMOVE_LIQUIDITY` (1<<9) flag bits (combined: lower-14-bit pattern `0xA00`). Use the `HookMiner` library (shared with the test suite) to compute the salt offline, then pass it via `HOOK_SALT`. A `MineHookSalt.s.sol` convenience wrapper ships in a follow-up.
