@@ -65,10 +65,14 @@ contract WeeklyLifecycleTest is Test {
         assertEq(entry.isProtocolLaunched, true);
 
         // Day 1-2: Users launch tokens.
+        vm.deal(creator1, 1 ether);
+        vm.deal(creator2, 1 ether);
+        uint256 cost0 = launcher.launchCost(0);
+        uint256 cost1 = launcher.launchCost(1);
         vm.prank(creator1);
-        (address tokenA,) = launcher.launch("Pepe", "PEPE", "");
+        (address tokenA,) = launcher.launchToken{value: cost0}("Pepe", "PEPE", "");
         vm.prank(creator2);
-        (address tokenB,) = launcher.launch("Wojak", "WOJAK", "");
+        (address tokenB,) = launcher.launchToken{value: cost1}("Wojak", "WOJAK", "");
 
         // Day 3: Filter phase.
         vm.warp(block.timestamp + 2 days);
