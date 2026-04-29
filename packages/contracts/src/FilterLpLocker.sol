@@ -378,8 +378,6 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         // 1. Swap half the WETH to tokens through this same V4 pool.
         uint256 swapAmount = wethIn / 2;
         bool zeroForOne = !tokenIsCurrency0; // base → token
-        Currency inputCurrency = zeroForOne ? _key.currency0 : _key.currency1;
-        Currency outputCurrency = zeroForOne ? _key.currency1 : _key.currency0;
         BalanceDelta swapDelta = poolManager.swap(
             _key,
             SwapParams({
@@ -443,8 +441,6 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
             wethUsed = added0;
         }
         emit PolLiquidityAdded(wethIn, wethUsed, tokensUsed, liquidity);
-        // Suppress unused-var warning for `outputCurrency` when neither branch uses it directly.
-        outputCurrency;
     }
 
     /// @notice Liquidity of the POL position currently held by this locker.
