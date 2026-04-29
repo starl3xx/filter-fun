@@ -56,8 +56,12 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     );
     event LaunchSlotFilled(uint256 indexed seasonId, uint64 slotIndex);
     event LaunchClosed(uint256 indexed seasonId, uint256 filledSlots);
-    event StakeRefunded(uint256 indexed seasonId, address indexed token, address indexed creator, uint256 amount);
-    event StakeForfeited(uint256 indexed seasonId, address indexed token, address indexed creator, uint256 amount);
+    event StakeRefunded(
+        uint256 indexed seasonId, address indexed token, address indexed creator, uint256 amount
+    );
+    event StakeForfeited(
+        uint256 indexed seasonId, address indexed token, address indexed creator, uint256 amount
+    );
     event PhaseAdvanced(uint256 indexed seasonId, Phase newPhase);
     event FinalistsSet(uint256 indexed seasonId, address[] finalists);
     event WinnerSet(uint256 indexed seasonId, address winner);
@@ -382,11 +386,11 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     ///         token: a second resolution attempt reverts. Protocol-launched tokens have no
     ///         stake, so passing them is a no-op-equivalent revert (`AlreadyResolved` from a
     ///         zero stake).
-    function applySoftFilter(
-        uint256 seasonId,
-        address[] calldata survivors,
-        address[] calldata forfeited
-    ) external onlyOracle nonReentrant {
+    function applySoftFilter(uint256 seasonId, address[] calldata survivors, address[] calldata forfeited)
+        external
+        onlyOracle
+        nonReentrant
+    {
         // Soft filter applies once Launch is over — i.e. Filter or beyond.
         Phase p = _phase[seasonId];
         if (p == Phase.Launch || p == Phase(0)) revert WrongPhase();

@@ -70,8 +70,7 @@ contract FilterLauncherTest is Test {
 
         uint256 cost = _slotCost(0);
         vm.prank(aliceCreator);
-        (address token, address locker) =
-            launcher.launchToken{value: cost}("Pepe", "PEPE", "ipfs://x");
+        (address token, address locker) = launcher.launchToken{value: cost}("Pepe", "PEPE", "ipfs://x");
         assertTrue(token != address(0));
         assertTrue(locker != address(0));
 
@@ -447,8 +446,6 @@ contract FilterLauncherTest is Test {
     function _str(uint160 i) internal pure returns (string memory) {
         // 1..12 → "T1".."T12" — short, unique, all-caps.
         if (i < 10) return string(abi.encodePacked("T", bytes1(uint8(48 + i))));
-        return string(
-            abi.encodePacked("T", bytes1(uint8(48 + i / 10)), bytes1(uint8(48 + (i % 10))))
-        );
+        return string(abi.encodePacked("T", bytes1(uint8(48 + i / 10)), bytes1(uint8(48 + (i % 10)))));
     }
 }
