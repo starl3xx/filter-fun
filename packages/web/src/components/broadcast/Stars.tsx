@@ -1,22 +1,28 @@
 "use client";
 
-import {useMemo} from "react";
+import {useEffect, useState} from "react";
 
-// Decorative twinkles. Memoized so they don't reseed on every parent re-render.
-// Reduced-motion users get static stars (CSS handles the animation suppression).
+type Star = {x: number; y: number; s: number; d: number};
+
+// Decorative twinkles. Generated client-side only — Math.random() in render
+// would cause hydration mismatch (server HTML has different positions than the
+// client first render). Server emits an empty container; client fills it after
+// mount. The twinkle CSS animation handles the rest.
 export function Stars() {
-  const stars = useMemo(
-    () =>
+  const [stars, setStars] = useState<Star[]>([]);
+  useEffect(() => {
+    setStars(
       Array.from({length: 48}, () => ({
         x: Math.random() * 100,
         y: Math.random() * 100,
         s: Math.random() * 1.6 + 0.4,
         d: Math.random() * 3,
       })),
-    [],
-  );
+    );
+  }, []);
+
   return (
-    <div style={{position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0}}>
+    <div style={{position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0}} aria-hidden>
       {stars.map((s, i) => (
         <div
           key={i}

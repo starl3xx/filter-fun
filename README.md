@@ -2,7 +2,7 @@
 
 A competitive, weekly token-launcher game on Base. Anyone deploys a token, off-chain scoring ranks them, the top N pass the filter, one wins. Capital from losing tokens isn't destroyed — it's filtered and redirected into the winner via automatic rollover plus a 14-day hold bonus.
 
-> Launch. Get filtered. Survive.
+> Most get filtered. One gets funded. 🔻
 
 ## Repo layout
 
@@ -13,7 +13,7 @@ packages/
 ├── scheduler/     viem-based on-chain driver (phase, settlement, bonus arcs)
 ├── indexer/       Ponder event indexer
 ├── scoring/       HP engine — velocity, effective buyers, sticky liq, retention, momentum
-└── web/           Next.js 14 + wagmi v2 — claim flows live, leaderboard next
+└── web/           Next.js 14 + wagmi v2 — broadcast leaderboard + claim flows
 ```
 
 Each package has its own README. Cross-package contracts are intentional: the oracle ⇆ scheduler ⇆ web stack shares ABIs and Merkle leaf formats, and the per-package READMEs document the seams.

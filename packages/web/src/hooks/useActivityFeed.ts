@@ -19,15 +19,28 @@ function makeFeedItem(secondsAgo = 0): FeedItem {
 }
 
 export function useActivityFeed(maxItems = 14): FeedItem[] {
-  const [items, setItems] = useState<FeedItem[]>(() =>
-    Array.from({length: 8}, (_, i) => makeFeedItem(i * 13)),
-  );
+  // Empty initial state so server and client agree during hydration. The seed
+  // batch is generated client-side in the effect below.
+  const [items, setItems] = useState<FeedItem[]>([]);
+
   useEffect(() => {
-    const id = setInterval(
+    setItems(Array.from({length: 8}, (_, i) => makeFeedItem(i * 13)));
+
+    const newItem = setInterval(
       () => setItems((prev) => [makeFeedItem(0), ...prev].slice(0, maxItems)),
       2200 + Math.random() * 1800,
     );
-    return () => clearInterval(id);
+    // Tick existing items' age once per second so "12s ago" actually advances.
+    // Without this every prepended item is locked at ago=0 forever.
+    const ageTick = setInterval(
+      () => setItems((prev) => prev.map((it) => ({...it, ago: it.ago + 1}))),
+      1000,
+    );
+    return () => {
+      clearInterval(newItem);
+      clearInterval(ageTick);
+    };
   }, [maxItems]);
+
   return items;
 }

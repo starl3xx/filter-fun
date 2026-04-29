@@ -10,7 +10,10 @@ function seeded(seedNum: number): () => number {
     s >>>= 0;
     s ^= s << 5;
     s >>>= 0;
-    return (s & 0xffffffff) / 0xffffffff;
+    // s is already unsigned via `>>>= 0`. Dividing by 2^32 keeps the result in
+    // [0, 1). The previous `(s & 0xffffffff) / 0xffffffff` reintroduced sign:
+    // `&` coerces both sides to int32, so values with bit 31 set went negative.
+    return s / 0x100000000;
   };
 }
 
