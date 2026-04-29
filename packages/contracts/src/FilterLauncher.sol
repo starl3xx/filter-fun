@@ -282,7 +282,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         ++launchesByWallet[sid][msg.sender];
         launchCount[sid] = slotIndex + 1;
 
-        (token, locker,) = _launch(name_, symbol_, metadataURI_, msg.sender, false);
+        (token, locker,) = _launch(sid, name_, symbol_, metadataURI_, msg.sender, false);
 
         uint128 stakeAmount;
         if (refundableStakeEnabled) {
@@ -335,13 +335,18 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         bytes32 symHash = keccak256(bytes(symbol_));
         if (_symbolUsed[sid][symHash]) revert DuplicateSymbol();
         _symbolUsed[sid][symHash] = true;
-        (token, locker,) = _launch(name_, symbol_, metadataURI_, msg.sender, true);
+        (token, locker,) = _launch(sid, name_, symbol_, metadataURI_, msg.sender, true);
         emit TokenLaunched(
             sid, token, locker, msg.sender, true, type(uint64).max, 0, name_, symbol_, metadataURI_
         );
     }
 
+    /// @dev `sid` is plumbed through from the caller so every storage write in this call
+    ///      keys off the same season identifier as the caller's pre-flight checks. Reading
+    ///      `currentSeasonId` again here would split state across two access paths if anything
+    ///      ever advances the cursor mid-call.
     function _launch(
+        uint256 sid,
         string calldata name_,
         string calldata symbol_,
         string calldata metadataURI_,
@@ -354,12 +359,12 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
                 symbol: symbol_,
                 metadataURI: metadataURI_,
                 creator: creator,
-                seasonVault: _vault[currentSeasonId],
+                seasonVault: _vault[sid],
                 treasury: treasury,
                 mechanics: mechanics
             })
         );
-        _entry[currentSeasonId][token] = TokenEntry({
+        _entry[sid][token] = TokenEntry({
             token: token,
             pool: address(0), // V4 pools are keyed, no address; left zero for compatibility
             feeSplitter: locker,
@@ -367,13 +372,13 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
             isProtocolLaunched: isProtocolLaunched,
             isFinalist: false
         });
-        _tokens[currentSeasonId].push(token);
+        _tokens[sid].push(token);
 
         // Register (token, creator, launchedAt) and the seasonId mapping the distributor
         // uses for its own auth checks. Both contracts revert on duplicate token, so any
         // future token-deployment path that reuses the same address is rejected here too.
         creatorRegistry.register(token, creator);
-        creatorFeeDistributor.registerToken(token, currentSeasonId);
+        creatorFeeDistributor.registerToken(token, sid);
     }
 
     // ============================================================ Soft-filter hook
