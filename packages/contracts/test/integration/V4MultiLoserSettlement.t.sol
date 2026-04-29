@@ -197,10 +197,9 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
         vault.liquidate(loser1, 0);
 
         // Second call on loser1 must revert via the AlreadyLiquidated guard. Phase stays at
-        // Liquidating because loser2 hasn't been touched yet, so the WrongPhase path can't
-        // mask the real check. Selector is contract-internal so we assert the failure
-        // generically rather than hard-code it.
-        vm.expectRevert();
+        // Liquidating because loser2 hasn't been touched yet, so a generic expectRevert
+        // could swallow a WrongPhase miss; the explicit selector pins the exact error path.
+        vm.expectRevert(SeasonVault.AlreadyLiquidated.selector);
         vault.liquidate(loser1, 0);
     }
 }
