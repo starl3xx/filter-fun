@@ -1,0 +1,53 @@
+name: off-chain CI
+
+on:
+  pull_request:
+    paths:
+      - 'packages/indexer/**'
+      - 'packages/scoring/**'
+      - 'packages/oracle/**'
+      - 'packages/scheduler/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/off-chain-ci.yml'
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: typecheck + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      # Each package gets its own typecheck + test step so a failure in one shows up
+      # under a clearly-named CI step rather than a single opaque "test" failure. The
+      # indexer is typecheck-only — Ponder's runtime tests need a real RPC.
+      - name: indexer (typecheck)
+        run: npm --workspace @filter-fun/indexer run typecheck
+
+      - name: scoring (typecheck)
+        run: npm --workspace @filter-fun/scoring run typecheck
+
+      - name: scoring (test)
+        run: npm --workspace @filter-fun/scoring run test
+
+      - name: oracle (typecheck)
+        run: npm --workspace @filter-fun/oracle run typecheck
+
+      - name: oracle (test)
+        run: npm --workspace @filter-fun/oracle run test
+
+      - name: scheduler (typecheck)
+        run: npm --workspace @filter-fun/scheduler run typecheck
+
+      - name: scheduler (test)
+        run: npm --workspace @filter-fun/scheduler run test
