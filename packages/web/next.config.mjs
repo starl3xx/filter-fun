@@ -8,7 +8,7 @@ const nextConfig = {
   reactStrictMode: true,
   // Workspace packages compile from source rather than via prebuilt dist; tell Next to
   // run them through swc so it doesn't choke on TS imports across package boundaries.
-  transpilePackages: ["@filter-fun/oracle", "@filter-fun/scheduler"],
+  transpilePackages: ["@filter-fun/oracle", "@filter-fun/scheduler", "@filter-fun/scoring"],
   // Standalone bundles a self-contained .next/standalone/server.js with traced node_modules
   // so the runtime image doesn't need npm install. tracingRoot points at the monorepo root
   // so hoisted workspace deps get included.
