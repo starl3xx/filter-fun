@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 import {
@@ -26,6 +27,8 @@ import {IFilterLauncher} from "./interfaces/IFilterLauncher.sol";
 ///         singleton `IFilterFactory`. Also creates each season's `SeasonVault`. Phase
 ///         transitions are oracle-gated.
 contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGuard {
+    using SafeCast for uint256;
+
     error WrongPhase();
     error LaunchCapReached();
     error LaunchWindowClosed();
@@ -284,9 +287,12 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
 
         (token, locker,) = _launch(sid, name_, symbol_, metadataURI_, msg.sender, false);
 
+        // SafeCast: reverts if cost overflows uint128 (≈3.4e20 ETH — only reachable with a
+        // pathological `baseLaunchCost`, but we'd rather revert than silently truncate).
+        uint128 costAsU128 = cost.toUint128();
         uint128 stakeAmount;
         if (refundableStakeEnabled) {
-            stakeAmount = uint128(cost);
+            stakeAmount = costAsU128;
         } else {
             // Fee mode: forward to treasury immediately. Use forfeitRecipient (defaults to
             // treasury) so the owner can re-route launch fees the same way as forfeitures.
@@ -296,7 +302,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
 
         _launchInfo[sid][token] = LaunchInfo({
             slotIndex: slotIndex,
-            costPaid: uint128(cost),
+            costPaid: costAsU128,
             stakeAmount: stakeAmount,
             refunded: false,
             filteredEarly: false
