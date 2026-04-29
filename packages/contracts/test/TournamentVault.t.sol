@@ -221,6 +221,27 @@ contract TournamentVaultTest is Test {
         vault.submitQuarterlyWinner(YEAR, 2, tokenA, bytes32(0), 1, bytes32(0), 0);
     }
 
+    /// @notice Oracle's `totalBonusAmount_` must be ≤ the computed bonus slice. Without this
+    ///         guard, a Merkle tree summing to more than the bonus reserve would let bonus
+    ///         claimants drain WETH earmarked for rollover / POL — all three slices share
+    ///         the vault's unsegregated balance. Bugbot Medium #1 (PR #26).
+    function test_SubmitQuarterlyWinner_RejectsBonusExceedsReserve() public {
+        _fund(makeAddr("funder"), POT);
+        // Bonus slice on POT=100e18 = 25% of 97.5e18 = 24.375e18.
+        // 25 ether > 24.375 ether → must revert.
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.BonusExceedsReserve.selector);
+        vault.submitQuarterlyWinner(
+            YEAR, QUARTER, tokenA, bytes32(uint256(1)), 1, bytes32(uint256(2)), 25 ether
+        );
+
+        // Equality (24.375 ether) is allowed.
+        vm.prank(oracle);
+        vault.submitQuarterlyWinner(
+            YEAR, QUARTER, tokenA, bytes32(uint256(1)), 1, bytes32(uint256(2)), 24.375 ether
+        );
+    }
+
     function test_SubmitQuarterlyWinner_RejectsDouble() public {
         _fund(makeAddr("funder"), POT);
         vm.prank(oracle);
@@ -243,7 +264,7 @@ contract TournamentVaultTest is Test {
         uint256 treasuryBefore = weth.balanceOf(treasury);
 
         vm.prank(oracle);
-        vault.submitQuarterlyWinner(YEAR, QUARTER, tokenA, rollRoot, 100, bonusRoot, 25 ether);
+        vault.submitQuarterlyWinner(YEAR, QUARTER, tokenA, rollRoot, 100, bonusRoot, 24.375 ether);
 
         // Expected math on POT = 100e18:
         //   bounty = 2.5%        = 2.5e18
@@ -268,7 +289,7 @@ contract TournamentVaultTest is Test {
         assertEq(t.rolloverRoot, rollRoot);
         assertEq(t.totalRolloverShares, 100);
         assertEq(t.bonusRoot, bonusRoot);
-        assertEq(t.totalBonusAmount, 25 ether);
+        assertEq(t.totalBonusAmount, 24.375 ether);
         assertEq(t.bonusUnlockTime, block.timestamp + BONUS_DELAY);
 
         // Vault should still hold rollover + bonus + POL slice.

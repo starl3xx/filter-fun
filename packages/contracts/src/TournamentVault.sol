@@ -166,6 +166,12 @@ contract TournamentVault is ReentrancyGuard {
     error InvalidProof();
     error BonusLocked();
     error ClaimExceedsAllocation();
+    /// @dev Oracle-supplied `totalBonusAmount` exceeded the computed bonus slice. Without
+    ///      this guard, an oracle bug (or compromised oracle) could publish a Merkle tree
+    ///      summing to more WETH than the bonus reserve, and bonus claimants would drain
+    ///      WETH earmarked for rollover / POL — both of which sit unsegregated in this
+    ///      vault for the (year, quarter) tournament.
+    error BonusExceedsReserve();
 
     modifier onlyOracle() {
         if (msg.sender != ILauncherViewTV(launcher).oracle()) revert NotOracle();
@@ -258,6 +264,14 @@ contract TournamentVault is ReentrancyGuard {
         uint256 pol = (remainder * POL_BPS) / BPS_DENOMINATOR;
         // Treasury absorbs rounding dust so the BPS arithmetic stays exact.
         uint256 treasuryCut = remainder - rollover - bonus - mechanicsCut - pol;
+
+        // Oracle's published Merkle leaves must sum to ≤ the computed bonus slice.
+        // Without this guard `claimQuarterlyBonus` (which caps via `totalBonusAmount`,
+        // not `bonusReserve`) would let bonus claimants drain past the bonus slice into
+        // rollover / POL escrow — both unsegregated in this vault. Equality is fine;
+        // residual dust (if Merkle leaves sum to less than `bonus`) just stays here and
+        // can be swept by a follow-up admin path.
+        if (totalBonusAmount_ > bonus) revert BonusExceedsReserve();
 
         t.phase = Phase.Settled;
         t.winner = winner_;
