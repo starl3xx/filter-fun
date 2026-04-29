@@ -36,6 +36,7 @@ export default function ClaimBonusPage() {
       title="Claim hold bonus"
       subtitle="Holders of ≥80% of their rolled tokens for 14 days earn a slice of the WETH bonus reserve."
       numericLabel="Amount (wei)"
+      jsonPlaceholder='{"seasonId": "1", "distributor": "0x…", "amount": "1000000000000000000", "proof": ["0x…"]}'
       parseJson={parseBonus}
       buildCall={(c) => claimBonusCall(c.contract, c.seasonId, c.numeric, c.proof)}
     />

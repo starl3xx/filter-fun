@@ -25,6 +25,9 @@ export interface ClaimFormProps {
   subtitle: string;
   /// Label for the numeric field — e.g. "share" or "amount (WETH)".
   numericLabel: string;
+  /// Example JSON shown in the textarea. Per-flow because rollover and bonus payloads
+  /// have different field names (`vault`/`share` vs `distributor`/`amount`).
+  jsonPlaceholder: string;
   /// Parses + validates the pasted JSON. Throws Error with a user-readable message on
   /// invalid input. Each flow's payload shape differs; the parser knows which fields to read.
   parseJson: (raw: string) => ParsedClaim;
@@ -32,7 +35,7 @@ export interface ClaimFormProps {
   buildCall: (claim: ParsedClaim) => ContractCallShape;
 }
 
-export function ClaimForm({title, subtitle, numericLabel, parseJson, buildCall}: ClaimFormProps) {
+export function ClaimForm({title, subtitle, numericLabel, jsonPlaceholder, parseJson, buildCall}: ClaimFormProps) {
   const {isConnected} = useAccount();
   const [raw, setRaw] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
@@ -76,7 +79,7 @@ export function ClaimForm({title, subtitle, numericLabel, parseJson, buildCall}:
         <textarea
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
-          placeholder='{"seasonId": "1", "vault": "0x…", "share": "100", "proof": ["0x…"]}'
+          placeholder={jsonPlaceholder}
           rows={8}
           style={{
             width: "100%",

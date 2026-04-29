@@ -37,6 +37,7 @@ export default function ClaimRolloverPage() {
       title="Claim rollover"
       subtitle="Half of every losing token's recovered LP rolls into the winner — your share is paid in winner tokens."
       numericLabel="Share"
+      jsonPlaceholder='{"seasonId": "1", "vault": "0x…", "share": "100", "proof": ["0x…"]}'
       parseJson={parseRollover}
       buildCall={(c) => claimRolloverCall(c.contract, c.numeric, c.proof)}
     />
