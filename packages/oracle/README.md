@@ -40,6 +40,34 @@ const payload = buildSettlementPayload({
 
 The Merkle tree uses sorted-pair hashing (OZ `MerkleProof`-compatible), so proofs verify against `bytes32 leaf = keccak256(abi.encodePacked(msg.sender, share))`.
 
+## Bonus payload
+
+The 14-day hold bonus runs the same Merkle pattern, with **concrete WETH amounts** at the leaves rather than abstract shares — the bonus reserve is known at finalize time, so we can pre-allocate.
+
+```ts
+import {buildBonusPayload} from "@filter-fun/oracle";
+
+const payload = buildBonusPayload({
+  // 3–5 unannounced snapshots taken across the 14-day hold window.
+  snapshots: [
+    new Map([["0xAlice...", 100n], ["0xBob...", 50n]]),
+    new Map([["0xAlice...", 95n], ["0xBob...", 49n]]),
+    new Map([["0xAlice...", 100n], ["0xBob...", 50n]]),
+  ],
+  // Per-holder rolledAmount (winner tokens received via claimRollover).
+  rolledByHolder: new Map([["0xAlice...", 100n], ["0xBob...", 60n]]),
+  // BonusDistributor.bonusOf(seasonId).reserve.
+  totalReserve: 1_000_000_000_000_000_000n, // 1 WETH
+  holdThresholdBps: 8000, // optional, default 80%
+});
+
+// payload.{root, entries[{user, amount, proof}], totalAllocated}
+//   → root: pass to BonusDistributor.postRoot(seasonId, root)
+//   → entries[i]: claim data for the web app
+```
+
+Eligibility is `min(balance across snapshots) ≥ thresholdBps × rolledAmount / 10_000`. Allocation among eligible holders is pro-rata by `rolledAmount`. Leaves are `keccak256(abi.encodePacked(user, amount))` — matches `BonusDistributor.claim`.
+
 ## Tests
 
 ```sh
@@ -48,6 +76,5 @@ npm --workspace @filter-fun/oracle run test
 
 ## Out of scope (next module)
 
-- Bonus snapshot Merkle root (different leaf shape, multi-snapshot min-balance check).
 - Multisig signing / EIP-712 wrapper around the payload.
 - Direct `viem` `walletClient.writeContract` driver — that's the scheduler's job.

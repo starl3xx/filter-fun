@@ -6,6 +6,14 @@ export function rolloverLeaf(user: Address, share: bigint): Hex {
   return keccak256(encodePacked(["address", "uint256"], [user, share]));
 }
 
+/// Leaf format must match `BonusDistributor.claim`:
+///   leaf = keccak256(abi.encodePacked(user, amount))
+/// Same encoding as `rolloverLeaf` — kept as a separate function so caller intent is
+/// explicit at the call site.
+export function bonusLeaf(user: Address, amount: bigint): Hex {
+  return keccak256(encodePacked(["address", "uint256"], [user, amount]));
+}
+
 /// OpenZeppelin `MerkleProof.verify` uses sorted-pair hashing: parent = keccak256(min(a,b) || max(a,b)).
 /// Keep this private — `buildTree` and `getProof` are the only entry points.
 function hashPair(a: Hex, b: Hex): Hex {
