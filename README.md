@@ -61,7 +61,8 @@ Each package has its own README. Cross-package contracts are intentional: the or
 | `FilterLpLocker`        | Per-token. Holds the V4 LP. Splits collected fees 4-way (prize/treasury/mechanics/creator).      |
 | `SeasonVault`           | Per-season escrow. Multi-filter event accounting. Champion bounty. Rollover Merkle claims.       |
 | `SeasonPOLReserve`      | Per-season WETH-only POL holder. Accumulates the POL slice across filter events.                  |
-| `POLVault`              | Singleton. Receives winner-token POL exposure across all seasons.                                 |
+| `POLManager`            | Singleton orchestrator. Turns each season's POL WETH into a permanent V4 LP position on the winner. |
+| `POLVault`              | Singleton accounting layer. Records per-season `(winner, weth, tokens, liquidity)` deployments.   |
 | `BonusDistributor`      | 14-day hold-bonus payout via multi-snapshot Merkle roots posted by the oracle.                    |
 | `CreatorRegistry`       | Singleton (token → creator + launchedAt). Permanent record set by the launcher at launch.         |
 | `CreatorFeeDistributor` | Singleton sink for the 0.20% creator slice of every swap. 72h eligibility, filter-aware.          |
@@ -104,7 +105,9 @@ Then the remaining 97.5% splits per the user-aligned BPS:
 10% treasury         → WETH to TreasuryTimelock (immediate)
 ```
 
-80% of every losers-pot dollar is user-aligned (rollover + bonus + mechanics) and 2.5% goes to the winner's creator. POL is silent during the week — accumulates as WETH, never deployed mid-competition. At final settlement the reserve is drained, used to buy winner tokens, and parked in `POLVault`. Trading-fee streams are separate; `processFilterEvent` only splits the WETH delta produced by the loser liquidations.
+80% of every losers-pot dollar is user-aligned (rollover + bonus + mechanics) and 2.5% goes to the winner's creator. POL is silent during the week — accumulates as WETH, never deployed mid-competition. At final settlement the reserve is drained and handed to `POLManager`, which swaps half to winner tokens and adds a permanent V4 LP position on the winner pool (keyed by `POL_SALT` so it doesn't collide with the seed). The position itself stays inside the winner's `FilterLpLocker`; `POLVault` records the `(winner, weth, tokens, liquidity)` tuple per season for indexer + UI visibility. Trading-fee streams are separate; `processFilterEvent` only splits the WETH delta produced by the loser liquidations.
+
+POL is intentionally permanent in this iteration: the LP stays in the locker forever. There is no withdraw, no rotation, no discretionary timing. Yield routing and capped mechanics funding are deliberately out of scope for genesis.
 
 ### Trading fee allocation (every swap, at `collectFees` time)
 

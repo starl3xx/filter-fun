@@ -5,9 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MiniMerkle} from "./utils/MiniMerkle.sol";
 
-import {SeasonVault, IBonusFunding, ICreatorRegistry, ICreatorFeeDistributor} from "../src/SeasonVault.sol";
+import {
+    SeasonVault,
+    IBonusFunding,
+    IPOLManager,
+    ICreatorRegistry,
+    ICreatorFeeDistributor
+} from "../src/SeasonVault.sol";
 import {SeasonPOLReserve} from "../src/SeasonPOLReserve.sol";
-import {POLVault} from "../src/POLVault.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
 import {MockWETH} from "./mocks/MockWETH.sol";
 import {MintableERC20} from "./mocks/MintableERC20.sol";
@@ -15,6 +20,7 @@ import {MockLpLocker} from "./mocks/MockLpLocker.sol";
 import {MockLauncherView} from "./mocks/MockLauncherView.sol";
 import {MockCreatorRegistry} from "./mocks/MockCreatorRegistry.sol";
 import {MockCreatorFeeDistributor} from "./mocks/MockCreatorFeeDistributor.sol";
+import {MockPOLManager} from "./mocks/MockPOLManager.sol";
 
 /// @notice Covers the user-aligned settlement model: BPS split per filter event, POL
 ///         accumulation across multiple events, one-shot final deployment, and rollover claims.
@@ -23,7 +29,7 @@ contract SeasonVaultTest is Test {
     MockWETH weth;
     MockLauncherView launcher;
     BonusDistributor bonus;
-    POLVault polVault;
+    MockPOLManager polManager;
     MockCreatorRegistry creatorRegistry;
     MockCreatorFeeDistributor creatorFeeDistributor;
     SeasonVault vault;
@@ -31,7 +37,6 @@ contract SeasonVaultTest is Test {
     address oracle = address(0xCAFE);
     address treasury = address(0xD000);
     address mechanics = address(0xE000);
-    address polVaultOwner = address(0xF111);
     address winnerCreator = address(0xC0FFEE);
 
     address aliceUser = address(0xA1);
@@ -51,9 +56,11 @@ contract SeasonVaultTest is Test {
         weth = new MockWETH();
         launcher = new MockLauncherView();
         bonus = new BonusDistributor(address(launcher), address(weth), oracle);
-        polVault = new POLVault(address(this));
-        polVault.setLauncher(address(launcher));
-        polVault.transferOwnership(polVaultOwner);
+        polManager = new MockPOLManager(weth);
+        // 100_000 winner-tokens per 1 WETH, matching the winner-locker mintRate so the test
+        // can compare polDeployedTokens against rolloverWinnerTokens analytically.
+        polManager.setMintRate(100_000e18);
+        polManager.setLiquidityReturn(uint128(123)); // arbitrary; only equality checks use it
         creatorRegistry = new MockCreatorRegistry();
         creatorFeeDistributor = new MockCreatorFeeDistributor();
         vault = new SeasonVault(
@@ -63,7 +70,7 @@ contract SeasonVaultTest is Test {
             oracle,
             treasury,
             mechanics,
-            address(polVault),
+            IPOLManager(address(polManager)),
             IBonusFunding(address(bonus)),
             14 days,
             ICreatorRegistry(address(creatorRegistry)),
@@ -177,7 +184,8 @@ contract SeasonVaultTest is Test {
 
         // No winner tokens have been bought yet.
         assertEq(IERC20(winnerToken).balanceOf(address(vault)), 0);
-        assertEq(IERC20(winnerToken).balanceOf(address(polVault)), 0);
+        // POLManager hasn't been called yet either.
+        assertEq(polManager.callCount(), 0);
         // POL reserve holds WETH only.
         SeasonPOLReserve r = vault.polReserve();
         assertEq(weth.balanceOf(address(r)), 0.195 ether); // 0.0975 * 2
@@ -213,12 +221,17 @@ contract SeasonVaultTest is Test {
         assertEq(weth.balanceOf(address(bonus)), 0.731_25 ether);
         assertEq(vault.bonusReserve(), 0, "bonus reserve drained");
 
-        // POL: 0.2925 WETH bought 29_250e18 winner tokens, deposited into POLVault.
+        // POL: 0.2925 WETH delegated to the POLManager, which (per the mock) reports
+        // 29_250e18 winner tokens at the configured mintRate and a fixed liquidity figure.
         assertEq(vault.polDeployedWeth(), 0.2925 ether);
         assertEq(vault.polDeployedTokens(), 29_250e18);
-        assertEq(IERC20(winnerToken).balanceOf(address(polVault)), 29_250e18);
-        assertEq(polVault.seasonDeposit(1), 29_250e18);
-        assertEq(polVault.seasonWinner(1), winnerToken);
+        assertEq(vault.polDeployedLiquidity(), 123, "polManager liquidity returned");
+        assertEq(polManager.callCount(), 1, "polManager invoked once");
+        assertEq(polManager.lastSender(), address(vault));
+        assertEq(polManager.lastSeasonId(), 1);
+        assertEq(polManager.lastWinner(), winnerToken);
+        assertEq(polManager.lastWethAmount(), 0.2925 ether);
+        assertEq(weth.balanceOf(address(polManager)), 0.2925 ether, "POLManager pulled WETH from vault");
         assertEq(vault.polReserveBalance(), 0, "pol reserve drained");
         assertEq(vault.polReserve().deployed(), true);
 
@@ -445,17 +458,18 @@ contract SeasonVaultTest is Test {
         r.notifyDeposit(1 ether);
     }
 
-    /// @notice POLVault rejects double-deposit per season — the SeasonVault.submitWinner path
-    ///         is one-shot but make sure the invariant holds at the vault edge too.
-    function test_PolVault_RejectDoubleDeposit() public {
+    /// @notice The single-shot guard now lives at the SeasonVault → POLManager seam: a second
+    ///         submitWinner call reverts with WrongPhase before it ever reaches the manager.
+    ///         This pins that contract; the POLManager itself doesn't need to defend against
+    ///         per-season double-call because the season's phase machine already does.
+    function test_PolDeployment_OnlyOnceViaWrongPhase() public {
         _filterOne(loserA);
         _submit(bytes32(0));
+        assertEq(polManager.callCount(), 1, "manager called once");
 
-        // Try to deposit again from a fresh sender — should revert.
-        MintableERC20 fakeWinner = new MintableERC20("Fake", "FAKE");
-        fakeWinner.mint(address(this), 1 ether);
-        IERC20(address(fakeWinner)).approve(address(polVault), 1 ether);
-        vm.expectRevert(POLVault.AlreadyDeposited.selector);
-        polVault.deposit(1, address(fakeWinner), 1 ether);
+        vm.prank(oracle);
+        vm.expectRevert(SeasonVault.WrongPhase.selector);
+        vault.submitWinner(winnerToken, bytes32(0), TOTAL_SHARES, 0, 0);
+        assertEq(polManager.callCount(), 1, "still once after revert");
     }
 }

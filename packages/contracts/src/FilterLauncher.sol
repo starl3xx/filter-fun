@@ -5,7 +5,13 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
-import {SeasonVault, IBonusFunding, ICreatorRegistry, ICreatorFeeDistributor} from "./SeasonVault.sol";
+import {
+    SeasonVault,
+    IBonusFunding,
+    ICreatorRegistry,
+    ICreatorFeeDistributor,
+    IPOLManager
+} from "./SeasonVault.sol";
 import {CreatorRegistry} from "./CreatorRegistry.sol";
 import {CreatorFeeDistributor} from "./CreatorFeeDistributor.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
@@ -41,7 +47,10 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
     address public oracle;
     address public treasury;
     address public mechanics;
-    address public polVault;
+    /// @notice POL orchestrator. Each new SeasonVault is wired to this address so
+    ///         `submitWinner` can deploy the season's accumulated POL WETH into a permanent
+    ///         V4 LP position on the winner pool.
+    IPOLManager public polManager;
     IBonusFunding public bonusDistributor;
     address public weth;
 
@@ -66,18 +75,25 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
         address oracle_,
         address treasury_,
         address mechanics_,
-        address polVault_,
         IBonusFunding bonusDistributor_,
         address weth_
     ) Ownable(owner_) {
         oracle = oracle_;
         treasury = treasury_;
         mechanics = mechanics_;
-        polVault = polVault_;
         bonusDistributor = bonusDistributor_;
         weth = weth_;
         creatorRegistry = new CreatorRegistry(address(this));
         creatorFeeDistributor = new CreatorFeeDistributor(address(this), weth_, treasury_, creatorRegistry);
+    }
+
+    /// @notice One-shot wire of the POLManager. Owner-only; reverts if already set or zero.
+    ///         Required because POLManager wants the launcher's address in its constructor —
+    ///         we deploy POLManager after the launcher and call this to close the loop.
+    function setPolManager(IPOLManager polManager_) external onlyOwner {
+        require(address(polManager) == address(0), "polManager set");
+        require(address(polManager_) != address(0), "zero polManager");
+        polManager = polManager_;
     }
 
     modifier onlyOracle() {
@@ -106,6 +122,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
 
     /// @notice Opens a new season. Deploys its `SeasonVault`. Must be called between seasons.
     function startSeason() external onlyOracle whenNotPaused returns (uint256 seasonId) {
+        require(address(polManager) != address(0), "polManager unset");
         seasonId = ++currentSeasonId;
         if (_phase[seasonId] != Phase.Launch && _phase[seasonId] != Phase(0)) revert SeasonAlreadyOpen();
 
@@ -116,7 +133,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
             oracle,
             treasury,
             mechanics,
-            polVault,
+            polManager,
             bonusDistributor,
             bonusUnlockDelay,
             ICreatorRegistry(address(creatorRegistry)),

@@ -16,9 +16,10 @@ import {FilterLauncher} from "../../src/FilterLauncher.sol";
 import {FilterFactory} from "../../src/FilterFactory.sol";
 import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
-import {SeasonVault, IBonusFunding} from "../../src/SeasonVault.sol";
+import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {POLVault} from "../../src/POLVault.sol";
+import {POLManager, IPOLVaultRecord} from "../../src/POLManager.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
@@ -36,6 +37,7 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
     FilterHook hook;
     BonusDistributor bonus;
     POLVault polVault;
+    POLManager polManager;
     MockWETH weth;
 
     address owner = address(this);
@@ -56,15 +58,11 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
         polVault = new POLVault(address(this));
 
         launcher = new FilterLauncher(
-            owner,
-            oracle,
-            treasury,
-            mechanics,
-            address(polVault),
-            IBonusFunding(address(bonus)),
-            address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
         );
-        polVault.setLauncher(address(launcher));
+        polManager = new POLManager(address(launcher), address(weth), IPOLVaultRecord(address(polVault)));
+        launcher.setPolManager(IPOLManager(address(polManager)));
+        polVault.setPolManager(address(polManager));
         polVault.transferOwnership(polVaultOwner);
 
         bytes memory hookCreationCode = type(FilterHook).creationCode;
@@ -75,7 +73,12 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
         require(address(hook) == expectedHookAddr, "hook addr mismatch");
 
         factory = new FilterFactory(
-            manager, hook, address(launcher), address(weth), address(launcher.creatorFeeDistributor())
+            manager,
+            hook,
+            address(launcher),
+            address(weth),
+            address(launcher.creatorFeeDistributor()),
+            address(polManager)
         );
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));
@@ -156,8 +159,8 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
         polReserveAfter3 = vault.polReserveBalance();
         assertGt(polReserveAfter3, polReserveAfter2, "POL grew after cut3");
 
-        // POL is held as WETH — no winner-token purchase has happened yet.
-        assertEq(IERC20(winnerToken).balanceOf(address(polVault)), 0, "POL not deployed mid-week");
+        // POL is held as WETH — no LP add has happened yet.
+        assertEq(polVault.deploymentCount(), 0, "POL not deployed mid-week");
 
         // 5. Final settlement: oracle commits the winner. Drains rollover/bonus/POL reserves
         //    and converts to winner tokens via the WINNER's locker.
@@ -167,10 +170,17 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
         uint256 totalRollover = vault.rolloverWinnerTokens();
         assertGt(totalRollover, 0, "rollover bought winner tokens");
 
-        // POL deployed: WETH reserve emptied, winner tokens parked in POLVault.
+        // POL deployed: WETH reserve emptied, deployment recorded on POLVault. Actual LP lives
+        // inside the winner's FilterLpLocker keyed by POL_SALT.
         assertEq(vault.polReserveBalance(), 0, "POL reserve drained");
-        assertGt(IERC20(winnerToken).balanceOf(address(polVault)), 0, "POL in vault");
-        assertEq(polVault.seasonDeposit(1), vault.polDeployedTokens());
+        assertEq(polVault.deploymentCount(), 1, "POL recorded");
+        POLVault.Deployment memory dep = polVault.deploymentOf(1);
+        assertEq(dep.winner, winnerToken);
+        assertEq(dep.wethDeployed, vault.polDeployedWeth());
+        assertEq(dep.tokensDeployed, vault.polDeployedTokens());
+        assertGt(dep.liquidity, 0, "real V4 liquidity minted");
+        FilterLpLocker winnerLocker_ = FilterLpLocker(launcher.lockerOf(1, winnerToken));
+        assertEq(winnerLocker_.polLiquidity(), dep.liquidity, "locker holds POL position");
 
         // 7. Both holders claim with non-empty proofs (one sibling each in a 2-leaf tree).
         bytes32[] memory proofAlice = MiniMerkle.proofForTwo(leaves, 0);

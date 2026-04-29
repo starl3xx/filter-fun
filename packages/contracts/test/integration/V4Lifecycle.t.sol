@@ -19,9 +19,10 @@ import {FilterLauncher} from "../../src/FilterLauncher.sol";
 import {FilterFactory} from "../../src/FilterFactory.sol";
 import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
-import {SeasonVault, IBonusFunding} from "../../src/SeasonVault.sol";
+import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {POLVault} from "../../src/POLVault.sol";
+import {POLManager, IPOLVaultRecord} from "../../src/POLManager.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
 
@@ -45,7 +46,8 @@ contract V4LifecycleTest is Test, Deployers {
     address treasury = makeAddr("treasury");
     address mechanics = makeAddr("mechanics");
     address polVaultOwner = makeAddr("polVaultOwner");
-    address polVault;
+    POLVault polVault;
+    POLManager polManager;
 
     address trader = makeAddr("trader");
 
@@ -55,14 +57,15 @@ contract V4LifecycleTest is Test, Deployers {
 
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
-        POLVault polVaultC = new POLVault(address(this));
-        polVault = address(polVaultC);
+        polVault = new POLVault(address(this));
 
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polVault, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
         );
-        polVaultC.setLauncher(address(launcher));
-        polVaultC.transferOwnership(polVaultOwner);
+        polManager = new POLManager(address(launcher), address(weth), IPOLVaultRecord(address(polVault)));
+        launcher.setPolManager(IPOLManager(address(polManager)));
+        polVault.setPolManager(address(polManager));
+        polVault.transferOwnership(polVaultOwner);
 
         // Mine hook salt for required flags = BEFORE_ADD_LIQUIDITY (1<<11) | BEFORE_REMOVE_LIQUIDITY (1<<9) = 0xA00.
         bytes memory hookCreationCode = type(FilterHook).creationCode;
@@ -73,7 +76,12 @@ contract V4LifecycleTest is Test, Deployers {
         require(address(hook) == expectedHookAddr, "hook addr mismatch");
 
         factory = new FilterFactory(
-            manager, hook, address(launcher), address(weth), address(launcher.creatorFeeDistributor())
+            manager,
+            hook,
+            address(launcher),
+            address(weth),
+            address(launcher.creatorFeeDistributor()),
+            address(polManager)
         );
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));

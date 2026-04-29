@@ -1,100 +1,171 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-interface ILauncherView {
-    function vaultOf(uint256 seasonId) external view returns (address);
-}
-
 /// @title POLVault
-/// @notice Singleton sink for protocol-owned-liquidity exposure across all seasons. After each
-///         season is finalized, the SeasonVault uses the accumulated POL reserve to buy winner
-///         tokens and deposits them here. Per-season balances are tracked so the multisig can
-///         reason about exposure per cohort.
+/// @notice Singleton accounting + visibility layer for protocol-owned-liquidity positions across
+///         all seasons. The actual LP positions are owned by the per-token `FilterLpLocker`
+///         contracts (same locker that holds the seed) — this contract holds NO tokens; it just
+///         records the (winner, weth, tokens, liquidity) tuples each `POLManager.deployPOL` call
+///         materialized, so the indexer + broadcast UI can surface per-token, per-season, and
+///         total-protocol POL exposure.
 ///
-///         The current iteration is a passive winner-token accumulator. A subsequent iteration
-///         will extend this contract (or a related one) to actually pair with WETH and add LP
-///         to the AMM; for now the protocol holds the bag, which is functionally equivalent for
-///         alignment purposes (protocol gains/loses with the winner).
+///         Why no tokens here? V4 positions are non-transferable and live wherever they were
+///         minted from. The locker is already the natural owner — it's also the contract that
+///         can liquidate or interact with the position via its action dispatch. Splitting the
+///         records from the holdings is a pure SoC win: this vault is read-mostly and never
+///         needs reentrancy guards or token-handling code.
 ///
-///         Auth model: only the launcher's registered SeasonVault for a given seasonId may
-///         deposit. We can't accept deposits from arbitrary callers — an attacker could
-///         pre-deposit a worthless token for the next season, latch the one-deposit-per-season
-///         flag, and DoS the legitimate `submitWinner` settlement call. Verified at deposit
-///         time via the launcher's `vaultOf(seasonId)` view.
+///         POL is *intentionally* permanent in this iteration. The LP stays in the locker
+///         forever; there is no withdraw path. A future iteration can add yield routing or
+///         mechanics-funding withdrawal under a hard cap (`MAX_MECHANICS_BPS`), but that's
+///         deliberately out of scope today.
 ///
-///         Deployment ordering: POLVault is deployed BEFORE FilterLauncher (since the launcher
-///         takes the POLVault address in its constructor), so `launcher` is wired post-construction
-///         via a one-shot `setLauncher`. After that call the address is permanent.
+///         Auth model:
+///         - Only the registered `POLManager` may call `recordDeployment` (set once via
+///           `setPolManager`). The launcher's registered SeasonVault is the only caller of
+///           `POLManager.deployPOL`, so the chain of trust runs vault → manager → here.
+///         - Owner is the deployer multisig; `transferOwnership` is Ownable2Step (multisig must
+///           call `acceptOwnership` to take control).
 contract POLVault is Ownable2Step {
-    using SafeERC20 for IERC20;
+    /// @notice One canonical record per (seasonId) — there's exactly one POL deployment per
+    ///         season, at `submitWinner` time. The struct captures everything the UI needs:
+    ///         the winner token, the WETH originally deployed (for "total protocol POL" reads),
+    ///         the tokens that ended up paired in the LP, the V4 liquidity units, and a
+    ///         timestamp.
+    struct Deployment {
+        address winner;
+        uint256 wethDeployed;
+        uint256 tokensDeployed;
+        uint128 liquidity;
+        uint64 deployedAt;
+    }
 
-    /// @notice Filter-launcher singleton. Used to identify the legitimate SeasonVault for a
-    ///         given seasonId. Set once via `setLauncher`; cannot be rotated afterward.
-    address public launcher;
+    /// @notice POLManager wired post-deploy via `setPolManager`. Once set, immutable.
+    ///         This breaks the constructor-ordering chicken-and-egg with FilterLauncher
+    ///         (POLManager wants the launcher; the launcher wants POLVault).
+    address public polManager;
 
-    /// @notice Per-season winner-token deposit amount. Zero for seasons where finalization
-    ///         landed with `polDeployedTokens == 0` — see `deposited` for the actual flag.
-    mapping(uint256 => uint256) public seasonDeposit;
-    /// @notice Per-season winning token recorded at deposit time.
-    mapping(uint256 => address) public seasonWinner;
-    /// @notice One-shot flag: true once the SeasonVault has deposited, regardless of amount.
-    ///         Tracking this separately from `seasonDeposit` is critical — a zero-amount
-    ///         deposit (possible under extreme AMM conditions) would otherwise leave the
-    ///         numeric guard transparent and admit a second, real deposit.
-    mapping(uint256 => bool) public deposited;
+    /// @notice Per-season deployment record. Zero-initialized for seasons that haven't
+    ///         finalized yet (or finalized with zero POL — `recorded[seasonId]` distinguishes).
+    mapping(uint256 => Deployment) internal _seasons;
+    mapping(uint256 => bool) public recorded;
 
-    event LauncherSet(address indexed launcher);
-    /// @notice Cumulative inflow per (season, token) pair so an indexer can render history.
-    event Deposited(uint256 indexed seasonId, address indexed winnerToken, uint256 amount);
-    event Withdrawn(address indexed token, address indexed to, uint256 amount);
+    /// @notice All seasons that have recorded a deployment, in deploy order. Lets the UI list
+    ///         positions without scanning a sparse `seasonId` keyspace.
+    uint256[] internal _seasonList;
 
-    error AlreadyDeposited();
-    error LauncherAlreadySet();
-    error LauncherNotSet();
-    error NotRegisteredVault();
+    /// @notice Cumulative WETH ever deployed into POL across the protocol's lifetime. Sum of
+    ///         every `Deployment.wethDeployed` ever recorded.
+    uint256 public totalWethDeployed;
+    /// @notice Cumulative LP units (V4 liquidity) across all seasons. Useful as a coarse
+    ///         "total POL position size" metric independent of token price.
+    uint256 public totalLiquidity;
+
+    /// @notice Per-winner-token aggregations. The same token *could* in principle win multiple
+    ///         seasons (we don't filter past winners from re-launching as new contracts, but
+    ///         the same address winning twice would be unusual); these mappings let the UI
+    ///         answer "how much protocol exposure exists in token X?" in O(1).
+    mapping(address => uint256) public tokenWethDeployed;
+    mapping(address => uint128) public tokenLiquidity;
+
+    event PolManagerSet(address indexed polManager);
+    event DeploymentRecorded(
+        uint256 indexed seasonId,
+        address indexed winner,
+        uint256 wethDeployed,
+        uint256 tokensDeployed,
+        uint128 liquidity
+    );
+
+    error PolManagerAlreadySet();
+    error PolManagerNotSet();
+    error NotPolManager();
+    error AlreadyRecorded();
     error ZeroAddress();
 
     constructor(address owner_) Ownable(owner_) {}
 
-    /// @notice One-shot wire of the launcher. Owner-only; reverts if already set or zero.
-    function setLauncher(address launcher_) external onlyOwner {
-        if (launcher != address(0)) revert LauncherAlreadySet();
-        if (launcher_ == address(0)) revert ZeroAddress();
-        launcher = launcher_;
-        emit LauncherSet(launcher_);
+    /// @notice One-shot wire of the POLManager. Owner-only; reverts if already set or zero.
+    function setPolManager(address polManager_) external onlyOwner {
+        if (polManager != address(0)) revert PolManagerAlreadySet();
+        if (polManager_ == address(0)) revert ZeroAddress();
+        polManager = polManager_;
+        emit PolManagerSet(polManager_);
     }
 
-    /// @notice SeasonVault deposits the winner tokens it bought with the POL reserve. Tokens
-    ///         are pulled from the caller — the SeasonVault has already approved this contract
-    ///         for `amount` before calling.
-    ///
-    ///         Authorization: the caller must be the launcher's registered SeasonVault for
-    ///         `seasonId`. This both rejects arbitrary front-running (no anonymous DoS) and
-    ///         confirms the deposit corresponds to a real, completed settlement.
-    function deposit(uint256 seasonId, address winnerToken, uint256 amount) external {
-        if (deposited[seasonId]) revert AlreadyDeposited();
-        address l = launcher;
-        if (l == address(0)) revert LauncherNotSet();
-        if (msg.sender != ILauncherView(l).vaultOf(seasonId)) revert NotRegisteredVault();
-        deposited[seasonId] = true;
-        seasonDeposit[seasonId] = amount;
-        seasonWinner[seasonId] = winnerToken;
-        if (amount > 0) IERC20(winnerToken).safeTransferFrom(msg.sender, address(this), amount);
-        emit Deposited(seasonId, winnerToken, amount);
+    /// @notice POLManager-only. Records the result of a `POLManager.deployPOL` call. Idempotent
+    ///         per season — reverts on duplicate so a misbehaving manager can't overwrite a
+    ///         canonical record.
+    function recordDeployment(
+        uint256 seasonId,
+        address winner,
+        uint256 wethDeployed,
+        uint256 tokensDeployed,
+        uint128 liquidity
+    ) external {
+        address pm = polManager;
+        if (pm == address(0)) revert PolManagerNotSet();
+        if (msg.sender != pm) revert NotPolManager();
+        if (recorded[seasonId]) revert AlreadyRecorded();
+
+        recorded[seasonId] = true;
+        _seasons[seasonId] = Deployment({
+            winner: winner,
+            wethDeployed: wethDeployed,
+            tokensDeployed: tokensDeployed,
+            liquidity: liquidity,
+            deployedAt: uint64(block.timestamp)
+        });
+        _seasonList.push(seasonId);
+        totalWethDeployed += wethDeployed;
+        totalLiquidity += liquidity;
+        tokenWethDeployed[winner] += wethDeployed;
+        tokenLiquidity[winner] += liquidity;
+
+        emit DeploymentRecorded(seasonId, winner, wethDeployed, tokensDeployed, liquidity);
     }
 
-    /// @notice Multisig escape hatch. Used to migrate POL into LP positions in a follow-up
-    ///         iteration, or to handle emergencies (e.g. winner token getting paused).
-    function withdraw(address token, address to, uint256 amount) external onlyOwner {
-        IERC20(token).safeTransfer(to, amount);
-        emit Withdrawn(token, to, amount);
+    // ============================================================ Views
+
+    /// @notice Per-season deployment record. Returns zero-initialized struct for unrecorded
+    ///         seasons; pair with `recorded[seasonId]` to disambiguate.
+    function deploymentOf(uint256 seasonId) external view returns (Deployment memory) {
+        return _seasons[seasonId];
     }
 
-    function balanceOf(address token) external view returns (uint256) {
-        return IERC20(token).balanceOf(address(this));
+    /// @notice List of all season IDs that have recorded a POL deployment, in chronological
+    ///         order. Returned as a copy — for an indexed UI, prefer subscribing to the
+    ///         `DeploymentRecorded` event.
+    function getSeasonList() external view returns (uint256[] memory) {
+        return _seasonList;
+    }
+
+    /// @notice Number of POL deployments recorded across the protocol's lifetime.
+    function deploymentCount() external view returns (uint256) {
+        return _seasonList.length;
+    }
+
+    /// @notice Total WETH originally deployed into protocol-owned LP positions across all
+    ///         seasons. The headline "total POL" number for the broadcast UI.
+    function getTotalPOLValue() external view returns (uint256) {
+        return totalWethDeployed;
+    }
+
+    /// @notice Per-token POL exposure (in original-WETH terms). Sum of all season deployments
+    ///         where the same token won. Zero for tokens that never won a season.
+    function getTokenPOLValue(address token) external view returns (uint256) {
+        return tokenWethDeployed[token];
+    }
+
+    /// @notice Snapshot of all recorded LP positions, in deploy order. Convenience accessor for
+    ///         the UI; for many seasons prefer subscribing to events.
+    function getLPPositions() external view returns (Deployment[] memory positions) {
+        uint256 n = _seasonList.length;
+        positions = new Deployment[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            positions[i] = _seasons[_seasonList[i]];
+        }
     }
 }
