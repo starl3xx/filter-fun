@@ -10,10 +10,12 @@ import {
     IBonusFunding,
     ICreatorRegistry,
     ICreatorFeeDistributor,
-    IPOLManager
+    IPOLManager,
+    ITournamentRegistry
 } from "./SeasonVault.sol";
 import {CreatorRegistry} from "./CreatorRegistry.sol";
 import {CreatorFeeDistributor} from "./CreatorFeeDistributor.sol";
+import {TournamentRegistry} from "./TournamentRegistry.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "./interfaces/IFilterLauncher.sol";
 
@@ -60,6 +62,11 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
     ///         locker.
     CreatorRegistry public immutable creatorRegistry;
     CreatorFeeDistributor public immutable creatorFeeDistributor;
+    /// @notice Singleton tournament metadata registry. Tracks per-token status across the
+    ///         weekly → quarterly Filter Bowl → annual championship ladder. Deployed inline
+    ///         here so SeasonVault can record weekly winners + filtered tokens without a
+    ///         post-construction wire-up step.
+    TournamentRegistry public immutable tournamentRegistry;
     uint256 public bonusUnlockDelay = 14 days;
     uint256 public maxLaunchesPerWallet = 2;
 
@@ -85,6 +92,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
         weth = weth_;
         creatorRegistry = new CreatorRegistry(address(this));
         creatorFeeDistributor = new CreatorFeeDistributor(address(this), weth_, treasury_, creatorRegistry);
+        tournamentRegistry = new TournamentRegistry(address(this));
     }
 
     /// @notice One-shot wire of the POLManager. Owner-only; reverts if already set or zero.
@@ -137,7 +145,8 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
             bonusDistributor,
             bonusUnlockDelay,
             ICreatorRegistry(address(creatorRegistry)),
-            ICreatorFeeDistributor(address(creatorFeeDistributor))
+            ICreatorFeeDistributor(address(creatorFeeDistributor)),
+            ITournamentRegistry(address(tournamentRegistry))
         );
         _vault[seasonId] = address(v);
         _phase[seasonId] = Phase.Launch;

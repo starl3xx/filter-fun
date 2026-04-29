@@ -31,6 +31,11 @@ interface ICreatorRegistry {
     function creatorOf(address token) external view returns (address);
 }
 
+interface ITournamentRegistry {
+    function recordWeeklyWinner(uint256 seasonId, address token) external;
+    function markFiltered(uint256 seasonId, address token) external;
+}
+
 /// @title SeasonVault
 /// @notice Per-season escrow for the user-aligned settlement model. Accepts losers-pot
 ///         liquidations across multiple intra-week filter events, plus the final cut, and
@@ -95,6 +100,11 @@ contract SeasonVault is ReentrancyGuard {
     /// @notice Singleton (token → creator) registry. Used at `submitWinner` to look up the
     ///         winner's creator for the champion bounty payout.
     ICreatorRegistry public immutable creatorRegistry;
+    /// @notice Singleton tournament metadata registry. The vault notifies it on every filter
+    ///         event (markFiltered) and on submitWinner (recordWeeklyWinner) so the
+    ///         token-status ladder for the multi-timescale championship structure stays in
+    ///         sync with the weekly outcomes.
+    ITournamentRegistry public immutable tournamentRegistry;
 
     // -------- Mutable state
     address public oracle;
@@ -196,7 +206,8 @@ contract SeasonVault is ReentrancyGuard {
         IBonusFunding bonusDistributor_,
         uint256 bonusUnlockDelay_,
         ICreatorRegistry creatorRegistry_,
-        ICreatorFeeDistributor creatorFeeDistributor_
+        ICreatorFeeDistributor creatorFeeDistributor_,
+        ITournamentRegistry tournamentRegistry_
     ) {
         launcher = launcher_;
         seasonId = seasonId_;
@@ -209,6 +220,7 @@ contract SeasonVault is ReentrancyGuard {
         bonusUnlockDelay = bonusUnlockDelay_;
         creatorRegistry = creatorRegistry_;
         creatorFeeDistributor = creatorFeeDistributor_;
+        tournamentRegistry = tournamentRegistry_;
         phase = Phase.Active;
         // Each season gets its own POL reserve so accumulated WETH is strictly scoped to the
         // current cohort and can't be commingled across seasons.
@@ -245,6 +257,10 @@ contract SeasonVault is ReentrancyGuard {
             // Halt creator-fee accrual for this token immediately; any subsequent swap fees on
             // its (now-empty) pool would be redirected to treasury by the distributor.
             creatorFeeDistributor.markFiltered(t);
+            // Stamp the token's tournament status as FILTERED so it's permanently ineligible
+            // for quarterly/annual qualification. The registry is no-op-safe if the status is
+            // already non-ACTIVE (defensive against re-entry of an already-titled token).
+            tournamentRegistry.markFiltered(seasonId, t);
 
             address locker = ILauncherView(launcher).lockerOf(seasonId, t);
             uint256 out = ILpLocker(locker).liquidateToWETH(address(this), minOuts_[i]);
@@ -327,6 +343,11 @@ contract SeasonVault is ReentrancyGuard {
         rolloverRoot = rolloverRoot_;
         totalRolloverShares = totalRolloverShares_;
         emit WinnerSubmitted(winner_, rolloverRoot_, totalRolloverShares_);
+
+        // Stamp WEEKLY_WINNER on the tournament registry so this token qualifies for the
+        // upcoming quarterly Filter Bowl. Registry handles auth via launcher.vaultOf and is
+        // idempotent per season.
+        tournamentRegistry.recordWeeklyWinner(seasonId, winner_);
 
         address winnerLocker = ILauncherView(launcher).lockerOf(seasonId, winner_);
 
