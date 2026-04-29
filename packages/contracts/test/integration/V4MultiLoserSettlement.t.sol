@@ -168,30 +168,38 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
     }
 
     /// @dev Liquidating the same loser twice must revert — keepers race for the bounty.
+    /// Two losers (not one) so the phase stays at `Liquidating` between calls, otherwise
+    /// the second liquidate would fall through to the WrongPhase guard instead of exercising
+    /// the actual idempotency check.
     function test_DoubleLiquidationReverts() public {
         (address winnerToken,) = launcher.launchProtocolToken("Winner", "WIN", "");
         (address loser1,) = launcher.launchProtocolToken("Loser1", "L1", "");
+        (address loser2,) = launcher.launchProtocolToken("Loser2", "L2", "");
 
-        weth.mint(trader, 1 ether);
+        weth.mint(trader, 2 ether);
         vm.prank(trader);
         weth.approve(address(swapRouter), type(uint256).max);
         _buyWithWETH(winnerToken, 0.3 ether);
         _buyWithWETH(loser1, 0.3 ether);
+        _buyWithWETH(loser2, 0.3 ether);
 
         bytes32 leaf = keccak256(abi.encodePacked(aliceUser, uint256(1)));
 
         SeasonVault vault = SeasonVault(launcher.vaultOf(1));
-        address[] memory losers = new address[](1);
+        address[] memory losers = new address[](2);
         losers[0] = loser1;
-        uint256[] memory minOuts = new uint256[](1);
+        losers[1] = loser2;
+        uint256[] memory minOuts = new uint256[](2);
 
         vm.prank(oracle);
         vault.submitSettlement(winnerToken, losers, minOuts, leaf, 1, block.timestamp + 1 days);
 
         vault.liquidate(loser1, 0);
 
-        // Second call on the same loser must revert. The exact selector is contract-internal,
-        // so we just assert the call fails rather than match an error.
+        // Second call on loser1 must revert via the AlreadyLiquidated guard. Phase stays at
+        // Liquidating because loser2 hasn't been touched yet, so the WrongPhase path can't
+        // mask the real check. Selector is contract-internal so we assert the failure
+        // generically rather than hard-code it.
         vm.expectRevert();
         vault.liquidate(loser1, 0);
     }
