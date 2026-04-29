@@ -25,8 +25,11 @@ npm run dev           # local dev, requires deployed contracts + RPC
 - Factory pattern is wired: `SeasonVault` instances tracked via `FilterLauncher.SeasonStarted`; `FilterLpLocker` instances tracked via `FilterFactory.TokenDeployed`.
 - Addresses are placeholders — real wiring happens at testnet deploy.
 
+## CI
+
+Off-chain CI (`.github/workflows/off-chain-ci.yml`) runs both `typecheck` and `codegen` for this package on every PR. `codegen` is the load-bearing one: it reads `ponder.config.ts`, `ponder.schema.ts`, and the committed ABIs together, so any drift between the three fails the workflow before merge.
+
 ## Outstanding
 
 - `FilterFactory.TokenDeployed` adds the locker but doesn't index `FilterFactory` directly. If we want pool keys / start blocks per launch in the index, add a small handler.
-- No tests yet. Ponder ships with a `ponder test` mode; we'll wire that up alongside the testnet deploy when we have real fixture data.
-- `npm install` not yet run in CI — Ponder API correctness will be validated at first install + codegen.
+- No runtime tests yet. Ponder ships with a `ponder test` mode; we'll wire that up alongside the testnet deploy when we have real fixture data.
