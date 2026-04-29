@@ -9,6 +9,7 @@ import {FilterFactory} from "../src/FilterFactory.sol";
 import {FilterHook} from "../src/FilterHook.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
 import {TreasuryTimelock} from "../src/TreasuryTimelock.sol";
+import {POLVault} from "../src/POLVault.sol";
 import {IBonusFunding} from "../src/SeasonVault.sol";
 import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 
@@ -21,7 +22,7 @@ import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 ///         - ORACLE_MULTISIG           2-of-3 oracle Safe
 ///         - TREASURY_PROPOSER_0..2    treasury timelock proposer signers
 ///         - MECHANICS_WALLET          events/missions wallet
-///         - POL_RECIPIENT             protocol-owned-liquidity custody
+///         - POL_VAULT_OWNER           multisig that owns the POLVault (escape hatch)
 ///
 ///         NOTE on the hook: `FilterHook` must be deployed at an address whose lower 14 bits
 ///         encode the BEFORE_ADD_LIQUIDITY (1<<11) and BEFORE_REMOVE_LIQUIDITY (1<<9) flags
@@ -34,7 +35,7 @@ contract DeployGenesis is Script {
         address pmAddr = vm.envAddress("V4_POOL_MANAGER");
         address oracle = vm.envAddress("ORACLE_MULTISIG");
         address mechanics = vm.envAddress("MECHANICS_WALLET");
-        address polRecipient = vm.envAddress("POL_RECIPIENT");
+        address polVaultOwner = vm.envAddress("POL_VAULT_OWNER");
         bytes32 hookSalt = vm.envBytes32("HOOK_SALT");
 
         address[] memory proposers = new address[](3);
@@ -56,28 +57,33 @@ contract DeployGenesis is Script {
         BonusDistributor bonus = new BonusDistributor(deployer, weth, oracle);
         console2.log("BonusDistributor:", address(bonus));
 
-        // 3. FilterLauncher.
+        // 3. POLVault — singleton, holds protocol-owned exposure across all seasons. Owned by
+        //    the same multisig that runs the LP-add migration in a future iteration.
+        POLVault polVault = new POLVault(polVaultOwner);
+        console2.log("POLVault:", address(polVault));
+
+        // 4. FilterLauncher.
         FilterLauncher launcher = new FilterLauncher(
-            deployer, oracle, address(treasury), mechanics, polRecipient, IBonusFunding(address(bonus)), weth
+            deployer, oracle, address(treasury), mechanics, address(polVault), IBonusFunding(address(bonus)), weth
         );
         console2.log("FilterLauncher:", address(launcher));
 
-        // 4. FilterHook (deterministic via CREATE2 salt to satisfy hook flag bits).
+        // 5. FilterHook (deterministic via CREATE2 salt to satisfy hook flag bits).
         //    Constructor takes no args — factory is wired post-construction via initialize().
         FilterHook hook = new FilterHook{salt: hookSalt}();
         console2.log("FilterHook:", address(hook));
 
-        // 5. FilterFactory wires hook + manager + launcher + weth.
+        // 6. FilterFactory wires hook + manager + launcher + weth.
         FilterFactory factory = new FilterFactory(IPoolManager(pmAddr), hook, address(launcher), weth);
         console2.log("FilterFactory:", address(factory));
 
-        // 6. Initialize hook with factory address (one-shot).
+        // 7. Initialize hook with factory address (one-shot).
         hook.initialize(address(factory));
 
-        // 7. Wire factory into launcher.
+        // 8. Wire factory into launcher.
         launcher.setFactory(IFilterFactory(address(factory)));
 
-        // 7. Open Season 1.
+        // 9. Open Season 1.
         // Note: launcher's startSeason is onlyOracle; the deployer is the OWNER (Ownable),
         // so this call must be done by the oracle multisig in a follow-up tx after deployment.
 

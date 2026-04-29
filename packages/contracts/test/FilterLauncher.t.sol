@@ -21,7 +21,7 @@ contract FilterLauncherTest is Test {
     address oracle = address(0xCAFE);
     address treasury = address(0xD000);
     address mechanics = address(0xE000);
-    address polRecipient = address(0xF000);
+    address polVault = address(0xF000);
 
     address aliceCreator = address(0xA1);
 
@@ -29,7 +29,7 @@ contract FilterLauncherTest is Test {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, polVault, IBonusFunding(address(bonus)), address(weth)
         );
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));

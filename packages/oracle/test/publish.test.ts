@@ -8,18 +8,14 @@ import {splitBonusForPublication, splitSettlementForPublication} from "../src/pu
 const VAULT: Address = "0x000000000000000000000000000000000000fafe";
 const DIST: Address = "0x000000000000000000000000000000000000b011";
 const W: Address = "0x9999999999999999999999999999999999999999";
-const L1: Address = "0x1111111111111111111111111111111111111111";
 const ALICE: Address = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const BOB: Address = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 describe("splitSettlementForPublication", () => {
   it("emits one entry per holder, keyed by lowercase address", () => {
     const payload = buildSettlementPayload({
-      ranking: [W, L1],
-      recoverable: new Map([[L1, 1_000n]]),
-      slippageBps: 0,
+      winner: W,
       shares: new Map([[ALICE, 60n], [BOB, 40n]]),
-      liquidationDeadline: 1_700_000_000n,
     });
     const out = splitSettlementForPublication(payload, VAULT, 7n);
 
@@ -33,11 +29,8 @@ describe("splitSettlementForPublication", () => {
 
   it("encodes bigints as decimal strings (JSON-safe)", () => {
     const payload = buildSettlementPayload({
-      ranking: [W, L1],
-      recoverable: new Map([[L1, 1_000n]]),
-      slippageBps: 0,
+      winner: W,
       shares: new Map([[ALICE, 12_345_678_901_234_567_890n]]), // > 2^53
-      liquidationDeadline: 1_700_000_000n,
     });
     const out = splitSettlementForPublication(payload, VAULT, 1n);
     const entry = out[ALICE.toLowerCase() as Address]!;

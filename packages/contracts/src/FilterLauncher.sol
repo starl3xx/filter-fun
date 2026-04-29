@@ -39,7 +39,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
     address public oracle;
     address public treasury;
     address public mechanics;
-    address public polRecipient;
+    address public polVault;
     IBonusFunding public bonusDistributor;
     address public weth;
     uint256 public bonusUnlockDelay = 14 days;
@@ -57,14 +57,14 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
         address oracle_,
         address treasury_,
         address mechanics_,
-        address polRecipient_,
+        address polVault_,
         IBonusFunding bonusDistributor_,
         address weth_
     ) Ownable(owner_) {
         oracle = oracle_;
         treasury = treasury_;
         mechanics = mechanics_;
-        polRecipient = polRecipient_;
+        polVault = polVault_;
         bonusDistributor = bonusDistributor_;
         weth = weth_;
     }
@@ -105,7 +105,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
             oracle,
             treasury,
             mechanics,
-            polRecipient,
+            polVault,
             bonusDistributor,
             bonusUnlockDelay
         );

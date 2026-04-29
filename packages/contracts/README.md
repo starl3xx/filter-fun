@@ -4,7 +4,7 @@ Smart-contract suite for filter.fun on Base. Foundry / Solidity 0.8.26 / Uniswap
 
 ## Overview
 
-Five core contracts:
+Core contracts:
 
 | Contract             | Role                                                                                              |
 | -------------------- | ------------------------------------------------------------------------------------------------- |
@@ -12,23 +12,33 @@ Five core contracts:
 | `FilterFactory`      | Single-tx deploy: ERC-20 → V4 pool init → seed full-range LP → per-token `FilterLpLocker`.        |
 | `FilterHook`         | V4 hook gating add/remove-liquidity to the factory (initial seed) and locker (post-seed).          |
 | `FilterLpLocker`     | Per-token. Holds the V4 LP. Splits collected fees per BPS, exposes settlement primitives.          |
-| `SeasonVault`        | Per-season escrow. Settlement state machine, allocates pot, serves rollover Merkle claim.          |
+| `SeasonVault`        | Per-season escrow. Multi-filter event accounting, allocates pot, serves rollover Merkle claim.    |
+| `SeasonPOLReserve`   | Per-season WETH-only POL holder. Accumulates the 10% slice across filter events.                  |
+| `POLVault`           | Singleton. Receives winner-token POL exposure across all seasons.                                 |
 | `BonusDistributor`   | 14-day hold-bonus payout via multi-snapshot Merkle roots posted by the oracle.                     |
-| `TreasuryTimelock`   | OZ `TimelockController` on the 20% treasury cut. 48h delay.                                        |
+| `TreasuryTimelock`   | OZ `TimelockController` on the 10% treasury cut. 48h delay.                                       |
 
 Plus `FilterToken` (the ERC-20 deployed for every launch).
 
-## Allocation policy at settlement
+## User-aligned settlement model
+
+There are multiple **filter events** during the week — at each cut, a set of tokens is liquidated and the proceeds are split immediately:
 
 ```
-35% rollover  → buy winner tokens, distribute via Merkle (share-based)
-15% bonus     → BonusDistributor WETH reserve (14-day hold bonus)
-20% POL       → buy winner tokens, retain in protocol-owned wallet
-20% treasury  → WETH to TreasuryTimelock
-10% mechanics → WETH to events/missions wallet
+45% rollover  → accumulate as WETH (buy winner tokens at final settlement, distribute via Merkle)
+25% bonus     → accumulate as WETH (forward to BonusDistributor at final settlement)
+10% mechanics → WETH to events/missions wallet (immediate, every event)
+10% POL       → accumulate as WETH in SeasonPOLReserve (deploy at final settlement only)
+10% treasury  → WETH to TreasuryTimelock (immediate, every event)
 ────────────────
 100%
 ```
+
+80% of every losers-pot dollar is user-aligned (rollover + bonus + mechanics).
+
+**POL is silent during the week.** It accumulates as WETH in `SeasonPOLReserve` and is *only* deployed once the final winner is known — preventing the protocol from biasing the live competition. At final settlement the reserve is drained, used to buy winner tokens, and the result is parked in the singleton `POLVault`.
+
+Trading-fee streams (FilterLpLocker → vault) accrue separately and are not subject to the losers-pot BPS — the vault measures the WETH delta produced by liquidations and only that delta is split. Trading-fee residue is swept to treasury at `submitWinner` time.
 
 All settlement-side accounting is WETH: tokens are paired against WETH at launch, and liquidations recover WETH from the pool. Stable-denomination accounting (e.g. USDC) was considered and rejected — it would force a swap leg per liquidation.
 

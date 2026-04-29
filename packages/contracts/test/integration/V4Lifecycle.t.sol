@@ -21,6 +21,7 @@ import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
 import {SeasonVault, IBonusFunding} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {POLVault} from "../../src/POLVault.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
 
@@ -43,7 +44,8 @@ contract V4LifecycleTest is Test, Deployers {
     address oracle = makeAddr("oracle");
     address treasury = makeAddr("treasury");
     address mechanics = makeAddr("mechanics");
-    address polRecipient = makeAddr("pol");
+    address polVaultOwner = makeAddr("polVaultOwner");
+    address polVault;
 
     address trader = makeAddr("trader");
 
@@ -53,9 +55,10 @@ contract V4LifecycleTest is Test, Deployers {
 
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
+        polVault = address(new POLVault(polVaultOwner));
 
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, polVault, IBonusFunding(address(bonus)), address(weth)
         );
 
         // Mine hook salt for required flags = BEFORE_ADD_LIQUIDITY (1<<11) | BEFORE_REMOVE_LIQUIDITY (1<<9) = 0xA00.

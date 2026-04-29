@@ -47,7 +47,7 @@ export function splitSettlementForPublication(
 
 /// Split a bonus payload into per-user JSON entries keyed by lowercase address.
 /// Bonus uses concrete WETH amounts (not abstract shares) because the reserve is fixed
-/// at finalize time — see `buildBonusPayload`.
+/// at submitWinner time — see `buildBonusPayload`.
 export function splitBonusForPublication(
   payload: BonusPayload,
   distributor: Address,

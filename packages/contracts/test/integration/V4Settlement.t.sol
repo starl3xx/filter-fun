@@ -18,6 +18,7 @@ import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
 import {SeasonVault, IBonusFunding} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {POLVault} from "../../src/POLVault.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
@@ -32,13 +33,14 @@ contract V4SettlementTest is Test, Deployers {
     FilterFactory factory;
     FilterHook hook;
     BonusDistributor bonus;
+    POLVault polVault;
     MockWETH weth;
 
     address owner = address(this);
     address oracle = makeAddr("oracle");
     address treasury = makeAddr("treasury");
     address mechanics = makeAddr("mechanics");
-    address polRecipient = makeAddr("pol");
+    address polVaultOwner = makeAddr("polVaultOwner");
 
     address trader = makeAddr("trader");
     address holder = makeAddr("holder");
@@ -48,9 +50,10 @@ contract V4SettlementTest is Test, Deployers {
 
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
+        polVault = new POLVault(polVaultOwner);
 
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, address(polVault), IBonusFunding(address(bonus)), address(weth)
         );
 
         // Required hook flags: BEFORE_ADD_LIQUIDITY (1<<11) | BEFORE_REMOVE_LIQUIDITY (1<<9) = 0xA00.
@@ -105,44 +108,51 @@ contract V4SettlementTest is Test, Deployers {
         bytes32 leaf = keccak256(abi.encodePacked(holder, uint256(1)));
         bytes32 root = leaf;
 
-        // 4. Settlement.
+        // 4. Filter event: cut the loser. The vault liquidates its LP and splits per BPS,
+        //    accumulating rollover + bonus + POL as WETH. Mechanics + treasury get their
+        //    cuts immediately.
         SeasonVault vault = SeasonVault(launcher.vaultOf(1));
         address[] memory losers = new address[](1);
         losers[0] = loserToken;
         uint256[] memory minOuts = new uint256[](1);
 
+        uint256 mechanicsBefore = weth.balanceOf(mechanics);
+        uint256 treasuryBefore = weth.balanceOf(treasury);
+
         vm.prank(oracle);
-        vault.submitSettlement(winnerToken, losers, minOuts, root, 1, block.timestamp + 1 days);
+        vault.processFilterEvent(losers, minOuts);
 
-        // 5. Liquidate the loser. Vault pulls WETH out of the loser pool via the locker.
-        vault.liquidate(loserToken, 0);
-        uint256 pot = weth.balanceOf(address(vault));
-        assertGt(pot, 0, "pot should hold liquidated WETH");
+        assertGt(vault.rolloverReserve(), 0, "rollover acc");
+        assertGt(vault.bonusReserve(), 0, "bonus acc");
+        assertGt(vault.polReserveBalance(), 0, "POL acc");
+        assertGt(weth.balanceOf(mechanics) - mechanicsBefore, 0, "mechanics paid mid-event");
+        assertGt(weth.balanceOf(treasury) - treasuryBefore, 0, "treasury paid mid-event");
+        // POL stays as WETH — no winner-token purchase yet.
+        assertEq(IERC20(winnerToken).balanceOf(address(polVault)), 0, "POL not deployed yet");
 
-        // 6. Finalize: vault distributes the pot per BPS — buys winner tokens with rollover
-        //    + POL slices via the WINNER's locker.buyTokenWithWETH (which routes through the
-        //    real V4 PoolManager swap path), and forwards bonus / treasury / mechanics slices.
+        // 5. Final settlement: oracle commits the winner. Vault drains rollover + bonus +
+        //    POL reserves and buys winner tokens via the WINNER's locker (real V4 swap path).
         uint256 vaultWinnerBefore = IERC20(winnerToken).balanceOf(address(vault));
-        uint256 polWinnerBefore = IERC20(winnerToken).balanceOf(polRecipient);
-        vault.finalize(0, 0);
+        vm.prank(oracle);
+        vault.submitWinner(winnerToken, root, 1, 0, 0);
 
         // Phase advanced.
         assertEq(uint8(vault.phase()), uint8(SeasonVault.Phase.Distributing));
 
-        // Allocations landed in the right places.
-        assertGt(weth.balanceOf(treasury), 0, "treasury got WETH");
-        assertGt(weth.balanceOf(mechanics), 0, "mechanics got WETH");
-        assertGt(weth.balanceOf(address(bonus)), 0, "bonus reserve funded");
+        // Bonus reserve forwarded to BonusDistributor.
+        assertGt(weth.balanceOf(address(bonus)), 0, "bonus distributor funded");
 
         // Rollover bought winner tokens, held by the vault for Merkle claims.
         uint256 vaultWinnerAfter = IERC20(winnerToken).balanceOf(address(vault));
-        assertGt(vaultWinnerAfter - vaultWinnerBefore, 0, "rollover bought winner tokens");
+        assertGt(vaultWinnerAfter - vaultWinnerBefore, 0, "rollover bought winner");
         assertEq(vault.rolloverWinnerTokens(), vaultWinnerAfter - vaultWinnerBefore);
 
-        // POL bought winner tokens, sent to polRecipient.
-        assertGt(IERC20(winnerToken).balanceOf(polRecipient) - polWinnerBefore, 0, "POL bought winner");
+        // POL deployed: WETH reserve drained, winner tokens parked in POLVault.
+        assertEq(vault.polReserveBalance(), 0, "POL reserve drained");
+        assertGt(IERC20(winnerToken).balanceOf(address(polVault)), 0, "POL deployed to vault");
+        assertEq(polVault.seasonDeposit(1), vault.polDeployedTokens());
 
-        // 7. Holder claims their full share. Single-leaf tree → empty proof.
+        // 6. Holder claims their full share. Single-leaf tree → empty proof.
         bytes32[] memory proof = new bytes32[](0);
         uint256 holderBefore = IERC20(winnerToken).balanceOf(holder);
         vm.prank(holder);

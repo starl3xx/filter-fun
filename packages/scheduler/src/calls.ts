@@ -1,6 +1,6 @@
 import type {Address, Hex} from "viem";
 
-import type {SettlementPayload} from "@filter-fun/oracle";
+import type {FilterEventPayload, SettlementPayload} from "@filter-fun/oracle";
 
 import {SeasonVaultAbi} from "./abi.js";
 
@@ -25,48 +25,37 @@ export interface ContractCall<TFunctionName extends string> {
   args: ReadonlyArray<unknown>;
 }
 
-export function submitSettlementCall(
+/// Builds the call for a single filter event (one cut). Multiple of these are dispatched
+/// across the week as the oracle decides which tokens to filter at each cut.
+export function processFilterEventCall(
+  vault: Address,
+  payload: FilterEventPayload,
+): ContractCall<"processFilterEvent"> {
+  return {
+    address: vault,
+    abi: SeasonVaultAbi,
+    functionName: "processFilterEvent",
+    args: [payload.losers, payload.minOuts],
+  };
+}
+
+/// Builds the final-settlement call: oracle commits the winner + rollover Merkle root and
+/// the vault drains the accumulated rollover/bonus/POL reserves in one tx.
+export function submitWinnerCall(
   vault: Address,
   payload: SettlementPayload,
-): ContractCall<"submitSettlement"> {
+): ContractCall<"submitWinner"> {
   return {
     address: vault,
     abi: SeasonVaultAbi,
-    functionName: "submitSettlement",
+    functionName: "submitWinner",
     args: [
       payload.winner,
-      payload.losers,
-      payload.minOuts,
       payload.rolloverRoot,
       payload.totalRolloverShares,
-      payload.liquidationDeadline,
+      payload.minWinnerTokensRollover,
+      payload.minWinnerTokensPol,
     ],
-  };
-}
-
-export function liquidateCall(
-  vault: Address,
-  loser: Address,
-  minOutOverride: bigint = 0n,
-): ContractCall<"liquidate"> {
-  return {
-    address: vault,
-    abi: SeasonVaultAbi,
-    functionName: "liquidate",
-    args: [loser, minOutOverride],
-  };
-}
-
-export function finalizeCall(
-  vault: Address,
-  minWinnerTokensRollover: bigint = 0n,
-  minWinnerTokensPol: bigint = 0n,
-): ContractCall<"finalize"> {
-  return {
-    address: vault,
-    abi: SeasonVaultAbi,
-    functionName: "finalize",
-    args: [minWinnerTokensRollover, minWinnerTokensPol],
   };
 }
 
