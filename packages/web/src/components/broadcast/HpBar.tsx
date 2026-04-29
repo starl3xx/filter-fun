@@ -54,15 +54,22 @@ export function HpBar({token, below, finalist}: Props) {
     setPos({top, left});
   };
 
-  // Reposition on scroll/resize while the tooltip is open. The leaderboard's
-  // own scroll container is the most common cause of position drift.
+  // Reposition on scroll/resize AND on every animation frame while open. The
+  // leaderboard re-sorts every 1.4s without firing scroll/resize, so without
+  // the rAF loop the tooltip would visually detach from its anchor when rows
+  // swap places. rAF is cheap for one element and self-throttles.
   useEffect(() => {
     if (!open) return;
     updatePosition();
+    let raf = requestAnimationFrame(function tick() {
+      updatePosition();
+      raf = requestAnimationFrame(tick);
+    });
     const handler = () => updatePosition();
     window.addEventListener("scroll", handler, true);
     window.addEventListener("resize", handler);
     return () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener("scroll", handler, true);
       window.removeEventListener("resize", handler);
     };
