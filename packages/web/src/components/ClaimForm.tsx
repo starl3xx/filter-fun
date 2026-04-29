@@ -1,6 +1,6 @@
 "use client";
 
-import {useState, type ReactNode} from "react";
+import {useEffect, useState, type ReactNode} from "react";
 import type {Address, Hex} from "viem";
 import {isAddress} from "viem";
 import {useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract} from "wagmi";
@@ -56,20 +56,21 @@ export function ClaimForm({
   const {isLoading: isMining, isSuccess: isMined} = useWaitForTransactionReceipt({hash: txHash});
 
   // Read `claimed[user]` once we have both a parsed payload and a connected wallet.
-  // Refetched after a successful submit so the UI flips from "Claim" → "Already claimed"
-  // without a manual refresh.
   const claimedCall = parsed && address ? buildClaimedRead(parsed, address) : null;
   const {data: alreadyClaimed, refetch: refetchClaimed} = useReadContract({
     address: claimedCall?.address,
     abi: claimedCall?.abi as never,
     functionName: claimedCall?.functionName,
     args: claimedCall?.args as never,
-    query: {
-      enabled: claimedCall !== null,
-      // After tx mines, refetch once so the badge updates.
-      refetchInterval: isMined ? false : undefined,
-    },
+    query: {enabled: claimedCall !== null},
   });
+
+  // After the tx mines, refetch so the badge flips from "eligible" → "already claimed"
+  // without a manual refresh. NOT in writeContract's onSuccess — that fires when the
+  // hash is broadcast to mempool, before any state change has actually landed on-chain.
+  useEffect(() => {
+    if (isMined) void refetchClaimed();
+  }, [isMined, refetchClaimed]);
 
   function handleParse() {
     setParseError(null);
@@ -87,17 +88,14 @@ export function ClaimForm({
   function handleClaim() {
     if (!parsed) return;
     const call = buildCall(parsed);
-    writeContract(
-      {
-        address: call.address,
-        // viem's writeContract is strict about ABI typing; the structural ContractCallShape
-        // erases that. Casting is safe because the call builders own the ABI binding.
-        abi: call.abi as never,
-        functionName: call.functionName,
-        args: call.args as never,
-      },
-      {onSuccess: () => refetchClaimed()},
-    );
+    writeContract({
+      address: call.address,
+      // viem's writeContract is strict about ABI typing; the structural ContractCallShape
+      // erases that. Casting is safe because the call builders own the ABI binding.
+      abi: call.abi as never,
+      functionName: call.functionName,
+      args: call.args as never,
+    });
   }
 
   const isClaimed = alreadyClaimed === true || isMined;
