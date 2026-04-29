@@ -297,6 +297,62 @@ contract SeasonVaultTest is Test {
         assertEq(weth.balanceOf(address(vault)), 0);
     }
 
+    // ============================================================ Champion bounty
+
+    /// @notice Each loser triggers a markFiltered call into the distributor — a single bool
+    ///         flip in the real contract, a counter increment in our mock.
+    function test_FilterEvent_CallsMarkFiltered() public {
+        address[] memory cohort = new address[](2);
+        cohort[0] = loserA;
+        cohort[1] = loserB;
+        _filter(cohort);
+        assertEq(creatorFeeDistributor.markFilteredCount(loserA), 1);
+        assertEq(creatorFeeDistributor.markFilteredCount(loserB), 1);
+        // Other tokens never touched.
+        assertEq(creatorFeeDistributor.markFilteredCount(loserC), 0);
+        assertEq(creatorFeeDistributor.markFilteredCount(winnerToken), 0);
+    }
+
+    /// @notice With a creator registered for the winner, the bounty pays out to that creator
+    ///         and `bountyRecipient` records who received it. State drained.
+    function test_Bounty_PaidToWinnerCreator() public {
+        creatorRegistry.set(winnerToken, winnerCreator);
+        _filterOne(loserA);
+        _filterOne(loserB);
+        // Each loser produces 1 WETH; bounty = 0.025 × 2 = 0.05.
+        assertEq(vault.bountyReserve(), 0.05 ether);
+        _submit(bytes32(0));
+        assertEq(weth.balanceOf(winnerCreator), 0.05 ether, "creator got bounty");
+        assertEq(vault.bountyReserve(), 0, "bounty drained");
+        assertEq(vault.bountyPaid(), 0.05 ether);
+        assertEq(vault.bountyRecipient(), winnerCreator);
+    }
+
+    /// @notice With NO creator registered for the winner (defensive path — shouldn't happen via
+    ///         the launcher.launch path), the bounty is redirected to treasury rather than
+    ///         silently lost.
+    function test_Bounty_RedirectedWhenNoCreator() public {
+        // creatorRegistry is left empty; winner has no creator.
+        _filterOne(loserA);
+        uint256 treasuryBefore = weth.balanceOf(treasury);
+        _submit(bytes32(0));
+        // Bounty = 0.025 ether; trading-fee residue = 0; per-event treasury slice = 0.0975
+        // (already counted above). New treasury delta from submitWinner: 0.025 (bounty redirect).
+        assertEq(weth.balanceOf(treasury) - treasuryBefore, 0.025 ether, "bounty -> treasury");
+        assertEq(vault.bountyRecipient(), address(0), "no recipient recorded");
+        assertEq(vault.bountyPaid(), 0, "bountyPaid stays zero on redirect");
+    }
+
+    /// @notice Zero-proceeds events (all losers had drained pools) still increment event count
+    ///         but produce no bounty.
+    function test_Bounty_ZeroOnEmptyProceeds() public {
+        // Drain the loser's mock locker so liquidation produces zero WETH.
+        loserALocker.setLiquidationProceeds(0);
+        _filterOne(loserA);
+        assertEq(vault.bountyReserve(), 0);
+        assertEq(vault.filterEventCount(), 1);
+    }
+
     // ============================================================ Reserves reset post-finalize
 
     function test_ReservesResetAfterSettlement() public {
