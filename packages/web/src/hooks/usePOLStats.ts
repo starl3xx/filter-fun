@@ -19,19 +19,32 @@ export interface POLStats {
   projectedWinnerBacking: number;
   /// Realized POL deployed at the most recent settlement. 0 mid-week.
   finalPOLDeployed: number;
+  /// True while the values are simulated/preview — not from the indexer. The panel uses
+  /// this to render a "PREVIEW" badge so users never mistake fake numbers for real
+  /// on-chain state.
+  isPreview: boolean;
 }
 
-/// Live-ish simulation: POL reserve grows steadily (representing accumulated filter events
-/// across the week), plateaus, then drops to 0 when "settlement" hits in this synthetic
-/// loop. Production hook will read GraphQL events from the indexer and emit the same shape.
+const ZERO_STATS: POLStats = {
+  polReserve: 0,
+  projectedWinnerBacking: 0,
+  finalPOLDeployed: 0,
+  isPreview: false,
+};
+
+/// Reads POL stats. Default behavior: returns honest zeros (no indexer wired yet, so
+/// nothing to read). When `NEXT_PUBLIC_DEMO_MODE === "1"` the hook runs the
+/// design-preview simulation that animates the panel for screenshots and demo deploys —
+/// in that mode `isPreview: true` is set so the panel can mark the values as fake.
+///
+/// Production swap-in: replace the demo branch with a GraphQL/websocket subscription to
+/// the indexer and emit the same `POLStats` shape with `isPreview: false`.
 export function usePOLStats(): POLStats {
-  const [stats, setStats] = useState<POLStats>({
-    polReserve: 0,
-    projectedWinnerBacking: 0,
-    finalPOLDeployed: 0,
-  });
+  const [stats, setStats] = useState<POLStats>(ZERO_STATS);
 
   useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEMO_MODE !== "1") return;
+
     // Tick at ~2s. Reserve climbs from 0 → ~80 WETH over a simulated week, then settles.
     let elapsedSec = 0;
     const id = setInterval(() => {
@@ -44,13 +57,14 @@ export function usePOLStats(): POLStats {
         const progress = cycle / weekSec;
         const polReserve = 80 * Math.sqrt(progress);
         const projectedWinnerBacking = polReserve * 1.4 + 18;
-        setStats({polReserve, projectedWinnerBacking, finalPOLDeployed: 0});
+        setStats({polReserve, projectedWinnerBacking, finalPOLDeployed: 0, isPreview: true});
       } else {
         // Settlement burst — show finalPOLDeployed, drain reserve.
         setStats((prev) => ({
           polReserve: 0,
           projectedWinnerBacking: 0,
           finalPOLDeployed: prev.polReserve > 0 ? prev.polReserve : 80,
+          isPreview: true,
         }));
       }
     }, 2000);

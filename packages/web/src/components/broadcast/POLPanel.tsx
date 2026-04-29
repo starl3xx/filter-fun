@@ -41,21 +41,40 @@ export function POLPanel({stats, ethToUsd = 3500}: {stats: POLStats; ethToUsd?: 
         >
           Winner backing
         </h3>
-        <span
-          style={{
-            fontSize: 9,
-            fontFamily: F.mono,
-            color: settled ? C.green : C.cyan,
-            padding: "2px 7px",
-            background: settled ? `${C.green}1a` : `${C.cyan}1a`,
-            border: `1px solid ${settled ? C.green : C.cyan}55`,
-            borderRadius: 99,
-            letterSpacing: "0.1em",
-            fontWeight: 800,
-          }}
-        >
-          {settled ? "DEPLOYED" : "ACCUMULATING"}
-        </span>
+        <div style={{display: "flex", alignItems: "center", gap: 6}}>
+          {stats.isPreview ? (
+            <span
+              style={{
+                fontSize: 9,
+                fontFamily: F.mono,
+                color: C.faint,
+                padding: "2px 7px",
+                background: "rgba(255,255,255,0.04)",
+                border: `1px solid ${C.line}`,
+                borderRadius: 99,
+                letterSpacing: "0.1em",
+                fontWeight: 800,
+              }}
+            >
+              PREVIEW
+            </span>
+          ) : null}
+          <span
+            style={{
+              fontSize: 9,
+              fontFamily: F.mono,
+              color: settled ? C.green : C.cyan,
+              padding: "2px 7px",
+              background: settled ? `${C.green}1a` : `${C.cyan}1a`,
+              border: `1px solid ${settled ? C.green : C.cyan}55`,
+              borderRadius: 99,
+              letterSpacing: "0.1em",
+              fontWeight: 800,
+            }}
+          >
+            {settled ? "DEPLOYED" : "ACCUMULATING"}
+          </span>
+        </div>
       </div>
 
       <div style={{display: "flex", alignItems: "baseline", gap: 8}}>
