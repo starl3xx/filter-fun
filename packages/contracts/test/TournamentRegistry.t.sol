@@ -210,6 +210,25 @@ contract TournamentRegistryTest is Test {
         registry.recordQuarterlyFinalists(2026, 1, empty);
     }
 
+    /// @notice Regression: oracle typo (quarter = 0 or > 4) must revert before any token's
+    ///         status is irreversibly bumped to QUARTERLY_FINALIST. Without the range guard,
+    ///         the bumped tokens land in storage slots `recordAnnualFinalists` never reads
+    ///         (which loops 1..4) and become permanently stuck — no path to annual.
+    function test_RecordQuarterlyFinalists_RejectsBadQuarter() public {
+        address[] memory winners = new address[](1);
+        winners[0] = tokenA;
+        _stampWeeklyWinners(winners);
+
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.BadQuarter.selector);
+        registry.recordQuarterlyFinalists(2026, 0, winners);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.BadQuarter.selector);
+        registry.recordQuarterlyFinalists(2026, 5, winners);
+        // Status untouched.
+        assertEq(uint8(registry.statusOf(tokenA)), uint8(TournamentRegistry.TokenStatus.WEEKLY_WINNER));
+    }
+
     function test_RecordQuarterlyChampion_HappyPath() public {
         address[] memory winners = new address[](2);
         winners[0] = tokenA;
@@ -231,6 +250,15 @@ contract TournamentRegistryTest is Test {
         vm.prank(oracle);
         vm.expectRevert(TournamentRegistry.NotEligible.selector);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
+    }
+
+    function test_RecordQuarterlyChampion_RejectsBadQuarter() public {
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.BadQuarter.selector);
+        registry.recordQuarterlyChampion(2026, 0, tokenA);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.BadQuarter.selector);
+        registry.recordQuarterlyChampion(2026, 5, tokenA);
     }
 
     /// @notice Regression: a runner-up from Q1 retains QUARTERLY_FINALIST status indefinitely.

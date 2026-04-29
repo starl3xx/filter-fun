@@ -105,6 +105,11 @@ contract TournamentRegistry {
     error WrongQuarterCount();
     error EmptyEntrants();
     error AlreadyRecorded();
+    /// @dev Quarter must be in [1, 4]. The status ladder is monotonic with no admin reset,
+    ///      so a typo at the oracle (`quarter = 0` or `> 4`) would irreversibly bump tokens
+    ///      to QUARTERLY_FINALIST / QUARTERLY_CHAMPION in slots `recordAnnualFinalists`
+    ///      never reads — orphaning them with no path to the annual ladder.
+    error BadQuarter();
 
     /// @dev Read the oracle from the launcher dynamically rather than caching at deploy
     ///      time. The launcher's oracle is rotatable via `setOracle`; if we cached here,
@@ -174,6 +179,7 @@ contract TournamentRegistry {
         external
         onlyOracle
     {
+        if (quarter == 0 || quarter > 4) revert BadQuarter();
         if (entrants.length == 0) revert EmptyEntrants();
         if (_quarterlyFinalists[year][quarter].length != 0) revert AlreadyRecorded();
         for (uint256 i = 0; i < entrants.length; ++i) {
@@ -194,6 +200,7 @@ contract TournamentRegistry {
     ///         crowned champion of a different quarter where it never competed. Status bumps
     ///         to QUARTERLY_CHAMPION on success.
     function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external onlyOracle {
+        if (quarter == 0 || quarter > 4) revert BadQuarter();
         if (champion == address(0)) revert ZeroToken();
         if (quarterlyChampionOf[year][quarter] != address(0)) revert AlreadyFinalized();
         if (!isQuarterlyFinalist[year][quarter][champion]) revert NotEligible();
