@@ -2,5 +2,27 @@
   "name": "@filter-fun/web",
   "version": "0.0.0",
   "private": true,
-  "description": "Stub. Next.js + wagmi spectator app: leaderboard, filter watch, finals view, profiles, share cards."
+  "description": "filter.fun spectator + claim app. Next.js App Router + wagmi v2 + viem.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@filter-fun/oracle": "*",
+    "@filter-fun/scheduler": "*",
+    "@tanstack/react-query": "^5.51.0",
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "viem": "^2.21.0",
+    "wagmi": "^2.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "typescript": "^5.5.0"
+  }
 }
