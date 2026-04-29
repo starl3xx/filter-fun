@@ -249,10 +249,17 @@ contract TournamentRegistry {
         emit AnnualFinalistsRecorded(year, entrants);
     }
 
-    /// @notice Oracle records the annual champion. Must be a registered finalist for that
+    /// @notice Records the annual champion. Must be a registered finalist for that
     ///         specific year — verified via `isAnnualFinalist`, not just by global status.
     ///         Same reasoning as the quarterly champion check.
-    function recordAnnualChampion(uint16 year, address champion) external onlyOracle {
+    ///
+    ///         Auth: **only** the launcher's registered TournamentVault. Mirrors the
+    ///         quarterly-champion auth shape: settlement and the ANNUAL_CHAMPION stamp
+    ///         happen atomically inside `submitAnnualWinner`. An oracle one-shot here
+    ///         would set `annualChampionOf` and cause the vault's later settlement to
+    ///         revert with `AlreadyFinalized`, locking the tournament's funded WETH.
+    function recordAnnualChampion(uint16 year, address champion) external {
+        if (msg.sender != ILauncherViewTR(launcher).tournamentVault()) revert NotTournamentVault();
         if (champion == address(0)) revert ZeroToken();
         if (annualChampionOf[year] != address(0)) revert AlreadyFinalized();
         if (!isAnnualFinalist[year][champion]) revert NotEligible();

@@ -412,7 +412,7 @@ contract TournamentRegistryTest is Test {
             assertTrue(registry.isAnnualFinalist(2026, expected[i]));
         }
 
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         registry.recordAnnualChampion(2026, tokenA);
         assertEq(registry.annualChampionOf(2026), tokenA);
         assertEq(uint8(registry.statusOf(tokenA)), uint8(TournamentRegistry.TokenStatus.ANNUAL_CHAMPION));
@@ -428,8 +428,22 @@ contract TournamentRegistryTest is Test {
     }
 
     function test_RecordAnnualChampion_RejectsNonFinalist() public {
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         vm.expectRevert(TournamentRegistry.NotEligible.selector);
+        registry.recordAnnualChampion(2026, tokenA);
+    }
+
+    /// @notice `recordAnnualChampion` auth is **vault-only** for the same lock-out reason
+    ///         as quarterly: a one-shot oracle call would set `annualChampionOf` and cause
+    ///         `submitAnnualWinner` on the vault to revert with `AlreadyFinalized`,
+    ///         permanently locking that year's funded WETH.
+    function test_RecordAnnualChampion_RejectsOracleDirectly() public {
+        _crownFourQuarterlyChampions();
+        vm.prank(oracle);
+        registry.recordAnnualFinalists(2026);
+
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.NotTournamentVault.selector);
         registry.recordAnnualChampion(2026, tokenA);
     }
 
@@ -440,9 +454,9 @@ contract TournamentRegistryTest is Test {
         _crownFourQuarterlyChampions();
         vm.prank(oracle);
         registry.recordAnnualFinalists(2026);
-        // tokenA is now ANNUAL_FINALIST (for 2026). Oracle attempts to crown it 2027
-        // champion — must revert.
-        vm.prank(oracle);
+        // tokenA is now ANNUAL_FINALIST (for 2026). Vault attempts to crown it 2027
+        // champion — must revert because tokenA is not in `isAnnualFinalist[2027]`.
+        vm.prank(tournamentVault);
         vm.expectRevert(TournamentRegistry.NotEligible.selector);
         registry.recordAnnualChampion(2027, tokenA);
     }

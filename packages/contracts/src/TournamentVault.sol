@@ -10,6 +10,9 @@ interface ITournamentRegistryView {
     function isQuarterlyFinalist(uint16 year, uint8 quarter, address token) external view returns (bool);
     function quarterlyChampionOf(uint16 year, uint8 quarter) external view returns (address);
     function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external;
+    function isAnnualFinalist(uint16 year, address token) external view returns (bool);
+    function annualChampionOf(uint16 year) external view returns (address);
+    function recordAnnualChampion(uint16 year, address champion) external;
 }
 
 interface ICreatorRegistryView {
@@ -21,9 +24,12 @@ interface ILauncherViewTV {
 }
 
 /// @title TournamentVault
-/// @notice Per-(year, quarter) escrow + settlement for the **quarterly Filter Bowl** —
-///         filter.fun's mid-tier of the multi-timescale championship ladder
-///         (Weekly → Quarterly → Annual).
+/// @notice Singleton escrow + settlement for the upper tiers of filter.fun's multi-timescale
+///         championship ladder (Weekly → Quarterly Filter Bowl → Annual Championship). Hosts
+///         per-(year, quarter) tournaments via the `*Quarterly` family and per-year annual
+///         championships via the `*Annual` family — same struct, same 45/25/10/10/10 split,
+///         same Merkle claim shape, distinguished only by the registry-side membership flag
+///         (`isQuarterlyFinalist[year][quarter]` vs `isAnnualFinalist[year]`).
 ///
 ///         **Funding model — strictly tournament-controlled.** Per the user-aligned design,
 ///         "championship tournaments do not automatically destroy organic liquidity from
@@ -129,6 +135,14 @@ contract TournamentVault is ReentrancyGuard {
     mapping(uint16 => mapping(uint8 => mapping(address => bool))) public rolloverClaimed;
     mapping(uint16 => mapping(uint8 => mapping(address => bool))) public bonusClaimed;
 
+    /// @notice Per-year escrow for the **annual championship** — the top tier of the ladder.
+    ///         Same `Tournament` struct shape as quarterly; same 45/25/10/10/10 split applied
+    ///         at `submitAnnualWinner`. Validated via the registry's `isAnnualFinalist[year]`
+    ///         membership flag — no quarter dimension since each year has one annual.
+    mapping(uint16 => Tournament) internal _annualTournaments;
+    mapping(uint16 => mapping(address => bool)) public annualRolloverClaimed;
+    mapping(uint16 => mapping(address => bool)) public annualBonusClaimed;
+
     // -------- Events
     event TournamentFunded(uint16 indexed year, uint8 indexed quarter, address funder, uint256 amount);
     event QuarterlyWinnerSubmitted(
@@ -151,6 +165,23 @@ contract TournamentVault is ReentrancyGuard {
         uint16 indexed year, uint8 indexed quarter, address indexed user, uint256 share, uint256 wethAmount
     );
     event BonusClaimed(uint16 indexed year, uint8 indexed quarter, address indexed user, uint256 amount);
+
+    event AnnualTournamentFunded(uint16 indexed year, address funder, uint256 amount);
+    event AnnualWinnerSubmitted(
+        uint16 indexed year,
+        address indexed winner,
+        uint256 potConsumed,
+        uint256 bountySlice,
+        uint256 rolloverSlice,
+        uint256 bonusSlice,
+        uint256 mechanicsSlice,
+        uint256 polSlice,
+        uint256 treasurySlice
+    );
+    event AnnualChampionBountyPaid(uint16 indexed year, address indexed creator, uint256 amount);
+    event AnnualChampionBountyRedirected(uint16 indexed year, uint256 amount);
+    event AnnualRolloverClaimed(uint16 indexed year, address indexed user, uint256 share, uint256 wethAmount);
+    event AnnualBonusClaimed(uint16 indexed year, address indexed user, uint256 amount);
 
     // -------- Errors
     error NotOracle();
@@ -360,10 +391,148 @@ contract TournamentVault is ReentrancyGuard {
         emit BonusClaimed(year, quarter, msg.sender, amount);
     }
 
+    // ============================================================ Annual funding
+
+    /// @notice Permissionlessly top up the annual championship pot for `year`. Same shape as
+    ///         `fundQuarterly`: caller must have approved this contract for `amount`. The
+    ///         annual layer has no quarter dimension; one tournament per year.
+    function fundAnnual(uint16 year, uint256 amount) external nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        Tournament storage t = _annualTournaments[year];
+        if (t.phase == Phase.Settled || t.phase == Phase.Closed) revert WrongPhase();
+
+        IERC20(weth).safeTransferFrom(msg.sender, address(this), amount);
+        t.funded += amount;
+        if (t.phase == Phase.Idle) t.phase = Phase.Open;
+        emit AnnualTournamentFunded(year, msg.sender, amount);
+    }
+
+    // ============================================================ Annual settlement
+
+    /// @notice Oracle commits the annual champion. Validates membership against
+    ///         `isAnnualFinalist[year]` (set by `recordAnnualFinalists` on the registry —
+    ///         which reads the four `quarterlyChampionOf[year][1..4]` slots), applies the
+    ///         losers-pot split (2.5% bounty + 45/25/10/10/10), forwards mechanics +
+    ///         treasury immediately, and locks rollover + bonus reserves for Merkle claims.
+    ///         POL slice stays in this vault as WETH (deployment deferred — same as
+    ///         quarterly).
+    ///
+    ///         Records `recordAnnualChampion` on the registry — that's the terminal
+    ///         status in the multi-timescale ladder (ANNUAL_CHAMPION).
+    function submitAnnualWinner(
+        uint16 year,
+        address winner_,
+        bytes32 rolloverRoot_,
+        uint256 totalRolloverShares_,
+        bytes32 bonusRoot_,
+        uint256 totalBonusAmount_
+    ) external onlyOracle nonReentrant {
+        if (winner_ == address(0)) revert BadWinner();
+        if (totalRolloverShares_ == 0) revert ZeroShares();
+
+        Tournament storage t = _annualTournaments[year];
+        if (t.phase == Phase.Settled || t.phase == Phase.Closed) revert AlreadySettled();
+        if (t.phase != Phase.Open || t.funded == 0) revert EmptyPot();
+
+        // Per-year membership check via the registry. Without the per-year flag, a
+        // dangling ANNUAL_FINALIST status from a different year could be illegitimately
+        // crowned here — the same shape of bug as the cross-period quarterly issue.
+        if (!registry.isAnnualFinalist(year, winner_)) revert WinnerNotFinalist();
+
+        uint256 pot = t.funded;
+        uint256 bounty = (pot * BOUNTY_BPS) / BPS_DENOMINATOR;
+        uint256 remainder = pot - bounty;
+
+        uint256 rollover = (remainder * ROLLOVER_BPS) / BPS_DENOMINATOR;
+        uint256 bonus = (remainder * BONUS_BPS) / BPS_DENOMINATOR;
+        uint256 mechanicsCut = (remainder * MECHANICS_BPS) / BPS_DENOMINATOR;
+        uint256 pol = (remainder * POL_BPS) / BPS_DENOMINATOR;
+        uint256 treasuryCut = remainder - rollover - bonus - mechanicsCut - pol;
+
+        // Same guard as quarterly: oracle-supplied bonus total cannot exceed the slice or
+        // bonus claimants would drain rollover / POL escrow (all share this vault).
+        if (totalBonusAmount_ > bonus) revert BonusExceedsReserve();
+
+        t.phase = Phase.Settled;
+        t.winner = winner_;
+        t.bountyAmount = bounty;
+        t.rolloverReserve = rollover;
+        t.bonusReserve = bonus;
+        t.polAccumulated = pol;
+        t.rolloverRoot = rolloverRoot_;
+        t.totalRolloverShares = totalRolloverShares_;
+        t.bonusRoot = bonusRoot_;
+        t.totalBonusAmount = totalBonusAmount_;
+        t.bonusUnlockTime = block.timestamp + bonusUnlockDelay;
+
+        registry.recordAnnualChampion(year, winner_);
+
+        if (bounty > 0) {
+            address creator = creatorRegistry.creatorOf(winner_);
+            if (creator == address(0)) {
+                IERC20(weth).safeTransfer(treasury, bounty);
+                emit AnnualChampionBountyRedirected(year, bounty);
+            } else {
+                t.bountyCreator = creator;
+                IERC20(weth).safeTransfer(creator, bounty);
+                emit AnnualChampionBountyPaid(year, creator, bounty);
+            }
+        }
+
+        if (mechanicsCut > 0) IERC20(weth).safeTransfer(mechanics, mechanicsCut);
+        if (treasuryCut > 0) IERC20(weth).safeTransfer(treasury, treasuryCut);
+
+        emit AnnualWinnerSubmitted(
+            year, winner_, pot, bounty, rollover, bonus, mechanicsCut, pol, treasuryCut
+        );
+    }
+
+    // ============================================================ Annual claims
+
+    function claimAnnualRollover(uint16 year, uint256 share, bytes32[] calldata proof) external nonReentrant {
+        Tournament storage t = _annualTournaments[year];
+        if (t.phase != Phase.Settled) revert WrongPhase();
+        if (annualRolloverClaimed[year][msg.sender]) revert AlreadyClaimed();
+        if (share == 0) revert ZeroShares();
+
+        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, share));
+        if (!MerkleProof.verifyCalldata(proof, t.rolloverRoot, leaf)) revert InvalidProof();
+
+        uint256 amount = (share * t.rolloverReserve) / t.totalRolloverShares;
+        annualRolloverClaimed[year][msg.sender] = true;
+        t.claimedRolloverShares += share;
+        if (t.claimedRolloverShares > t.totalRolloverShares) revert ClaimExceedsAllocation();
+
+        IERC20(weth).safeTransfer(msg.sender, amount);
+        emit AnnualRolloverClaimed(year, msg.sender, share, amount);
+    }
+
+    function claimAnnualBonus(uint16 year, uint256 amount, bytes32[] calldata proof) external nonReentrant {
+        Tournament storage t = _annualTournaments[year];
+        if (t.phase != Phase.Settled) revert WrongPhase();
+        if (block.timestamp < t.bonusUnlockTime) revert BonusLocked();
+        if (annualBonusClaimed[year][msg.sender]) revert AlreadyClaimed();
+        if (amount == 0) revert ZeroAmount();
+
+        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
+        if (!MerkleProof.verifyCalldata(proof, t.bonusRoot, leaf)) revert InvalidProof();
+
+        annualBonusClaimed[year][msg.sender] = true;
+        t.claimedBonusAmount += amount;
+        if (t.claimedBonusAmount > t.totalBonusAmount) revert ClaimExceedsAllocation();
+
+        IERC20(weth).safeTransfer(msg.sender, amount);
+        emit AnnualBonusClaimed(year, msg.sender, amount);
+    }
+
     // ============================================================ Views
 
     function tournamentOf(uint16 year, uint8 quarter) external view returns (Tournament memory) {
         return _tournaments[year][quarter];
+    }
+
+    function annualTournamentOf(uint16 year) external view returns (Tournament memory) {
+        return _annualTournaments[year];
     }
 
     /// @notice Live POL balance parked for `(year, quarter)`. Surfaces directly to the
@@ -371,5 +540,9 @@ contract TournamentVault is ReentrancyGuard {
     ///         will be deployed once the POL deployment path lands.
     function pendingPolBalance(uint16 year, uint8 quarter) external view returns (uint256) {
         return _tournaments[year][quarter].polAccumulated;
+    }
+
+    function pendingAnnualPolBalance(uint16 year) external view returns (uint256) {
+        return _annualTournaments[year].polAccumulated;
     }
 }

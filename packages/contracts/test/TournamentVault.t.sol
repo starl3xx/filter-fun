@@ -485,4 +485,252 @@ contract TournamentVaultTest is Test {
         assertEq(q2.funded, 0);
         assertEq(q2.winner, address(0));
     }
+
+    // ============================================================ Annual championship
+
+    /// @dev Drive 4 fresh tokens (specific to `year` + index) all the way to
+    ///      QUARTERLY_CHAMPION and then enroll the year's annual finalists. Uses
+    ///      year-namespaced makeAddr labels so this helper can be called for any year
+    ///      without colliding with `setUp()`'s Q1 enrollment for the global YEAR.
+    function _setupAnnualFinalists(uint16 year) internal returns (address[4] memory champs) {
+        for (uint256 i = 0; i < 4; ++i) {
+            champs[i] = makeAddr(string(abi.encodePacked("champ", vm.toString(year), "_", vm.toString(i))));
+            creatorRegistry.set(champs[i], makeAddr(string(abi.encodePacked("champCreator", vm.toString(i)))));
+
+            uint256 sid = uint256(year) * 10 + i + 1;
+            address v = makeAddr(string(abi.encodePacked("annualPrep", vm.toString(sid))));
+            launcher.setVault(sid, v);
+            vm.prank(v);
+            registry.recordWeeklyWinner(sid, champs[i]);
+
+            address[] memory ents = new address[](1);
+            ents[0] = champs[i];
+            vm.prank(oracle);
+            registry.recordQuarterlyFinalists(year, uint8(i + 1), ents);
+            vm.prank(address(vault));
+            registry.recordQuarterlyChampion(year, uint8(i + 1), champs[i]);
+        }
+        vm.prank(oracle);
+        registry.recordAnnualFinalists(year);
+    }
+
+    function _fundAnnual(uint16 year, address from, uint256 amount) internal {
+        weth.mint(from, amount);
+        vm.prank(from);
+        weth.approve(address(vault), amount);
+        vm.prank(from);
+        vault.fundAnnual(year, amount);
+    }
+
+    function test_FundAnnual_HappyPath() public {
+        address funder = makeAddr("annualFunder");
+        _fundAnnual(YEAR, funder, POT);
+        TournamentVault.Tournament memory t = vault.annualTournamentOf(YEAR);
+        assertEq(uint8(t.phase), uint8(TournamentVault.Phase.Open));
+        assertEq(t.funded, POT);
+    }
+
+    function test_FundAnnual_RejectsZeroAmount() public {
+        vm.expectRevert(TournamentVault.ZeroAmount.selector);
+        vault.fundAnnual(YEAR, 0);
+    }
+
+    /// @dev Annual tests use a year distinct from `setUp()`'s YEAR (which has Q1
+    ///      finalists pre-loaded for the quarterly tests) so `recordQuarterlyFinalists`
+    ///      doesn't double-record.
+    uint16 constant ANNUAL_YEAR = 2027;
+
+    function test_SubmitAnnualWinner_OnlyOracle() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        vm.prank(attacker);
+        vm.expectRevert(TournamentVault.NotOracle.selector);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(0), 1, bytes32(0), 0);
+    }
+
+    function test_SubmitAnnualWinner_RejectsZeroWinner() public {
+        _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.BadWinner.selector);
+        vault.submitAnnualWinner(ANNUAL_YEAR, address(0), bytes32(0), 1, bytes32(0), 0);
+    }
+
+    function test_SubmitAnnualWinner_RejectsZeroShares() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.ZeroShares.selector);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(0), 0, bytes32(0), 0);
+    }
+
+    function test_SubmitAnnualWinner_RejectsEmptyPot() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        // No fund — Idle phase + zero pot.
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.EmptyPot.selector);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(0), 1, bytes32(0), 0);
+    }
+
+    function test_SubmitAnnualWinner_RejectsNonFinalist() public {
+        // Quarterly champions for ANNUAL_YEAR are set up, but tokenE is unrelated.
+        address tokenE = makeAddr("tokenE");
+        _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.WinnerNotFinalist.selector);
+        vault.submitAnnualWinner(ANNUAL_YEAR, tokenE, bytes32(0), 1, bytes32(0), 0);
+    }
+
+    function test_SubmitAnnualWinner_RejectsCrossYearFinalist() public {
+        // ANNUAL_YEAR finalists set up. Funding a different year (2028) and naming
+        // an ANNUAL_YEAR finalist as 2028 winner must revert.
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(2028, makeAddr("funder"), POT);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.WinnerNotFinalist.selector);
+        vault.submitAnnualWinner(2028, champs[0], bytes32(0), 1, bytes32(0), 0);
+    }
+
+    function test_SubmitAnnualWinner_Distribution() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+
+        address winnerCreator = creatorRegistry.creatorOf(champs[0]);
+        uint256 creatorBefore = weth.balanceOf(winnerCreator);
+        uint256 mechanicsBefore = weth.balanceOf(mechanics);
+        uint256 treasuryBefore = weth.balanceOf(treasury);
+
+        bytes32 rollRoot = bytes32(uint256(0xCAFE));
+        bytes32 bonusRoot = bytes32(uint256(0xBEEF));
+
+        vm.prank(oracle);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], rollRoot, 100, bonusRoot, 24.375 ether);
+
+        // Same arithmetic as quarterly distribution test.
+        assertEq(weth.balanceOf(winnerCreator) - creatorBefore, 2.5 ether);
+        assertEq(weth.balanceOf(mechanics) - mechanicsBefore, 9.75 ether);
+        assertEq(weth.balanceOf(treasury) - treasuryBefore, 9.75 ether);
+
+        TournamentVault.Tournament memory t = vault.annualTournamentOf(ANNUAL_YEAR);
+        assertEq(uint8(t.phase), uint8(TournamentVault.Phase.Settled));
+        assertEq(t.winner, champs[0]);
+        assertEq(t.bountyAmount, 2.5 ether);
+        assertEq(t.bountyCreator, winnerCreator);
+        assertEq(t.rolloverReserve, 43.875 ether);
+        assertEq(t.bonusReserve, 24.375 ether);
+        assertEq(t.polAccumulated, 9.75 ether);
+
+        // Registry stamped ANNUAL_CHAMPION on the winner.
+        assertEq(registry.annualChampionOf(ANNUAL_YEAR), champs[0]);
+        assertEq(uint8(registry.statusOf(champs[0])), uint8(TournamentRegistry.TokenStatus.ANNUAL_CHAMPION));
+    }
+
+    function test_SubmitAnnualWinner_RejectsBonusExceedsReserve() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.BonusExceedsReserve.selector);
+        vault.submitAnnualWinner(
+            ANNUAL_YEAR, champs[0], bytes32(uint256(1)), 1, bytes32(uint256(2)), 25 ether
+        );
+    }
+
+    function test_SubmitAnnualWinner_RejectsDouble() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        vm.prank(oracle);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(uint256(1)), 1, bytes32(0), 0);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.AlreadySettled.selector);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(uint256(1)), 1, bytes32(0), 0);
+    }
+
+    function test_ClaimAnnualRollover_HappyPath() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        (bytes32 root, bytes32[] memory pA, bytes32[] memory pB) =
+            _buildSimpleRolloverTree(holderA, 70, holderB, 30);
+
+        vm.prank(oracle);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], root, 100, bytes32(0), 0);
+
+        vm.prank(holderA);
+        vault.claimAnnualRollover(ANNUAL_YEAR, 70, pA);
+        assertEq(weth.balanceOf(holderA), 30.7125 ether);
+
+        vm.prank(holderB);
+        vault.claimAnnualRollover(ANNUAL_YEAR, 30, pB);
+        assertEq(weth.balanceOf(holderB), 13.1625 ether);
+    }
+
+    function test_ClaimAnnualRollover_RejectsDouble() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        (bytes32 root, bytes32[] memory pA,) = _buildSimpleRolloverTree(holderA, 70, holderB, 30);
+        vm.prank(oracle);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], root, 100, bytes32(0), 0);
+
+        vm.prank(holderA);
+        vault.claimAnnualRollover(ANNUAL_YEAR, 70, pA);
+        vm.prank(holderA);
+        vm.expectRevert(TournamentVault.AlreadyClaimed.selector);
+        vault.claimAnnualRollover(ANNUAL_YEAR, 70, pA);
+    }
+
+    function test_ClaimAnnualBonus_HappyPath() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        (bytes32 root, bytes32[] memory pA,) = _buildSimpleRolloverTree(holderA, 1 ether, holderB, 0.5 ether);
+
+        vm.prank(oracle);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(uint256(1)), 1, root, 1.5 ether);
+
+        vm.warp(block.timestamp + BONUS_DELAY);
+        vm.prank(holderA);
+        vault.claimAnnualBonus(ANNUAL_YEAR, 1 ether, pA);
+        assertEq(weth.balanceOf(holderA), 1 ether);
+    }
+
+    function test_ClaimAnnualBonus_RejectsBeforeUnlock() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        (bytes32 root, bytes32[] memory pA,) = _buildSimpleRolloverTree(holderA, 1 ether, holderB, 0.5 ether);
+        vm.prank(oracle);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(uint256(1)), 1, root, 1.5 ether);
+
+        vm.prank(holderA);
+        vm.expectRevert(TournamentVault.BonusLocked.selector);
+        vault.claimAnnualBonus(ANNUAL_YEAR, 1 ether, pA);
+    }
+
+    /// @notice Annual + quarterly tournaments live in separate storage slots — settling one
+    ///         must not touch the other.
+    function test_AnnualAndQuarterlyAreIsolated() public {
+        // Settle Q1.
+        _fund(makeAddr("funder"), POT);
+        vm.prank(oracle);
+        vault.submitQuarterlyWinner(YEAR, QUARTER, tokenA, bytes32(uint256(1)), 1, bytes32(0), 0);
+
+        // Annual for the same year is still Idle.
+        TournamentVault.Tournament memory annual = vault.annualTournamentOf(YEAR);
+        assertEq(uint8(annual.phase), uint8(TournamentVault.Phase.Idle));
+        assertEq(annual.funded, 0);
+        assertEq(annual.winner, address(0));
+    }
+
+    function test_OracleRotation_NewOracleCanSettleAnnual() public {
+        address[4] memory champs = _setupAnnualFinalists(ANNUAL_YEAR);
+        _fundAnnual(ANNUAL_YEAR, makeAddr("funder"), POT);
+        address newOracle = makeAddr("newOracle");
+        launcher.setOracle(newOracle);
+
+        vm.prank(oracle);
+        vm.expectRevert(TournamentVault.NotOracle.selector);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(uint256(1)), 1, bytes32(0), 0);
+
+        vm.prank(newOracle);
+        vault.submitAnnualWinner(ANNUAL_YEAR, champs[0], bytes32(uint256(1)), 1, bytes32(0), 0);
+        assertEq(vault.annualTournamentOf(ANNUAL_YEAR).winner, champs[0]);
+    }
 }
