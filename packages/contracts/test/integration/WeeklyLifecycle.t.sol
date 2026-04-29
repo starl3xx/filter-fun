@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
 import {SeasonVault, IBonusFunding} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {POLVault} from "../../src/POLVault.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
 
@@ -22,13 +23,14 @@ contract WeeklyLifecycleTest is Test {
     FilterLauncher launcher;
     MockFilterFactory factory;
     BonusDistributor bonus;
+    POLVault polVault;
     MockWETH weth;
 
     address owner = address(this);
     address oracle = address(0xCAFE);
     address treasury = address(0xD000);
     address mechanics = address(0xE000);
-    address polRecipient = address(0xF000);
+    address polVaultOwner = address(0xF111);
 
     address creator1 = address(0xC1);
     address creator2 = address(0xC2);
@@ -38,9 +40,18 @@ contract WeeklyLifecycleTest is Test {
     function setUp() public {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
+        polVault = new POLVault(address(this));
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(weth)
+            owner,
+            oracle,
+            treasury,
+            mechanics,
+            address(polVault),
+            IBonusFunding(address(bonus)),
+            address(weth)
         );
+        polVault.setLauncher(address(launcher));
+        polVault.transferOwnership(polVaultOwner);
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
     }
@@ -83,64 +94,80 @@ contract WeeklyLifecycleTest is Test {
         vm.prank(oracle);
         launcher.advancePhase(sid, IFilterLauncher.Phase.Settlement);
 
-        // Pretend each losing token unwinds to a known WETH amount (mock).
-        // Winner is $FILTER. Losers: tokenA, tokenB.
+        // Set up the cohort. Both losers will be filtered — but in DIFFERENT events to
+        // exercise the multi-filter accumulation path.
         SeasonVault vault = SeasonVault(launcher.vaultOf(sid));
         MockLpLocker(launcher.lockerOf(sid, tokenA)).setLiquidationProceeds(1.5 ether);
         MockLpLocker(launcher.lockerOf(sid, tokenB)).setLiquidationProceeds(2.5 ether);
-        // $FILTER (winner) mints at 100_000 winner-tokens / 1 WETH.
         MockLpLocker(filterLocker).setMintRate(100_000e18);
 
-        // Settlement Merkle: rollover share weights — holderA=60, holderB=40, total=100.
-        // After finalize, vault holds 140_000e18 winner tokens; payouts will be
-        //   holderA: 60/100 * 140_000e18 = 84_000e18
-        //   holderB: 40/100 * 140_000e18 = 56_000e18
+        // Filter event 1 (mid-week): tokenB gets cut. Proceeds 2.5 WETH split per BPS.
+        //   rollover 45% = 1.125,  bonus 25% = 0.625,  mechanics 10% = 0.25,
+        //   POL 10% = 0.25,  treasury 10% = 0.25.
+        address[] memory losers1 = new address[](1);
+        losers1[0] = tokenB;
+        uint256[] memory minOuts1 = new uint256[](1);
+        vm.prank(oracle);
+        vault.processFilterEvent(losers1, minOuts1);
+        assertEq(vault.rolloverReserve(), 1.125 ether);
+        assertEq(vault.bonusReserve(), 0.625 ether);
+        assertEq(weth.balanceOf(mechanics), 0.25 ether, "mechanics paid mid-week");
+        assertEq(weth.balanceOf(treasury), 0.25 ether, "treasury paid mid-week");
+        assertEq(vault.polReserveBalance(), 0.25 ether, "POL accumulated");
+        // POL is held as WETH — no winner-token purchases yet.
+        assertEq(IERC20(filterToken).balanceOf(address(polVault)), 0, "POL not deployed mid-week");
+
+        // Filter event 2 (final cut): tokenA. Proceeds 1.5 WETH split per BPS.
+        //   rollover 45% = 0.675 (cumulative 1.8),  bonus 25% = 0.375 (cum 1.0),
+        //   mechanics 10% = 0.15,  POL 10% = 0.15 (cum 0.4),  treasury 10% = 0.15.
+        address[] memory losers2 = new address[](1);
+        losers2[0] = tokenA;
+        uint256[] memory minOuts2 = new uint256[](1);
+        vm.prank(oracle);
+        vault.processFilterEvent(losers2, minOuts2);
+        assertEq(vault.rolloverReserve(), 1.8 ether);
+        assertEq(vault.bonusReserve(), 1.0 ether);
+        assertEq(weth.balanceOf(mechanics), 0.4 ether);
+        assertEq(weth.balanceOf(treasury), 0.4 ether);
+        assertEq(vault.polReserveBalance(), 0.4 ether);
+
+        // Final settlement: $FILTER wins. Rollover Merkle weights — holderA=60, holderB=40.
+        // After settlement, vault holds 1.8 WETH × 100_000 = 180_000e18 winner tokens for claim;
+        // payouts: holderA 60/100 × 180_000e18 = 108_000e18, holderB = 72_000e18.
         bytes32 leafA = keccak256(abi.encodePacked(holderA, uint256(60)));
         bytes32 leafB = keccak256(abi.encodePacked(holderB, uint256(40)));
         bytes32 root = MiniMerkle.rootOfTwo(leafA, leafB);
 
-        address[] memory losers = new address[](2);
-        losers[0] = tokenA;
-        losers[1] = tokenB;
-        uint256[] memory minOuts = new uint256[](2);
-
         vm.prank(oracle);
-        vault.submitSettlement(filterToken, losers, minOuts, root, 100, block.timestamp + 1 days);
+        vault.submitWinner(filterToken, root, 100, 0, 0);
 
-        // Keeper liquidates each loser.
-        vault.liquidate(tokenA, 0);
-        vault.liquidate(tokenB, 0);
+        // Bonus reserve forwarded to BonusDistributor.
+        assertEq(weth.balanceOf(address(bonus)), 1.0 ether);
 
-        // Pot = 4 WETH. Allocations:
-        //   rollover 35% = 1.4,  bonus 15% = 0.6,  POL 20% = 0.8,  treasury 20% = 0.8,  mechanics 10% = 0.4.
-        assertEq(weth.balanceOf(address(vault)), 4 ether);
-        vault.finalize(0, 0);
+        // Rollover bought 180_000e18 winner tokens, held by vault.
+        assertEq(IERC20(filterToken).balanceOf(address(vault)), 180_000e18);
 
-        assertEq(weth.balanceOf(treasury), 0.8 ether);
-        assertEq(weth.balanceOf(mechanics), 0.4 ether);
-        assertEq(weth.balanceOf(address(bonus)), 0.6 ether);
-
-        // Rollover bought 1.4e18 * 100_000e18 / 1e18 = 140_000e18 winner tokens, held by vault.
-        assertEq(IERC20(filterToken).balanceOf(address(vault)), 140_000e18);
-        // POL bought 0.8e18 * 100_000e18 / 1e18 = 80_000e18 winner tokens, sent to polRecipient.
-        assertEq(IERC20(filterToken).balanceOf(polRecipient), 80_000e18);
+        // POL deployed: 0.4 WETH × 100_000 = 40_000e18 winner tokens, parked in POLVault.
+        assertEq(IERC20(filterToken).balanceOf(address(polVault)), 40_000e18);
+        assertEq(polVault.seasonDeposit(sid), 40_000e18);
+        assertEq(polVault.seasonWinner(sid), filterToken);
 
         // Holders claim rollover.
         bytes32[2] memory leaves = [leafA, leafB];
         bytes32[] memory proofA = MiniMerkle.proofForTwo(leaves, 0);
         vm.prank(holderA);
         vault.claimRollover(60, proofA);
-        assertEq(IERC20(filterToken).balanceOf(holderA), 84_000e18);
+        assertEq(IERC20(filterToken).balanceOf(holderA), 108_000e18);
 
         bytes32[] memory proofB = MiniMerkle.proofForTwo(leaves, 1);
         vm.prank(holderB);
         vault.claimRollover(40, proofB);
-        assertEq(IERC20(filterToken).balanceOf(holderB), 56_000e18);
+        assertEq(IERC20(filterToken).balanceOf(holderB), 72_000e18);
 
-        // 14 days pass; oracle posts bonus eligibility root.
+        // 14 days pass; oracle posts bonus eligibility root. Bonus per leaf is computed
+        // off-chain from rolloverAmount × (eligibility ? 1 : 0); only holderA qualified.
         vm.warp(block.timestamp + 14 days);
-        // Pretend only holderA was eligible for the bonus (held ≥80% across snapshots).
-        bytes32 bonusLeafA = keccak256(abi.encodePacked(holderA, uint256(0.6 ether))); // gets full reserve
+        bytes32 bonusLeafA = keccak256(abi.encodePacked(holderA, uint256(1.0 ether)));
         bytes32 bonusLeafB = keccak256(abi.encodePacked(holderB, uint256(0)));
         bytes32 bonusRoot = MiniMerkle.rootOfTwo(bonusLeafA, bonusLeafB);
 
@@ -150,7 +177,7 @@ contract WeeklyLifecycleTest is Test {
         bytes32[2] memory bonusLeaves = [bonusLeafA, bonusLeafB];
         bytes32[] memory bonusProofA = MiniMerkle.proofForTwo(bonusLeaves, 0);
         vm.prank(holderA);
-        bonus.claim(sid, 0.6 ether, bonusProofA);
-        assertEq(weth.balanceOf(holderA), 0.6 ether);
+        bonus.claim(sid, 1.0 ether, bonusProofA);
+        assertEq(weth.balanceOf(holderA), 1.0 ether);
     }
 }

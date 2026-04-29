@@ -18,6 +18,7 @@ import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
 import {SeasonVault, IBonusFunding} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {POLVault} from "../../src/POLVault.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
@@ -34,13 +35,14 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
     FilterFactory factory;
     FilterHook hook;
     BonusDistributor bonus;
+    POLVault polVault;
     MockWETH weth;
 
     address owner = address(this);
     address oracle = makeAddr("oracle");
     address treasury = makeAddr("treasury");
     address mechanics = makeAddr("mechanics");
-    address polRecipient = makeAddr("pol");
+    address polVaultOwner = makeAddr("polVaultOwner");
 
     address trader = makeAddr("trader");
     address aliceUser = makeAddr("alice");
@@ -51,10 +53,19 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
 
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
+        polVault = new POLVault(address(this));
 
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polRecipient, IBonusFunding(address(bonus)), address(weth)
+            owner,
+            oracle,
+            treasury,
+            mechanics,
+            address(polVault),
+            IBonusFunding(address(bonus)),
+            address(weth)
         );
+        polVault.setLauncher(address(launcher));
+        polVault.transferOwnership(polVaultOwner);
 
         bytes memory hookCreationCode = type(FilterHook).creationCode;
         (address expectedHookAddr, bytes32 hookSalt) =
@@ -111,40 +122,53 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
         bytes32[2] memory leaves = [leafAlice, leafBob];
         bytes32 root = MiniMerkle.rootOfTwo(leafAlice, leafBob);
 
-        // 4. submitSettlement with all three losers.
+        // 4. Three filter events, one loser each — exercises POL accumulation across multiple
+        //    cuts before the final winner is known. POL must NOT be deployed mid-week.
         SeasonVault vault = SeasonVault(launcher.vaultOf(1));
-        address[] memory losers = new address[](3);
-        losers[0] = loser1;
-        losers[1] = loser2;
-        losers[2] = loser3;
-        uint256[] memory minOuts = new uint256[](3); // all zero — exercise sequential liquidations only
 
+        uint256 polReserveAfter1;
+        uint256 polReserveAfter2;
+        uint256 polReserveAfter3;
+
+        address[] memory cut1 = new address[](1);
+        cut1[0] = loser1;
+        uint256[] memory _minOuts1 = new uint256[](1);
         vm.prank(oracle);
-        vault.submitSettlement(winnerToken, losers, minOuts, root, 5, block.timestamp + 1 days);
+        vault.processFilterEvent(cut1, _minOuts1);
+        polReserveAfter1 = vault.polReserveBalance();
+        assertGt(polReserveAfter1, 0, "POL acc after cut1");
 
-        // 5. Liquidate each loser. Pot should grow monotonically; each call is independent of
-        //    the others so order shouldn't matter, but we exercise the natural ranking order.
-        uint256 potAfter1;
-        uint256 potAfter2;
-        uint256 potAfter3;
+        address[] memory cut2 = new address[](1);
+        cut2[0] = loser2;
+        uint256[] memory _minOuts2 = new uint256[](1);
+        vm.prank(oracle);
+        vault.processFilterEvent(cut2, _minOuts2);
+        polReserveAfter2 = vault.polReserveBalance();
+        assertGt(polReserveAfter2, polReserveAfter1, "POL grew after cut2");
 
-        vault.liquidate(loser1, 0);
-        potAfter1 = weth.balanceOf(address(vault));
-        assertGt(potAfter1, 0, "pot grew after loser1");
+        address[] memory cut3 = new address[](1);
+        cut3[0] = loser3;
+        uint256[] memory _minOuts3 = new uint256[](1);
+        vm.prank(oracle);
+        vault.processFilterEvent(cut3, _minOuts3);
+        polReserveAfter3 = vault.polReserveBalance();
+        assertGt(polReserveAfter3, polReserveAfter2, "POL grew after cut3");
 
-        vault.liquidate(loser2, 0);
-        potAfter2 = weth.balanceOf(address(vault));
-        assertGt(potAfter2, potAfter1, "pot grew after loser2");
+        // POL is held as WETH — no winner-token purchase has happened yet.
+        assertEq(IERC20(winnerToken).balanceOf(address(polVault)), 0, "POL not deployed mid-week");
 
-        vault.liquidate(loser3, 0);
-        potAfter3 = weth.balanceOf(address(vault));
-        assertGt(potAfter3, potAfter2, "pot grew after loser3");
-
-        // 6. finalize.
-        vault.finalize(0, 0);
+        // 5. Final settlement: oracle commits the winner. Drains rollover/bonus/POL reserves
+        //    and converts to winner tokens via the WINNER's locker.
+        vm.prank(oracle);
+        vault.submitWinner(winnerToken, root, 5, 0, 0);
         assertEq(uint8(vault.phase()), uint8(SeasonVault.Phase.Distributing));
         uint256 totalRollover = vault.rolloverWinnerTokens();
         assertGt(totalRollover, 0, "rollover bought winner tokens");
+
+        // POL deployed: WETH reserve emptied, winner tokens parked in POLVault.
+        assertEq(vault.polReserveBalance(), 0, "POL reserve drained");
+        assertGt(IERC20(winnerToken).balanceOf(address(polVault)), 0, "POL in vault");
+        assertEq(polVault.seasonDeposit(1), vault.polDeployedTokens());
 
         // 7. Both holders claim with non-empty proofs (one sibling each in a 2-leaf tree).
         bytes32[] memory proofAlice = MiniMerkle.proofForTwo(leaves, 0);
@@ -167,39 +191,29 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
         assertLe(aliceTokens + bobTokens, totalRollover, "no overspend");
     }
 
-    /// @dev Liquidating the same loser twice must revert — keepers race for the bounty.
-    /// Two losers (not one) so the phase stays at `Liquidating` between calls, otherwise
-    /// the second liquidate would fall through to the WrongPhase guard instead of exercising
-    /// the actual idempotency check.
-    function test_DoubleLiquidationReverts() public {
+    /// @dev Filtering the same token twice must revert — the same loser can't pay a second
+    ///      losers-pot dividend.
+    function test_DoubleFilterEventReverts() public {
         (address winnerToken,) = launcher.launchProtocolToken("Winner", "WIN", "");
         (address loser1,) = launcher.launchProtocolToken("Loser1", "L1", "");
-        (address loser2,) = launcher.launchProtocolToken("Loser2", "L2", "");
 
-        weth.mint(trader, 2 ether);
+        weth.mint(trader, 1 ether);
         vm.prank(trader);
         weth.approve(address(swapRouter), type(uint256).max);
         _buyWithWETH(winnerToken, 0.3 ether);
         _buyWithWETH(loser1, 0.3 ether);
-        _buyWithWETH(loser2, 0.3 ether);
-
-        bytes32 leaf = keccak256(abi.encodePacked(aliceUser, uint256(1)));
 
         SeasonVault vault = SeasonVault(launcher.vaultOf(1));
-        address[] memory losers = new address[](2);
+        address[] memory losers = new address[](1);
         losers[0] = loser1;
-        losers[1] = loser2;
-        uint256[] memory minOuts = new uint256[](2);
+        uint256[] memory minOuts = new uint256[](1);
 
         vm.prank(oracle);
-        vault.submitSettlement(winnerToken, losers, minOuts, leaf, 1, block.timestamp + 1 days);
+        vault.processFilterEvent(losers, minOuts);
 
-        vault.liquidate(loser1, 0);
-
-        // Second call on loser1 must revert via the AlreadyLiquidated guard. Phase stays at
-        // Liquidating because loser2 hasn't been touched yet, so a generic expectRevert
-        // could swallow a WrongPhase miss; the explicit selector pins the exact error path.
+        // Second filter event re-listing the same token must revert via AlreadyLiquidated.
+        vm.prank(oracle);
         vm.expectRevert(SeasonVault.AlreadyLiquidated.selector);
-        vault.liquidate(loser1, 0);
+        vault.processFilterEvent(losers, minOuts);
     }
 }

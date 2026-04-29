@@ -1,10 +1,15 @@
 import {describe, expect, it} from "vitest";
 import type {Address, Hash} from "viem";
 
-import {buildSettlementPayload} from "@filter-fun/oracle";
+import {
+  buildFilterEventPayload,
+  buildSettlementPayload,
+  type FilterEventPayload,
+  type SettlementPayload,
+} from "@filter-fun/oracle";
 
 import type {ContractCallShape} from "../src/calls.js";
-import {runSettlement, type TransactionDriver} from "../src/runner.js";
+import {runFilterEvent, runSettlement, type TransactionDriver} from "../src/runner.js";
 
 const VAULT: Address = "0x000000000000000000000000000000000000fafe";
 const W: Address = "0x9999999999999999999999999999999999999999";
@@ -36,69 +41,78 @@ class FakeDriver implements TransactionDriver {
   }
 }
 
-function samplePayload() {
-  return buildSettlementPayload({
-    ranking: [W, L1, L2],
-    recoverable: new Map([[L1, 1_000_000_000_000_000_000n], [L2, 2_000_000_000_000_000_000n]]),
-    slippageBps: 0,
-    shares: new Map([[ALICE, 100n]]),
-    liquidationDeadline: 1_700_000_000n,
-  });
+function sampleFilter(losers: ReadonlyArray<Address> = [L1]): FilterEventPayload {
+  const recoverable = new Map<Address, bigint>(losers.map((l) => [l, 1_000_000_000_000_000_000n]));
+  return buildFilterEventPayload({losers, recoverable, slippageBps: 0});
 }
 
-describe("runSettlement", () => {
-  it("submits in the right order: submitSettlement → liquidate(L1) → liquidate(L2) → finalize", async () => {
+function sampleSettlement(): SettlementPayload {
+  return buildSettlementPayload({winner: W, shares: new Map([[ALICE, 100n]])});
+}
+
+describe("runFilterEvent", () => {
+  it("sends one processFilterEvent tx and waits for its receipt", async () => {
     const driver = new FakeDriver();
-    const payload = samplePayload();
-    const result = await runSettlement(driver, VAULT, payload);
+    const tx = await runFilterEvent(driver, VAULT, sampleFilter([L1, L2]));
+    expect(driver.sent.map((s) => s.call.functionName)).toEqual(["processFilterEvent"]);
+    expect(driver.receipts).toEqual([tx]);
+  });
+});
+
+describe("runSettlement", () => {
+  it("dispatches each pending filter event then submitWinner, in order", async () => {
+    const driver = new FakeDriver();
+    const result = await runSettlement(
+      driver,
+      VAULT,
+      [sampleFilter([L1]), sampleFilter([L2])],
+      sampleSettlement(),
+    );
 
     expect(driver.sent.map((s) => s.call.functionName)).toEqual([
-      "submitSettlement",
-      "liquidate",
-      "liquidate",
-      "finalize",
+      "processFilterEvent",
+      "processFilterEvent",
+      "submitWinner",
     ]);
-    expect(result.liquidateTxs.map((t) => t.loser)).toEqual([L1, L2]);
-    expect(result.submitTx).toBe(driver.sent[0]!.hash);
-    expect(result.finalizeTx).toBe(driver.sent[3]!.hash);
+    expect(result.filterEventTxs).toEqual([driver.sent[0]!.hash, driver.sent[1]!.hash]);
+    expect(result.submitWinnerTx).toBe(driver.sent[2]!.hash);
   });
 
   it("waits for each receipt before sending the next call", async () => {
     const driver = new FakeDriver();
-    await runSettlement(driver, VAULT, samplePayload());
-    // Each sent tx has a corresponding receipt-wait in order.
+    await runSettlement(driver, VAULT, [sampleFilter([L1])], sampleSettlement());
     expect(driver.receipts).toEqual(driver.sent.map((s) => s.hash));
   });
 
-  it("aborts if a liquidate receipt reverts (does not send finalize)", async () => {
+  it("aborts if a filter-event receipt reverts (does not send submitWinner)", async () => {
     const driver = new FakeDriver();
-    // Pre-compute the second-tx hash (index 1 = first liquidate). The fake driver mints
-    // hashes deterministically, so we know it'll be 0x...01.
-    const liquidate1Hash = `0x${(1).toString(16).padStart(64, "0")}` as Hash;
-    driver.failingReceipt = liquidate1Hash;
+    const filterHash = `0x${(0).toString(16).padStart(64, "0")}` as Hash;
+    driver.failingReceipt = filterHash;
 
-    await expect(runSettlement(driver, VAULT, samplePayload())).rejects.toThrow(/receipt failed/);
-    // submitSettlement + the failing liquidate were sent; no second liquidate, no finalize.
-    expect(driver.sent.map((s) => s.call.functionName)).toEqual(["submitSettlement", "liquidate"]);
+    await expect(
+      runSettlement(driver, VAULT, [sampleFilter([L1])], sampleSettlement()),
+    ).rejects.toThrow(/receipt failed/);
+    expect(driver.sent.map((s) => s.call.functionName)).toEqual(["processFilterEvent"]);
   });
 
-  it("forwards minOutOverride for a specific loser", async () => {
+  it("forwards slippage guards into submitWinner", async () => {
     const driver = new FakeDriver();
-    const overrides = new Map<Address, bigint>([[L2, 999n]]);
-    await runSettlement(driver, VAULT, samplePayload(), {minOutOverrides: overrides});
-
-    const liquidates = driver.sent.filter((s) => s.call.functionName === "liquidate");
-    expect(liquidates[0]!.call.args).toEqual([L1, 0n]);
-    expect(liquidates[1]!.call.args).toEqual([L2, 999n]);
-  });
-
-  it("forwards finalize slippage guards", async () => {
-    const driver = new FakeDriver();
-    await runSettlement(driver, VAULT, samplePayload(), {
+    const payload = buildSettlementPayload({
+      winner: W,
+      shares: new Map([[ALICE, 1n]]),
       minWinnerTokensRollover: 11n,
       minWinnerTokensPol: 22n,
     });
-    const finalize = driver.sent.find((s) => s.call.functionName === "finalize")!;
-    expect(finalize.call.args).toEqual([11n, 22n]);
+    await runSettlement(driver, VAULT, [], payload);
+    const submit = driver.sent.find((s) => s.call.functionName === "submitWinner")!;
+    expect(submit.call.args[3]).toBe(11n);
+    expect(submit.call.args[4]).toBe(22n);
+  });
+
+  it("handles zero pending filter events (already-cut season)", async () => {
+    const driver = new FakeDriver();
+    const result = await runSettlement(driver, VAULT, [], sampleSettlement());
+    expect(result.filterEventTxs).toEqual([]);
+    expect(driver.sent.map((s) => s.call.functionName)).toEqual(["submitWinner"]);
   });
 });

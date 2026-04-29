@@ -1,8 +1,10 @@
-export {buildSettlementPayload} from "./settlement.js";
+export {buildFilterEventPayload, buildSettlementPayload} from "./settlement.js";
 export {buildBonusPayload} from "./bonus.js";
 export {bonusLeaf, buildTree, getProof, rolloverLeaf, verifyProof} from "./merkle.js";
 export type {
   Address,
+  FilterEventInputs,
+  FilterEventPayload,
   Hex,
   RecoverableQuote,
   RolloverEntry,

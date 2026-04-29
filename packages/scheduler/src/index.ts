@@ -3,9 +3,8 @@ export {FilterLauncherAbi, Phase} from "./launcherAbi.js";
 export {BonusDistributorAbi} from "./bonusAbi.js";
 export {
   claimRolloverCall,
-  finalizeCall,
-  liquidateCall,
-  submitSettlementCall,
+  processFilterEventCall,
+  submitWinnerCall,
   type ContractCall,
   type ContractCallShape,
 } from "./calls.js";
@@ -21,8 +20,9 @@ export {
   type BonusCall,
 } from "./bonusCalls.js";
 export {
+  runFilterEvent,
   runSettlement,
-  type SettlementRunOptions,
+  type FilterEventRunResult,
   type SettlementRunResult,
   type TransactionDriver,
 } from "./runner.js";

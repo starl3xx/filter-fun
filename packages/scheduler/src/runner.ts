@@ -1,8 +1,8 @@
 import type {Address, Hash} from "viem";
 
-import type {SettlementPayload} from "@filter-fun/oracle";
+import type {FilterEventPayload, SettlementPayload} from "@filter-fun/oracle";
 
-import {finalizeCall, liquidateCall, submitSettlementCall, type ContractCallShape} from "./calls.js";
+import {processFilterEventCall, submitWinnerCall, type ContractCallShape} from "./calls.js";
 
 /// Narrow signer + receipt interface. Real callers pass viem's `WalletClient` +
 /// `PublicClient`; tests pass mocks. The structural `ContractCallShape` keeps writeContract
@@ -14,54 +14,46 @@ export interface TransactionDriver {
   waitForReceipt: (hash: Hash) => Promise<void>;
 }
 
-export interface SettlementRunResult {
-  submitTx: Hash;
-  liquidateTxs: ReadonlyArray<{loser: Address; tx: Hash}>;
-  finalizeTx: Hash;
+export interface FilterEventRunResult {
+  /// One tx per call to `processFilterEvent` (one per cut).
+  filterEventTxs: ReadonlyArray<Hash>;
 }
 
-export interface SettlementRunOptions {
-  /// Optional per-loser slippage override. Defaults to 0 (use the floor encoded on-chain
-  /// at submitSettlement time). Operators may pass a higher value to widen the floor for
-  /// a specific loser if recovered liquidity has shifted since payload-build time.
-  minOutOverrides?: ReadonlyMap<Address, bigint>;
-  /// Optional finalize slippage guards. Default 0 (accept any AMM output).
-  minWinnerTokensRollover?: bigint;
-  minWinnerTokensPol?: bigint;
+export interface SettlementRunResult extends FilterEventRunResult {
+  /// Final winner-submit tx — drains rollover/bonus/POL reserves.
+  submitWinnerTx: Hash;
 }
 
-/// Drives a season through `submitSettlement → liquidate(loser) → finalize`.
-/// Sequential by design — finalize must wait until every liquidation has mined.
-/// Liquidations themselves run sequentially to keep nonce management trivial; if you
-/// want parallel keepers, use `liquidateCall(...)` directly and manage nonces yourself.
+/// Send a single filter-event tx (one cut). Caller is responsible for sequencing across the
+/// week — typically one of these per scheduled cut, with `runSettlement` at the end of week.
+export async function runFilterEvent(
+  driver: TransactionDriver,
+  vault: Address,
+  payload: FilterEventPayload,
+): Promise<Hash> {
+  const tx = await driver.writeContract(processFilterEventCall(vault, payload));
+  await driver.waitForReceipt(tx);
+  return tx;
+}
+
+/// Drives a full season: any pending filter events first (one tx each), then the final
+/// `submitWinner` which drains the accumulated reserves and deploys POL into the winner.
+///
+/// Sequential by design — `submitWinner` must wait until each filter event has mined so the
+/// reserves are correct when the winner is committed.
 export async function runSettlement(
   driver: TransactionDriver,
   vault: Address,
+  pendingFilters: ReadonlyArray<FilterEventPayload>,
   payload: SettlementPayload,
-  opts: SettlementRunOptions = {},
 ): Promise<SettlementRunResult> {
-  // 1. submitSettlement — oracle-only, posts the ranking + Merkle root.
-  const submitTx = await driver.writeContract(submitSettlementCall(vault, payload));
-  await driver.waitForReceipt(submitTx);
-
-  // 2. liquidate each loser. Sequential so the wallet's nonce stays sane.
-  const liquidateTxs: Array<{loser: Address; tx: Hash}> = [];
-  for (const loser of payload.losers) {
-    const minOut = opts.minOutOverrides?.get(loser) ?? 0n;
-    const tx = await driver.writeContract(liquidateCall(vault, loser, minOut));
-    await driver.waitForReceipt(tx);
-    liquidateTxs.push({loser, tx});
+  const filterEventTxs: Hash[] = [];
+  for (const evt of pendingFilters) {
+    filterEventTxs.push(await runFilterEvent(driver, vault, evt));
   }
 
-  // 3. finalize — allocates the pot, AMM-buys winner tokens for rollover + POL.
-  const finalizeTx = await driver.writeContract(
-    finalizeCall(
-      vault,
-      opts.minWinnerTokensRollover ?? 0n,
-      opts.minWinnerTokensPol ?? 0n,
-    ),
-  );
-  await driver.waitForReceipt(finalizeTx);
+  const submitWinnerTx = await driver.writeContract(submitWinnerCall(vault, payload));
+  await driver.waitForReceipt(submitWinnerTx);
 
-  return {submitTx, liquidateTxs, finalizeTx};
+  return {filterEventTxs, submitWinnerTx};
 }

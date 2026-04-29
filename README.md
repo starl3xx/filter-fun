@@ -4,6 +4,37 @@ A competitive, weekly token-launcher game on Base. Anyone deploys a token, off-c
 
 > Most get filtered. One gets funded. 🔻
 
+## How filter.fun works 🔻
+
+### 1. Launch & Trade
+Tokens are launched and traded all week.
+Every trade adds to a shared pool.
+
+### 2. Tokens Get Filtered 🔻
+As the week progresses, weaker tokens are eliminated.
+Their liquidity is removed and added to the pool.
+
+### 3. The Pool Grows
+All filtered tokens + trading fees build a **growing reward pool**.
+
+> The more tokens fail, the bigger the reward.
+
+### 4. One Winner Emerges
+At the end of the week, one token wins.
+
+- filtered users → automatically rolled into the winner
+- hold your tokens → earn a bonus
+
+> Losing doesn't end your game — it rolls you forward.
+
+### 5. Winner Gets Funded
+The winner receives:
+- massive buy pressure from the pool
+- protocol-backed liquidity
+- full market attention
+
+> **Most get filtered. One gets funded. 🔻**
+
 ## Repo layout
 
 ```
@@ -28,9 +59,11 @@ Each package has its own README. Cross-package contracts are intentional: the or
 | `FilterFactory`      | Single-tx ERC-20 deploy → V4 pool init → seed single-sided LP → per-token `FilterLpLocker`.       |
 | `FilterHook`         | V4 hook gating add/remove-liquidity to the factory (seed) and locker (post-seed) only.            |
 | `FilterLpLocker`     | Per-token. Holds the V4 LP. Splits collected fees per BPS. Exposes liquidate-to-WETH primitives.  |
-| `SeasonVault`        | Per-season escrow. Settlement state machine. Allocates pot. Serves rollover Merkle claims.        |
+| `SeasonVault`        | Per-season escrow. Multi-filter event accounting. Allocates pot. Serves rollover Merkle claims.   |
+| `SeasonPOLReserve`   | Per-season WETH-only POL holder. Accumulates the 10% slice across filter events.                  |
+| `POLVault`           | Singleton. Receives winner-token POL exposure across all seasons.                                 |
 | `BonusDistributor`   | 14-day hold-bonus payout via multi-snapshot Merkle roots posted by the oracle.                    |
-| `TreasuryTimelock`   | OZ `TimelockController` on the 20% treasury cut. 48h delay.                                       |
+| `TreasuryTimelock`   | OZ `TimelockController` on the 10% treasury cut. 48h delay.                                       |
 
 All settlement-side accounting is **WETH**: pot, treasury, mechanics, bonus reserve, rollover all denominated and held in WETH.
 
@@ -45,24 +78,28 @@ indexer → scoring → oracle → scheduler → contracts
 - **indexer** ingests `FilterLauncher`, `SeasonVault`, `FilterLpLocker`, `BonusDistributor` events into a Postgres-backed query layer (Ponder, factory pattern).
 - **scoring** consumes per-token aggregated metrics → ranked leaderboard. The HP composite is velocity (decayed net buys, sybil-dampened, churn-discounted) + effective buyers (log-flattened, dust-filtered) + sticky liquidity (time-weighted, withdrawal-penalized) + retention (two-anchor) + momentum (capped). Phase-aware weights — pre-filter rewards discovery, finals rewards conviction. Mcap is intentionally **not** an input: a token with strong distributed demand beats a whale-pumped fat one.
 - **oracle** builds the on-chain payloads:
-  - `buildSettlementPayload` — winner + losers + per-loser min-out floors + rollover Merkle root over `(user, share)` leaves.
-  - `buildBonusPayload` — eligibility check across N snapshots (default ≥80% of rolled tokens held), pro-rata allocation by rolledAmount, Merkle root over `(user, amount)` leaves.
+  - `buildFilterEventPayload` — per-cut: losers + per-loser min-out floors.
+  - `buildSettlementPayload` — final cut: winner + cumulative rollover Merkle root over `(user, share)` leaves + slippage guards for the rollover and POL swaps.
+  - `buildBonusPayload` — eligibility check across N snapshots (default ≥80% across snapshots), pro-rata allocation by **rollover amount only**, Merkle root over `(user, amount)` leaves.
   - `splitSettlementForPublication` / `splitBonusForPublication` — emits per-user JSON entries the web app consumes.
 - **scheduler** drives the contracts:
   - `runPhaseArc` — `startSeason → advancePhase(Filter) → setFinalists → advancePhase(Finals) → advancePhase(Settlement)`.
-  - `runSettlement` — `submitSettlement → liquidate(loser)* → finalize`.
+  - `runFilterEvent` — one `processFilterEvent` tx per cut.
+  - `runSettlement` — `processFilterEvent* → submitWinner` (drains rollover/bonus/POL reserves in one tx).
   - `postBonusRoot` / `claimBonus` — bonus arc on `BonusDistributor`.
 - **web** turns the oracle's published per-user JSON entries into signed claim transactions (rollover + 14-day bonus), with on-chain `claimed[]` reads to disable already-completed claims.
 
-### Settlement allocation
+### Losers-pot allocation (applied at every filter event)
 
 ```
-35% rollover  → buy winner tokens, distribute via Merkle (share-based)
-15% bonus     → BonusDistributor reserve (14-day hold bonus)
-20% POL       → buy winner tokens, retain in protocol-owned wallet
-20% treasury  → WETH to TreasuryTimelock
-10% mechanics → WETH to events/missions wallet
+45% rollover  → accumulate as WETH; buy winner tokens at final settlement, distribute via Merkle
+25% bonus     → accumulate as WETH; forward to BonusDistributor at final settlement
+10% mechanics → WETH to events/missions wallet (immediate)
+10% POL       → accumulate as WETH in SeasonPOLReserve; deploy at final settlement only
+10% treasury  → WETH to TreasuryTimelock (immediate)
 ```
+
+80% of every losers-pot dollar is user-aligned (rollover + bonus + mechanics). POL is silent during the week — accumulates as WETH, never deployed mid-competition. At final settlement the reserve is drained, used to buy winner tokens, and parked in `POLVault`. Trading-fee streams are separate; `processFilterEvent` only splits the WETH delta produced by the loser liquidations.
 
 ### Trust model
 
