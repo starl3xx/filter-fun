@@ -7,7 +7,7 @@ import {bonusLeaf, verifyProof} from "../src/merkle.js";
 const ALICE: Address = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const BOB: Address = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const CAROL: Address = "0xcccccccccccccccccccccccccccccccccccccccc";
-const DAVE: Address = "0xdddddddddddddddddddddddddddddddddddddddd";
+const DAVE: Address = "0xd000000000000000000000000000000000000000";
 
 describe("buildBonusPayload", () => {
   it("includes holders who held ≥ threshold of rolled across every snapshot", () => {
