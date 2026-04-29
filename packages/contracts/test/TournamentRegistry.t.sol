@@ -26,12 +26,18 @@ contract TournamentRegistryTest is Test {
     address tokenD = makeAddr("tokenD");
 
     uint256 constant SEASON = 1;
+    /// @dev Stand-in for the launcher-registered TournamentVault. Champion-record auth
+    ///      is exclusively `launcher.tournamentVault()` after PR #26's bugbot fix —
+    ///      tests prank as this address whenever they exercise `recordQuarterlyChampion`.
+    address tournamentVault;
 
     function setUp() public {
         launcher = new MockLauncherView();
         launcher.setOracle(oracle);
         registry = new TournamentRegistry(address(launcher));
         launcher.setVault(SEASON, realVault);
+        tournamentVault = makeAddr("tournamentVault");
+        launcher.setTournamentVault(tournamentVault);
     }
 
     // ============================================================ recordWeeklyWinner
@@ -237,7 +243,7 @@ contract TournamentRegistryTest is Test {
         vm.prank(oracle);
         registry.recordQuarterlyFinalists(2026, 1, winners);
 
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
         assertEq(registry.quarterlyChampionOf(2026, 1), tokenA);
         assertEq(uint8(registry.statusOf(tokenA)), uint8(TournamentRegistry.TokenStatus.QUARTERLY_CHAMPION));
@@ -247,42 +253,39 @@ contract TournamentRegistryTest is Test {
 
     function test_RecordQuarterlyChampion_RejectsNonFinalist() public {
         // tokenA hasn't been recorded as a quarterly finalist.
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         vm.expectRevert(TournamentRegistry.NotEligible.selector);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
     }
 
     function test_RecordQuarterlyChampion_RejectsBadQuarter() public {
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         vm.expectRevert(TournamentRegistry.BadQuarter.selector);
         registry.recordQuarterlyChampion(2026, 0, tokenA);
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         vm.expectRevert(TournamentRegistry.BadQuarter.selector);
         registry.recordQuarterlyChampion(2026, 5, tokenA);
     }
 
-    /// @notice Auth widened in PR #26 to also accept the launcher's registered TournamentVault
-    ///         so quarterly settlement and the QUARTERLY_CHAMPION stamp happen atomically
-    ///         inside `submitQuarterlyWinner`. The vault path must work end-to-end.
-    function test_RecordQuarterlyChampion_AllowsTournamentVault() public {
-        address tournamentVault = makeAddr("tournamentVault");
-        launcher.setTournamentVault(tournamentVault);
-
+    /// @notice Champion-record auth is **vault-only** after the PR #26 lock-out fix. The
+    ///         oracle's earlier direct path was removed: a one-shot oracle call here would
+    ///         set `quarterlyChampionOf` and cause `submitQuarterlyWinner` on the vault to
+    ///         later revert with `AlreadyFinalized`, permanently locking the tournament's
+    ///         funded WETH. Vault-only is the only safe shape.
+    function test_RecordQuarterlyChampion_RejectsOracleDirectly() public {
         address[] memory winners = new address[](1);
         winners[0] = tokenA;
         _stampWeeklyWinners(winners);
         vm.prank(oracle);
         registry.recordQuarterlyFinalists(2026, 1, winners);
 
-        vm.prank(tournamentVault);
+        vm.prank(oracle);
+        vm.expectRevert(TournamentRegistry.NotOracle.selector);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
-        assertEq(registry.quarterlyChampionOf(2026, 1), tokenA);
     }
 
-    /// @notice Auth still rejects unrelated callers even with a TournamentVault registered.
-    function test_RecordQuarterlyChampion_RejectsAttackerWhenVaultRegistered() public {
-        launcher.setTournamentVault(makeAddr("tournamentVault"));
-
+    /// @notice Auth still rejects unrelated callers.
+    function test_RecordQuarterlyChampion_RejectsAttacker() public {
         address[] memory winners = new address[](1);
         winners[0] = tokenA;
         _stampWeeklyWinners(winners);
@@ -295,7 +298,7 @@ contract TournamentRegistryTest is Test {
     }
 
     /// @notice Regression: a runner-up from Q1 retains QUARTERLY_FINALIST status indefinitely.
-    ///         A status-only check would let the oracle illegitimately crown that runner-up
+    ///         A status-only check would let the vault illegitimately crown that runner-up
     ///         as Q2 champion (where they never competed). Per-period membership flag prevents
     ///         this — bugbot Medium #2.
     function test_RecordQuarterlyChampion_RejectsCrossPeriodFinalist() public {
@@ -307,13 +310,13 @@ contract TournamentRegistryTest is Test {
         _stampWeeklyWinners(q1Winners);
         vm.prank(oracle);
         registry.recordQuarterlyFinalists(2026, 1, q1Winners);
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
         // tokenB still QUARTERLY_FINALIST — but ONLY for Q1, never enrolled in Q2.
 
-        // Oracle attempts to crown tokenB as Q2 champion — must revert because tokenB is
+        // Vault attempts to crown tokenB as Q2 champion — must revert because tokenB is
         // not in `isQuarterlyFinalist[2026][2]`.
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         vm.expectRevert(TournamentRegistry.NotEligible.selector);
         registry.recordQuarterlyChampion(2026, 2, tokenB);
     }
@@ -325,9 +328,9 @@ contract TournamentRegistryTest is Test {
         _stampWeeklyWinners(winners);
         vm.prank(oracle);
         registry.recordQuarterlyFinalists(2026, 1, winners);
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         vm.expectRevert(TournamentRegistry.AlreadyFinalized.selector);
         registry.recordQuarterlyChampion(2026, 1, tokenB);
     }
@@ -348,7 +351,7 @@ contract TournamentRegistryTest is Test {
             ents[0] = champs[i];
             vm.prank(oracle);
             registry.recordQuarterlyFinalists(2026, uint8(i + 1), ents);
-            vm.prank(oracle);
+            vm.prank(tournamentVault);
             registry.recordQuarterlyChampion(2026, uint8(i + 1), champs[i]);
         }
     }
@@ -372,7 +375,7 @@ contract TournamentRegistryTest is Test {
             ents[0] = champs[i];
             vm.prank(oracle);
             registry.recordQuarterlyFinalists(2026, uint8(i + 1), ents);
-            vm.prank(oracle);
+            vm.prank(tournamentVault);
             registry.recordQuarterlyChampion(2026, uint8(i + 1), champs[i]);
         }
 
@@ -502,7 +505,7 @@ contract TournamentRegistryTest is Test {
         _stampWeeklyWinners(winners);
         vm.prank(oracle);
         registry.recordQuarterlyFinalists(2026, 1, winners);
-        vm.prank(oracle);
+        vm.prank(tournamentVault);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
 
         assertTrue(registry.qualifiedFor(tokenA, TournamentRegistry.CompetitionLevel.ANNUAL));

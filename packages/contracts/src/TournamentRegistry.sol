@@ -201,15 +201,18 @@ contract TournamentRegistry {
     ///         crowned champion of a different quarter where it never competed. Status bumps
     ///         to QUARTERLY_CHAMPION on success.
     ///
-    ///         Auth: oracle OR the launcher's registered TournamentVault. The vault is the
+    ///         Auth: **only** the launcher's registered TournamentVault. The vault is the
     ///         on-chain caller during quarterly Filter Bowl settlement — it stamps the
     ///         champion atomically as part of `submitQuarterlyWinner`, so settlement and
-    ///         status update can never drift apart. Oracle is retained as a fallback caller
-    ///         (and pre-vault path before tournament infra is fully wired).
+    ///         status update can never drift apart.
+    ///
+    ///         An earlier draft also accepted the oracle as a direct caller. That path is
+    ///         removed: a one-shot oracle call here would set `quarterlyChampionOf[year][q]`
+    ///         and cause the vault's later `submitQuarterlyWinner` to revert with
+    ///         `AlreadyFinalized` — permanently locking that tournament's funded WETH
+    ///         (vault has no sweep / rescue path). Vault-only is the safe shape.
     function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external {
-        address senderOracle = ILauncherViewTR(launcher).oracle();
-        address senderVault = ILauncherViewTR(launcher).tournamentVault();
-        if (msg.sender != senderOracle && msg.sender != senderVault) revert NotOracle();
+        if (msg.sender != ILauncherViewTR(launcher).tournamentVault()) revert NotOracle();
         if (quarter == 0 || quarter > 4) revert BadQuarter();
         if (champion == address(0)) revert ZeroToken();
         if (quarterlyChampionOf[year][quarter] != address(0)) revert AlreadyFinalized();
