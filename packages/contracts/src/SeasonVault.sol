@@ -21,13 +21,26 @@ interface ILauncherView {
     function lockerOf(uint256 seasonId, address token) external view returns (address);
 }
 
+interface ICreatorFeeDistributor {
+    function markFiltered(address token) external;
+}
+
+interface ICreatorRegistry {
+    function creatorOf(address token) external view returns (address);
+}
+
 /// @title SeasonVault
 /// @notice Per-season escrow for the user-aligned settlement model. Accepts losers-pot
 ///         liquidations across multiple intra-week filter events, plus the final cut, and
-///         distributes:
+///         distributes (in order):
 ///
-///         - 45% rollover (WETH accumulated; converted to winner tokens at finalize)
-///         - 25% bonus (WETH accumulated; forwarded to BonusDistributor at finalize)
+///         - 2.5% champion bounty: skimmed off-the-top BEFORE the standard split, accumulated as
+///           WETH, paid to the WINNER's creator at `submitWinner`. Aligns creators with not just
+///           launching but with making the launch winning.
+///
+///         The remaining 97.5% is split per the user-aligned BPS:
+///         - 45% rollover (WETH accumulated; converted to winner tokens at submitWinner)
+///         - 25% bonus (WETH accumulated; forwarded to BonusDistributor at submitWinner)
 ///         - 10% mechanics (WETH transferred immediately, every event)
 ///         - 10% POL (WETH accumulated in `SeasonPOLReserve`; deployed only after winner)
 ///         - 10% treasury (WETH transferred immediately, every event)
@@ -49,8 +62,12 @@ contract SeasonVault is ReentrancyGuard {
         Closed
     }
 
-    // -------- Losers-pot BPS split (sums to 10_000)
+    // -------- Losers-pot BPS split.
+    //          BOUNTY_BPS comes off the TOP of the proceeds. The rest (97.5%) is split per the
+    //          standard 45/25/10/10/10 four-way of rollover/bonus/mechanics/POL/treasury, all
+    //          relative to `BPS_DENOMINATOR`.
     uint256 internal constant BPS_DENOMINATOR = 10_000;
+    uint256 public constant BOUNTY_BPS = 250;
     uint256 public constant ROLLOVER_BPS = 4500;
     uint256 public constant BONUS_BPS = 2500;
     uint256 public constant MECHANICS_BPS = 1000;
@@ -67,6 +84,12 @@ contract SeasonVault is ReentrancyGuard {
     IBonusFunding public immutable bonusDistributor;
     SeasonPOLReserve public immutable polReserve;
     uint256 public immutable bonusUnlockDelay;
+    /// @notice Singleton creator-fee distributor. Vault calls `markFiltered` here when a token
+    ///         is filtered so creator-fee accrual halts immediately for that token.
+    ICreatorFeeDistributor public immutable creatorFeeDistributor;
+    /// @notice Singleton (token → creator) registry. Used at `submitWinner` to look up the
+    ///         winner's creator for the champion bounty payout.
+    ICreatorRegistry public immutable creatorRegistry;
 
     // -------- Mutable state
     address public oracle;
@@ -76,12 +99,19 @@ contract SeasonVault is ReentrancyGuard {
     // `submitWinner` consumes them.
     uint256 public rolloverReserve;
     uint256 public bonusReserve;
+    /// @notice Champion bounty accumulator. Paid to the winner's creator at `submitWinner`
+    ///         (or rerouted to treasury if the winner has no registered creator — should not
+    ///         happen since launcher always registers, but defends against edge cases).
+    uint256 public bountyReserve;
 
     // Cumulative liquidation accounting (for indexer + sanity checks).
     uint256 public totalLiquidationProceeds;
     uint256 public totalMechanicsPaid;
     uint256 public totalTreasuryPaid;
     uint256 public totalPolAccumulated;
+    uint256 public totalBountyAccumulated;
+    uint256 public bountyPaid;
+    address public bountyRecipient;
     uint256 public filterEventCount;
 
     // Per-token state.
@@ -104,12 +134,15 @@ contract SeasonVault is ReentrancyGuard {
         uint256 indexed eventIndex,
         uint256 loserCount,
         uint256 proceedsWeth,
+        uint256 bountySlice,
         uint256 rolloverSlice,
         uint256 bonusSlice,
         uint256 mechanicsSlice,
         uint256 polSlice,
         uint256 treasurySlice
     );
+    event ChampionBountyPaid(address indexed winner, address indexed creator, uint256 amount);
+    event ChampionBountyRedirected(address indexed winner, uint256 amount);
     event Liquidated(address indexed token, uint256 wethOut);
     event WinnerSubmitted(address indexed winner, bytes32 rolloverRoot, uint256 totalRolloverShares);
     event Finalized(
@@ -155,7 +188,9 @@ contract SeasonVault is ReentrancyGuard {
         address mechanics_,
         address polVault_,
         IBonusFunding bonusDistributor_,
-        uint256 bonusUnlockDelay_
+        uint256 bonusUnlockDelay_,
+        ICreatorRegistry creatorRegistry_,
+        ICreatorFeeDistributor creatorFeeDistributor_
     ) {
         launcher = launcher_;
         seasonId = seasonId_;
@@ -166,6 +201,8 @@ contract SeasonVault is ReentrancyGuard {
         polVault = polVault_;
         bonusDistributor = bonusDistributor_;
         bonusUnlockDelay = bonusUnlockDelay_;
+        creatorRegistry = creatorRegistry_;
+        creatorFeeDistributor = creatorFeeDistributor_;
         phase = Phase.Active;
         // Each season gets its own POL reserve so accumulated WETH is strictly scoped to the
         // current cohort and can't be commingled across seasons.
@@ -199,6 +236,10 @@ contract SeasonVault is ReentrancyGuard {
             liquidated[t] = true;
             _losers.push(t);
 
+            // Halt creator-fee accrual for this token immediately; any subsequent swap fees on
+            // its (now-empty) pool would be redirected to treasury by the distributor.
+            creatorFeeDistributor.markFiltered(t);
+
             address locker = ILauncherView(launcher).lockerOf(seasonId, t);
             uint256 out = ILpLocker(locker).liquidateToWETH(address(this), minOuts_[i]);
             emit Liquidated(t, out);
@@ -212,24 +253,30 @@ contract SeasonVault is ReentrancyGuard {
             // Liquidations produced no WETH (e.g. all losers had drained pools). Still count
             // the event so the index is consistent.
             ++filterEventCount;
-            emit FilterEventProcessed(filterEventCount, losers_.length, 0, 0, 0, 0, 0, 0);
+            emit FilterEventProcessed(filterEventCount, losers_.length, 0, 0, 0, 0, 0, 0, 0);
             return;
         }
 
-        uint256 rolloverSlice = (proceeds * ROLLOVER_BPS) / BPS_DENOMINATOR;
-        uint256 bonusSlice = (proceeds * BONUS_BPS) / BPS_DENOMINATOR;
-        uint256 mechanicsSlice = (proceeds * MECHANICS_BPS) / BPS_DENOMINATOR;
-        uint256 polSlice = (proceeds * POL_BPS) / BPS_DENOMINATOR;
+        // Champion bounty comes off the top before the standard losers-pot split.
+        uint256 bountySlice = (proceeds * BOUNTY_BPS) / BPS_DENOMINATOR;
+        uint256 remainder = proceeds - bountySlice;
+
+        uint256 rolloverSlice = (remainder * ROLLOVER_BPS) / BPS_DENOMINATOR;
+        uint256 bonusSlice = (remainder * BONUS_BPS) / BPS_DENOMINATOR;
+        uint256 mechanicsSlice = (remainder * MECHANICS_BPS) / BPS_DENOMINATOR;
+        uint256 polSlice = (remainder * POL_BPS) / BPS_DENOMINATOR;
         // Treasury takes whatever rounding dust falls out of the integer math so the four
-        // exact-BPS slices are preserved and totalSlices == proceeds by construction.
-        uint256 treasurySlice = proceeds - rolloverSlice - bonusSlice - mechanicsSlice - polSlice;
+        // exact-BPS slices are preserved and totalSlices == remainder by construction.
+        uint256 treasurySlice = remainder - rolloverSlice - bonusSlice - mechanicsSlice - polSlice;
 
         rolloverReserve += rolloverSlice;
         bonusReserve += bonusSlice;
+        bountyReserve += bountySlice;
         totalLiquidationProceeds += proceeds;
         totalMechanicsPaid += mechanicsSlice;
         totalTreasuryPaid += treasurySlice;
         totalPolAccumulated += polSlice;
+        totalBountyAccumulated += bountySlice;
         ++filterEventCount;
 
         if (mechanicsSlice > 0) IERC20(weth).safeTransfer(mechanics, mechanicsSlice);
@@ -243,6 +290,7 @@ contract SeasonVault is ReentrancyGuard {
             filterEventCount,
             losers_.length,
             proceeds,
+            bountySlice,
             rolloverSlice,
             bonusSlice,
             mechanicsSlice,
@@ -275,6 +323,24 @@ contract SeasonVault is ReentrancyGuard {
         emit WinnerSubmitted(winner_, rolloverRoot_, totalRolloverShares_);
 
         address winnerLocker = ILauncherView(launcher).lockerOf(seasonId, winner_);
+
+        // 0. Champion bounty → winner's creator. Reroute to treasury if (somehow) no creator
+        //    is registered for the winner; the launcher path always registers, so this branch
+        //    is defensive only.
+        uint256 bounty = bountyReserve;
+        bountyReserve = 0;
+        if (bounty > 0) {
+            address creator = creatorRegistry.creatorOf(winner_);
+            if (creator == address(0)) {
+                IERC20(weth).safeTransfer(treasury, bounty);
+                emit ChampionBountyRedirected(winner_, bounty);
+            } else {
+                bountyRecipient = creator;
+                bountyPaid = bounty;
+                IERC20(weth).safeTransfer(creator, bounty);
+                emit ChampionBountyPaid(winner_, creator, bounty);
+            }
+        }
 
         // 1. Bonus reserve → BonusDistributor (still WETH; converts to user payouts later).
         uint256 bonusAmount = bonusReserve;

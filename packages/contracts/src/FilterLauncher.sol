@@ -5,7 +5,9 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
-import {SeasonVault, IBonusFunding} from "./SeasonVault.sol";
+import {SeasonVault, IBonusFunding, ICreatorRegistry, ICreatorFeeDistributor} from "./SeasonVault.sol";
+import {CreatorRegistry} from "./CreatorRegistry.sol";
+import {CreatorFeeDistributor} from "./CreatorFeeDistributor.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "./interfaces/IFilterLauncher.sol";
 
@@ -42,6 +44,13 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
     address public polVault;
     IBonusFunding public bonusDistributor;
     address public weth;
+
+    /// @notice Singleton creator contracts. Both deployed inline by this launcher's constructor
+    ///         so `address(this)` resolves cleanly without a chicken-and-egg constructor ordering.
+    ///         The factory reads `creatorFeeDistributor` post-construction to wire each per-token
+    ///         locker.
+    CreatorRegistry public immutable creatorRegistry;
+    CreatorFeeDistributor public immutable creatorFeeDistributor;
     uint256 public bonusUnlockDelay = 14 days;
     uint256 public maxLaunchesPerWallet = 2;
 
@@ -67,6 +76,8 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
         polVault = polVault_;
         bonusDistributor = bonusDistributor_;
         weth = weth_;
+        creatorRegistry = new CreatorRegistry(address(this));
+        creatorFeeDistributor = new CreatorFeeDistributor(address(this), weth_, treasury_, creatorRegistry);
     }
 
     modifier onlyOracle() {
@@ -107,7 +118,9 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
             mechanics,
             polVault,
             bonusDistributor,
-            bonusUnlockDelay
+            bonusUnlockDelay,
+            ICreatorRegistry(address(creatorRegistry)),
+            ICreatorFeeDistributor(address(creatorFeeDistributor))
         );
         _vault[seasonId] = address(v);
         _phase[seasonId] = Phase.Launch;
@@ -184,6 +197,13 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable {
             isFinalist: false
         });
         _tokens[currentSeasonId].push(token);
+
+        // Register (token, creator, launchedAt) and the seasonId mapping the distributor
+        // uses for its own auth checks. Both contracts revert on duplicate token, so any
+        // future token-deployment path that reuses the same address is rejected here too.
+        creatorRegistry.register(token, creator);
+        creatorFeeDistributor.registerToken(token, currentSeasonId);
+
         emit TokenLaunched(
             currentSeasonId, token, locker, creator, isProtocolLaunched, name_, symbol_, metadataURI_
         );

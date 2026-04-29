@@ -85,7 +85,9 @@ contract DeployGenesis is Script {
         console2.log("FilterHook:", address(hook));
 
         // 7. FilterFactory wires hook + manager + launcher + weth.
-        FilterFactory factory = new FilterFactory(IPoolManager(pmAddr), hook, address(launcher), weth);
+        FilterFactory factory = new FilterFactory(
+            IPoolManager(pmAddr), hook, address(launcher), weth, address(launcher.creatorFeeDistributor())
+        );
         console2.log("FilterFactory:", address(factory));
 
         // 8. Initialize hook with factory address (one-shot).
