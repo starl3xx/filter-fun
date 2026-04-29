@@ -8,6 +8,16 @@ import {SeasonVaultAbi} from "./abi.js";
 /// Operators can either pass these straight to `walletClient.writeContract`, or feed them
 /// into a multisig (Safe) UI as transaction-batch JSON.
 
+/// Structural shape every call builder satisfies. Used by `TransactionDriver.writeContract`
+/// so the driver can accept calls against any ABI (vault, launcher, …) without a generic
+/// param. Builders return more specific types (`ContractCall`, `LauncherCall`) for tooling.
+export interface ContractCallShape {
+  address: Address;
+  abi: ReadonlyArray<unknown>;
+  functionName: string;
+  args: ReadonlyArray<unknown>;
+}
+
 export interface ContractCall<TFunctionName extends string> {
   address: Address;
   abi: typeof SeasonVaultAbi;
