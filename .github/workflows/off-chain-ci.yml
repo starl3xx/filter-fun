@@ -35,6 +35,13 @@ jobs:
       - name: indexer (typecheck)
         run: npm --workspace @filter-fun/indexer run typecheck
 
+      # Catches schema/ABI/config drift: codegen reads ponder.config.ts, ponder.schema.ts,
+      # and the committed ABIs in abis/, then writes ponder-env.d.ts + schema.graphql. If
+      # any of those three lose sync, the next `npm install` hits a typecheck failure that's
+      # impossible to debug on the indexer side. Running here makes drift fail fast.
+      - name: indexer (ponder codegen)
+        run: npm --workspace @filter-fun/indexer run codegen
+
       - name: scoring (typecheck)
         run: npm --workspace @filter-fun/scoring run typecheck
 
