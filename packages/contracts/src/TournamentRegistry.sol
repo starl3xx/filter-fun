@@ -100,6 +100,9 @@ contract TournamentRegistry {
     // -------- Errors
     error NotRegisteredVault();
     error NotOracle();
+    /// @dev Distinct from `NotOracle` so off-chain decoders / incident response can tell
+    ///      a missing oracle multisig from a missing TournamentVault wiring.
+    error NotTournamentVault();
     error ZeroToken();
     error AlreadyFinalized();
     error NotEligible();
@@ -212,7 +215,7 @@ contract TournamentRegistry {
     ///         `AlreadyFinalized` — permanently locking that tournament's funded WETH
     ///         (vault has no sweep / rescue path). Vault-only is the safe shape.
     function recordQuarterlyChampion(uint16 year, uint8 quarter, address champion) external {
-        if (msg.sender != ILauncherViewTR(launcher).tournamentVault()) revert NotOracle();
+        if (msg.sender != ILauncherViewTR(launcher).tournamentVault()) revert NotTournamentVault();
         if (quarter == 0 || quarter > 4) revert BadQuarter();
         if (champion == address(0)) revert ZeroToken();
         if (quarterlyChampionOf[year][quarter] != address(0)) revert AlreadyFinalized();

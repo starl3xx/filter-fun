@@ -280,7 +280,7 @@ contract TournamentRegistryTest is Test {
         registry.recordQuarterlyFinalists(2026, 1, winners);
 
         vm.prank(oracle);
-        vm.expectRevert(TournamentRegistry.NotOracle.selector);
+        vm.expectRevert(TournamentRegistry.NotTournamentVault.selector);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
     }
 
@@ -293,7 +293,7 @@ contract TournamentRegistryTest is Test {
         registry.recordQuarterlyFinalists(2026, 1, winners);
 
         vm.prank(attacker);
-        vm.expectRevert(TournamentRegistry.NotOracle.selector);
+        vm.expectRevert(TournamentRegistry.NotTournamentVault.selector);
         registry.recordQuarterlyChampion(2026, 1, tokenA);
     }
 
