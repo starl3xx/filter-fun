@@ -1,5 +1,6 @@
 export {SeasonVaultAbi} from "./abi.js";
 export {FilterLauncherAbi, Phase} from "./launcherAbi.js";
+export {BonusDistributorAbi} from "./bonusAbi.js";
 export {
   claimRolloverCall,
   finalizeCall,
@@ -15,6 +16,11 @@ export {
   type LauncherCall,
 } from "./launcherCalls.js";
 export {
+  claimBonusCall,
+  postBonusRootCall,
+  type BonusCall,
+} from "./bonusCalls.js";
+export {
   runSettlement,
   type SettlementRunOptions,
   type SettlementRunResult,
@@ -27,3 +33,4 @@ export {
   startSeason,
   type RunPhaseArcResult,
 } from "./phase.js";
+export {claimBonus, postBonusRoot} from "./bonus.js";

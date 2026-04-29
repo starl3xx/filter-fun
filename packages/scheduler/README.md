@@ -12,6 +12,10 @@ Drives the on-chain lifecycle of a season. Two arcs:
 2. `liquidate(loser, minOutOverride)` — once per loser, permissionless
 3. `finalize(minRolloverOut, minPolOut)` — allocates the pot, AMM-buys winner tokens
 
+**Bonus arc** (oracle + per-holder claim on `BonusDistributor`):
+1. `postRoot(seasonId, root)` — oracle-only, after the 14-day hold window
+2. `claim(seasonId, amount, proof)` — permissionless, called by each eligible holder
+
 ## API
 
 ### Settlement arc
@@ -55,6 +59,24 @@ import {submitSettlementCall, liquidateCall, finalizeCall, claimRolloverCall} fr
 const call = submitSettlementCall(vault, payload); // {address, abi, functionName, args}
 ```
 
+### Bonus arc
+
+```ts
+import {postBonusRoot, claimBonus} from "@filter-fun/scheduler";
+import {buildBonusPayload} from "@filter-fun/oracle";
+
+const payload = buildBonusPayload({snapshots, rolledByHolder, totalReserve});
+
+// Oracle: post the root once the 14-day window has elapsed.
+await postBonusRoot(driver, bonusDistributor, seasonId, payload);
+
+// Holder (or batch script): claim with their precomputed (amount, proof).
+const entry = payload.entries.find((e) => e.user === holder)!;
+await claimBonus(driver, bonusDistributor, seasonId, entry.amount, entry.proof);
+```
+
+Or use the lower-level builders: `postBonusRootCall`, `claimBonusCall`.
+
 ## Sequencing
 
 - `submitSettlement` gates everything else (vault enters `Liquidating`).
@@ -63,7 +85,6 @@ const call = submitSettlementCall(vault, payload); // {address, abi, functionNam
 
 ## Out of scope (next iteration)
 
-- Bonus-snapshot driver (`BonusDistributor.postRoot` after the 14-day window).
 - Retry / replacement-tx logic for stuck transactions.
 - Multi-signer Safe payload bundling.
 

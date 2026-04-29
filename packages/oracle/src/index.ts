@@ -1,5 +1,6 @@
 export {buildSettlementPayload} from "./settlement.js";
-export {buildTree, getProof, rolloverLeaf, verifyProof} from "./merkle.js";
+export {buildBonusPayload} from "./bonus.js";
+export {bonusLeaf, buildTree, getProof, rolloverLeaf, verifyProof} from "./merkle.js";
 export type {
   Address,
   Hex,
@@ -10,3 +11,4 @@ export type {
   SettlementInputs,
   SettlementPayload,
 } from "./types.js";
+export type {BonusEntry, BonusInputs, BonusPayload} from "./bonus.js";
