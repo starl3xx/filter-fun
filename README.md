@@ -4,6 +4,37 @@ A competitive, weekly token-launcher game on Base. Anyone deploys a token, off-c
 
 > Most get filtered. One gets funded. 🔻
 
+## How filter.fun works 🔻
+
+### 1. Launch & Trade
+Tokens are launched and traded all week.
+Every trade adds to a shared pool.
+
+### 2. Tokens Get Filtered 🔻
+As the week progresses, weaker tokens are eliminated.
+Their liquidity is removed and added to the pool.
+
+### 3. The Pool Grows
+All filtered tokens + trading fees build a **growing reward pool**.
+
+> The more tokens fail, the bigger the reward.
+
+### 4. One Winner Emerges
+At the end of the week, one token wins.
+
+- filtered users → automatically rolled into the winner
+- hold your tokens → earn a bonus
+
+> Losing doesn't end your game — it rolls you forward.
+
+### 5. Winner Gets Funded
+The winner receives:
+- massive buy pressure from the pool
+- protocol-backed liquidity
+- full market attention
+
+> **Most get filtered. One gets funded. 🔻**
+
 ## Repo layout
 
 ```
