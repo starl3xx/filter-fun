@@ -110,7 +110,7 @@ Then the remaining 97.5% splits per the user-aligned BPS:
 
 ```
 2.00% trading fee = 200 BPS, split on the WETH-side leg as:
-  0.95% → prize pool (SeasonVault)
+  0.90% → prize pool (SeasonVault)
   0.65% → TreasuryTimelock
   0.25% → mechanics
   0.20% → CreatorFeeDistributor (eligible token's creator, within 72h of launch and pre-filter)

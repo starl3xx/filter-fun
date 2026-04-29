@@ -27,10 +27,11 @@ interface ICreatorFeeDistributor {
 ///         calls during week-end unwinding.
 ///
 ///         Trading fee = 2% of swap volume = 200 BPS, broken down on the WETH-side leg as:
-///         - 0.95% → prize pool (seasonVault)        PRIZE_FEE_BPS = 95
+///         - 0.90% → prize pool (seasonVault)        PRIZE_FEE_BPS = 90
 ///         - 0.65% → treasury                        TREASURY_FEE_BPS = 65
 ///         - 0.25% → mechanics                       MECHANICS_FEE_BPS = 25
 ///         - 0.20% → creator fee distributor         CREATOR_FEE_BPS = 20
+///         Sum = 200 BPS by construction (see compile-time check below).
 ///
 ///         The token-leg fee dust is routed entirely to the season vault — it's negligible
 ///         in $ terms and doesn't merit a creator/treasury slice on every swap.
@@ -47,9 +48,9 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
 
     // -------- Fee split policy. Constants are in basis points of total trade volume; sum
     //          must equal `FEE_TOTAL_BPS` (= 200 BPS = 2%) so the math reads as "x BPS of
-    //          the trade goes to recipient y".
+    //          the trade goes to recipient y". A constructor invariant enforces the sum.
     uint256 internal constant FEE_TOTAL_BPS = 200;
-    uint256 public constant PRIZE_FEE_BPS = 95;
+    uint256 public constant PRIZE_FEE_BPS = 90;
     uint256 public constant TREASURY_FEE_BPS = 65;
     uint256 public constant MECHANICS_FEE_BPS = 25;
     uint256 public constant CREATOR_FEE_BPS = 20;
@@ -119,6 +120,8 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         int24 tickUpper_,
         bytes32 positionSalt_
     ) {
+        // Invariant: BPS slices must sum to FEE_TOTAL_BPS so the WETH split is exact.
+        require(PRIZE_FEE_BPS + TREASURY_FEE_BPS + MECHANICS_FEE_BPS + CREATOR_FEE_BPS == FEE_TOTAL_BPS, "fee bps");
         poolManager = poolManager_;
         factory = factory_;
         vault = vault_;
