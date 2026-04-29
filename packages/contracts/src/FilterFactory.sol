@@ -34,6 +34,9 @@ contract FilterFactory is IFilterFactory {
     /// @notice Singleton creator-fee sink. Wired immutably so every per-token locker the
     ///         factory deploys forwards its 0.20% creator slice to the same contract.
     address public immutable creatorFeeDistributor;
+    /// @notice Singleton POL orchestrator. Wired immutably so every per-token locker can be
+    ///         authorized to add POL liquidity at settlement.
+    address public immutable polManager;
 
     uint24 public constant FEE = 10_000; // 1.00%
     int24 public constant TICK_SPACING = 200;
@@ -58,13 +61,15 @@ contract FilterFactory is IFilterFactory {
         FilterHook hook_,
         address launcher_,
         address weth_,
-        address creatorFeeDistributor_
+        address creatorFeeDistributor_,
+        address polManager_
     ) {
         poolManager = poolManager_;
         hook = hook_;
         launcher = launcher_;
         weth = weth_;
         creatorFeeDistributor = creatorFeeDistributor_;
+        polManager = polManager_;
     }
 
     function deployToken(IFilterFactory.DeployArgs calldata args)
@@ -113,6 +118,7 @@ contract FilterFactory is IFilterFactory {
             args.treasury,
             args.mechanics,
             ICreatorFeeDistributor(creatorFeeDistributor),
+            polManager,
             key,
             tickLower,
             tickUpper,

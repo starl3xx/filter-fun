@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
-import {IBonusFunding} from "../src/SeasonVault.sol";
+import {IBonusFunding, IPOLManager} from "../src/SeasonVault.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
 import {MockWETH} from "./mocks/MockWETH.sol";
 import {MockFilterFactory} from "./mocks/MockFilterFactory.sol";
@@ -21,7 +21,7 @@ contract FilterLauncherTest is Test {
     address oracle = address(0xCAFE);
     address treasury = address(0xD000);
     address mechanics = address(0xE000);
-    address polVault = address(0xF000);
+    address polManager = address(0xF000);
 
     address aliceCreator = address(0xA1);
 
@@ -29,8 +29,9 @@ contract FilterLauncherTest is Test {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, polVault, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
         );
+        launcher.setPolManager(IPOLManager(polManager));
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
     }

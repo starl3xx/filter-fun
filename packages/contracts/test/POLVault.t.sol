@@ -2,167 +2,171 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {POLVault} from "../src/POLVault.sol";
-import {MintableERC20} from "./mocks/MintableERC20.sol";
-import {MockLauncherView} from "./mocks/MockLauncherView.sol";
 
-/// @notice Focused tests for POLVault's auth model and one-shot deposit flag. The
-///         high/medium severity bugbot findings on PR #22 motivate every test here:
-///         (1) deposits must be gated to the launcher's registered SeasonVault — otherwise
-///         anyone can latch the per-season `deposited` flag and DoS settlement;
-///         (2) the latch must be a separate bool, not a numeric sentinel — a zero-amount
-///         legitimate deposit otherwise leaves the guard transparent.
+/// @notice Focused tests for POLVault's accounting model and POLManager auth gate.
+///
+///         The vault is read-mostly: it holds NO tokens (LP positions live in the per-token
+///         FilterLpLocker), it just records the (winner, weth, tokens, liquidity) tuples for
+///         indexer + UI visibility. The only mutator is `recordDeployment`, gated to the
+///         registered POLManager via a one-shot setter.
 contract POLVaultTest is Test {
     POLVault polVault;
-    MockLauncherView launcher;
-    MintableERC20 winnerToken;
 
     address owner = address(this);
-    address newOwner = makeAddr("newOwner");
-    address realVault = makeAddr("realVault");
+    address polManager = makeAddr("polManager");
     address attacker = makeAddr("attacker");
+    address winnerA = makeAddr("winnerA");
+    address winnerB = makeAddr("winnerB");
 
     function setUp() public {
-        launcher = new MockLauncherView();
         polVault = new POLVault(owner);
-        polVault.setLauncher(address(launcher));
-        winnerToken = new MintableERC20("Winner", "WIN");
+        polVault.setPolManager(polManager);
     }
 
-    // ============================================================ setLauncher
+    // ============================================================ setPolManager
 
-    function test_SetLauncher_OneShot() public {
+    function test_SetPolManager_OneShot() public {
         POLVault v = new POLVault(owner);
-        v.setLauncher(address(launcher));
-        vm.expectRevert(POLVault.LauncherAlreadySet.selector);
-        v.setLauncher(address(0xBEEF));
+        v.setPolManager(polManager);
+        vm.expectRevert(POLVault.PolManagerAlreadySet.selector);
+        v.setPolManager(makeAddr("other"));
     }
 
-    function test_SetLauncher_OnlyOwner() public {
+    function test_SetPolManager_OnlyOwner() public {
         POLVault v = new POLVault(owner);
         vm.prank(attacker);
         vm.expectRevert();
-        v.setLauncher(address(launcher));
+        v.setPolManager(polManager);
     }
 
-    function test_SetLauncher_RejectsZero() public {
+    function test_SetPolManager_RejectsZero() public {
         POLVault v = new POLVault(owner);
         vm.expectRevert(POLVault.ZeroAddress.selector);
-        v.setLauncher(address(0));
+        v.setPolManager(address(0));
     }
 
-    function test_DepositRevertsBeforeLauncherSet() public {
+    function test_RecordRevertsBeforePolManagerSet() public {
         POLVault v = new POLVault(owner);
-        vm.prank(realVault);
-        vm.expectRevert(POLVault.LauncherNotSet.selector);
-        v.deposit(1, address(winnerToken), 0);
+        vm.prank(polManager);
+        vm.expectRevert(POLVault.PolManagerNotSet.selector);
+        v.recordDeployment(1, winnerA, 1 ether, 1 ether, 1);
     }
 
-    // ============================================================ deposit auth
+    // ============================================================ recordDeployment auth
 
-    /// @notice The headline bugbot finding: an arbitrary attacker must NOT be able to call
-    ///         `deposit` and latch the `deposited` flag, which would make the legitimate
-    ///         SeasonVault's `submitWinner` revert with `AlreadyDeposited` and lock settlement.
-    function test_Deposit_RevertsForUnregisteredCaller() public {
-        launcher.setVault(1, realVault);
+    function test_RecordDeployment_RejectsUnauthorizedCaller() public {
         vm.prank(attacker);
-        vm.expectRevert(POLVault.NotRegisteredVault.selector);
-        polVault.deposit(1, address(winnerToken), 0);
-        // Crucial: the failed call must not have latched the flag.
-        assertFalse(polVault.deposited(1));
+        vm.expectRevert(POLVault.NotPolManager.selector);
+        polVault.recordDeployment(1, winnerA, 1 ether, 1 ether, 1);
+        assertFalse(polVault.recorded(1));
     }
 
-    /// @notice The legitimate SeasonVault for that season can deposit, and the deposit is
-    ///         tracked correctly. (Zero amount path — exercises the bool flag without ERC-20.)
-    function test_Deposit_RegisteredVaultZeroAmount() public {
-        launcher.setVault(1, realVault);
-        vm.prank(realVault);
-        polVault.deposit(1, address(winnerToken), 0);
-        assertTrue(polVault.deposited(1));
-        assertEq(polVault.seasonDeposit(1), 0);
-        assertEq(polVault.seasonWinner(1), address(winnerToken));
+    function test_RecordDeployment_HappyPath() public {
+        vm.prank(polManager);
+        polVault.recordDeployment(1, winnerA, 5 ether, 1000 ether, 12_345);
+
+        assertTrue(polVault.recorded(1));
+        POLVault.Deployment memory d = polVault.deploymentOf(1);
+        assertEq(d.winner, winnerA);
+        assertEq(d.wethDeployed, 5 ether);
+        assertEq(d.tokensDeployed, 1000 ether);
+        assertEq(d.liquidity, 12_345);
+        assertEq(d.deployedAt, uint64(block.timestamp));
     }
 
-    function test_Deposit_RegisteredVaultWithTokens() public {
-        launcher.setVault(1, realVault);
-        winnerToken.mint(realVault, 100 ether);
-        vm.prank(realVault);
-        winnerToken.approve(address(polVault), 100 ether);
+    function test_RecordDeployment_RejectsDuplicateSeason() public {
+        vm.prank(polManager);
+        polVault.recordDeployment(1, winnerA, 1 ether, 100 ether, 1);
 
-        vm.prank(realVault);
-        polVault.deposit(1, address(winnerToken), 100 ether);
-
-        assertEq(polVault.seasonDeposit(1), 100 ether);
-        assertEq(winnerToken.balanceOf(address(polVault)), 100 ether);
-        assertTrue(polVault.deposited(1));
+        vm.prank(polManager);
+        vm.expectRevert(POLVault.AlreadyRecorded.selector);
+        polVault.recordDeployment(1, winnerA, 2 ether, 200 ether, 2);
     }
 
-    /// @notice The medium-severity finding: a legitimate zero-amount deposit must still
-    ///         latch the flag — otherwise a second, real deposit slips through the
-    ///         numeric guard and double-credits the season.
-    function test_Deposit_ZeroAmountStillLatches() public {
-        launcher.setVault(1, realVault);
+    function test_RecordDeployment_PerSeasonIndependent() public {
+        vm.prank(polManager);
+        polVault.recordDeployment(1, winnerA, 5 ether, 100 ether, 10);
+        vm.prank(polManager);
+        polVault.recordDeployment(2, winnerB, 3 ether, 50 ether, 20);
 
-        // First deposit with zero amount.
-        vm.prank(realVault);
-        polVault.deposit(1, address(winnerToken), 0);
-
-        // Second, real deposit must revert.
-        winnerToken.mint(realVault, 100 ether);
-        vm.prank(realVault);
-        winnerToken.approve(address(polVault), 100 ether);
-
-        vm.prank(realVault);
-        vm.expectRevert(POLVault.AlreadyDeposited.selector);
-        polVault.deposit(1, address(winnerToken), 100 ether);
+        assertTrue(polVault.recorded(1));
+        assertTrue(polVault.recorded(2));
+        assertEq(polVault.deploymentOf(1).winner, winnerA);
+        assertEq(polVault.deploymentOf(2).winner, winnerB);
     }
 
-    function test_Deposit_AlreadyDepositedReverts() public {
-        launcher.setVault(1, realVault);
-        winnerToken.mint(realVault, 200 ether);
-        vm.prank(realVault);
-        winnerToken.approve(address(polVault), 200 ether);
+    // ============================================================ aggregations + views
 
-        vm.prank(realVault);
-        polVault.deposit(1, address(winnerToken), 100 ether);
+    function test_TotalsAcrossSeasons() public {
+        vm.prank(polManager);
+        polVault.recordDeployment(1, winnerA, 5 ether, 100 ether, 10);
+        vm.prank(polManager);
+        polVault.recordDeployment(2, winnerB, 3 ether, 50 ether, 20);
+        vm.prank(polManager);
+        polVault.recordDeployment(3, winnerA, 7 ether, 200 ether, 15);
 
-        vm.prank(realVault);
-        vm.expectRevert(POLVault.AlreadyDeposited.selector);
-        polVault.deposit(1, address(winnerToken), 100 ether);
+        // Headline totals.
+        assertEq(polVault.getTotalPOLValue(), 15 ether, "total weth");
+        assertEq(polVault.totalLiquidity(), 45, "total liquidity");
+        assertEq(polVault.deploymentCount(), 3, "count");
+
+        // Per-token: winnerA won twice (5 + 7 weth, 10 + 15 liq).
+        assertEq(polVault.getTokenPOLValue(winnerA), 12 ether);
+        assertEq(polVault.tokenLiquidity(winnerA), 25);
+        assertEq(polVault.getTokenPOLValue(winnerB), 3 ether);
+        assertEq(polVault.tokenLiquidity(winnerB), 20);
     }
 
-    /// @notice Different seasons have independent flags — one season's deposit doesn't
-    ///         block another.
-    function test_Deposit_PerSeasonIndependent() public {
-        address vault1 = makeAddr("vault1");
-        address vault2 = makeAddr("vault2");
-        launcher.setVault(1, vault1);
-        launcher.setVault(2, vault2);
+    function test_GetSeasonList_ReturnsInDeployOrder() public {
+        vm.prank(polManager);
+        polVault.recordDeployment(7, winnerA, 1 ether, 1 ether, 1);
+        vm.prank(polManager);
+        polVault.recordDeployment(3, winnerB, 1 ether, 1 ether, 1);
+        vm.prank(polManager);
+        polVault.recordDeployment(11, winnerA, 1 ether, 1 ether, 1);
 
-        vm.prank(vault1);
-        polVault.deposit(1, address(winnerToken), 0);
-
-        vm.prank(vault2);
-        polVault.deposit(2, address(winnerToken), 0);
-
-        assertTrue(polVault.deposited(1));
-        assertTrue(polVault.deposited(2));
+        uint256[] memory list = polVault.getSeasonList();
+        assertEq(list.length, 3);
+        assertEq(list[0], 7);
+        assertEq(list[1], 3);
+        assertEq(list[2], 11);
     }
 
-    // ============================================================ withdraw
+    function test_GetLPPositions_ReturnsAllRecords() public {
+        vm.prank(polManager);
+        polVault.recordDeployment(1, winnerA, 5 ether, 100 ether, 10);
+        vm.prank(polManager);
+        polVault.recordDeployment(2, winnerB, 3 ether, 50 ether, 20);
 
-    function test_Withdraw_OnlyOwner() public {
-        winnerToken.mint(address(polVault), 50 ether);
-        vm.prank(attacker);
-        vm.expectRevert();
-        polVault.withdraw(address(winnerToken), attacker, 50 ether);
+        POLVault.Deployment[] memory positions = polVault.getLPPositions();
+        assertEq(positions.length, 2);
+        assertEq(positions[0].winner, winnerA);
+        assertEq(positions[0].wethDeployed, 5 ether);
+        assertEq(positions[1].winner, winnerB);
+        assertEq(positions[1].liquidity, 20);
     }
 
-    function test_Withdraw_OwnerCanRescue() public {
-        winnerToken.mint(address(polVault), 50 ether);
-        polVault.withdraw(address(winnerToken), newOwner, 50 ether);
-        assertEq(winnerToken.balanceOf(newOwner), 50 ether);
+    function test_DeploymentCountStartsZero() public view {
+        assertEq(polVault.deploymentCount(), 0);
+        assertEq(polVault.getTotalPOLValue(), 0);
+    }
+
+    // ============================================================ recorded() flag distinguishes
+    //                                                                zero-deployment from never-deployed
+
+    function test_RecordedFlagDistinguishesZeroFromUnset() public {
+        // Season 1: never recorded.
+        assertFalse(polVault.recorded(1));
+        // After zero-amount record (theoretical edge — POLManager guards against zero too,
+        // but the flag is what disambiguates accounting downstream).
+        vm.prank(polManager);
+        polVault.recordDeployment(1, winnerA, 0, 0, 0);
+        assertTrue(polVault.recorded(1));
+        // Re-recording the same season is rejected even with zero values.
+        vm.prank(polManager);
+        vm.expectRevert(POLVault.AlreadyRecorded.selector);
+        polVault.recordDeployment(1, winnerA, 1 ether, 100 ether, 5);
     }
 }

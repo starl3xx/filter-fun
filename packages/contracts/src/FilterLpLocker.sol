@@ -14,6 +14,7 @@ import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation
 import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
+import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 
 import {ILpLocker} from "./interfaces/ILpLocker.sol";
 
@@ -60,6 +61,12 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     uint8 internal constant ACTION_LIQUIDATE = 2;
     uint8 internal constant ACTION_BUY = 3;
     uint8 internal constant ACTION_SEED = 4;
+    uint8 internal constant ACTION_POL_ADD = 5;
+
+    /// @notice Salt distinguishing the POL position from the seed position. Both live in the
+    ///         same V4 pool with the same tick range — the salt is what separates them in
+    ///         position-key space. Seed uses bytes32(0); POL uses bytes32(uint256(1)).
+    bytes32 public constant POL_SALT = bytes32(uint256(1));
 
     // -------- Immutable wiring
     IPoolManager public immutable poolManager;
@@ -70,6 +77,9 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     address public immutable treasury;
     address public immutable mechanics;
     ICreatorFeeDistributor public immutable creatorFeeDistributor;
+    /// @notice Singleton POL orchestrator. Authorized to call `addPolLiquidity` so the POL
+    ///         system can deposit a permanent LP position alongside the seed.
+    address public immutable polManager;
     bool public immutable tokenIsCurrency0;
     PoolKey internal _key;
     int24 public immutable tickLower;
@@ -85,10 +95,12 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     );
     event LiquidatedToBase(uint256 baseRecovered, uint256 tokenStranded);
     event Bought(uint256 wethIn, uint256 tokensOut);
+    event PolLiquidityAdded(uint256 wethIn, uint256 wethUsed, uint256 tokensUsed, uint128 liquidity);
 
     error NotPoolManager();
     error NotVault();
     error NotFactory();
+    error NotPolManager();
     error AlreadyLiquidated();
     error AlreadySeeded();
     error InsufficientOutput();
@@ -115,6 +127,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         address treasury_,
         address mechanics_,
         ICreatorFeeDistributor creatorFeeDistributor_,
+        address polManager_,
         PoolKey memory key_,
         int24 tickLower_,
         int24 tickUpper_,
@@ -132,6 +145,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         treasury = treasury_;
         mechanics = mechanics_;
         creatorFeeDistributor = creatorFeeDistributor_;
+        polManager = polManager_;
         _key = key_;
         tickLower = tickLower_;
         tickUpper = tickUpper_;
@@ -189,6 +203,31 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         if (tokensOut < minOutTokens) revert InsufficientOutput();
     }
 
+    /// @notice Add a permanent POL position alongside the seed. Caller (POLManager) hands over
+    ///         `wethIn` WETH; we swap half to tokens through this same pool, then add liquidity
+    ///         at the current tick range with both legs. The resulting position is keyed by
+    ///         `POL_SALT` so it doesn't collide with the seed.
+    ///
+    ///         `minTokensFromSwap` is the slippage guard on the swap leg — the WETH→token swap
+    ///         is the only sandwich-able step (LP adds at a manipulated price still produce a
+    ///         valid position, just at a worse ratio, but the swap loss is real WETH gone). The
+    ///         oracle computes a TWAP-based floor and passes it through; we revert if the swap
+    ///         output undercuts it. `_doPolAdd` performs the check inside the unlock callback.
+    ///
+    ///         Returns the (wethUsed, tokensUsed, liquidity) actually deposited so POLManager
+    ///         can record it on POLVault. Any rounding dust on either side stays in this locker.
+    function addPolLiquidity(uint256 wethIn, uint256 minTokensFromSwap)
+        external
+        nonReentrant
+        returns (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity)
+    {
+        if (msg.sender != polManager) revert NotPolManager();
+        IERC20(baseAsset).safeTransferFrom(msg.sender, address(this), wethIn);
+        bytes memory data = abi.encode(ACTION_POL_ADD, wethIn, address(0), minTokensFromSwap);
+        bytes memory ret = poolManager.unlock(data);
+        (wethUsed, tokensUsed, liquidity) = abi.decode(ret, (uint256, uint256, uint128));
+    }
+
     // ============================================================ Unlock callback
 
     function unlockCallback(bytes calldata data) external override onlyManager returns (bytes memory) {
@@ -207,6 +246,9 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         } else if (action == ACTION_SEED) {
             _doSeed(uint128(amountIn));
             return "";
+        } else if (action == ACTION_POL_ADD) {
+            (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity) = _doPolAdd(amountIn, minOut);
+            return abi.encode(wethUsed, tokensUsed, liquidity);
         } else {
             revert UnknownAction();
         }
@@ -321,6 +363,90 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         tokensOut = uint256(uint128(outAmt));
         poolManager.take(outputCurrency, recipient, tokensOut);
         emit Bought(wethIn, tokensOut);
+    }
+
+    /// @dev Inside the unlock callback: swap half the WETH to tokens through this same pool,
+    ///      then add a position keyed by `POL_SALT` at the existing tick range with both legs.
+    ///      `minTokensFromSwap` is the oracle-supplied slippage floor — we revert if the swap
+    ///      undercuts it (sandwich defense for a publicly-visible `submitWinner` tx).
+    ///      Settles WETH (transfer in) and token (take from pool) deltas to zero. Any rounding
+    ///      dust on either side stays in this contract.
+    function _doPolAdd(uint256 wethIn, uint256 minTokensFromSwap)
+        internal
+        returns (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity)
+    {
+        // 1. Swap half the WETH to tokens through this same V4 pool.
+        uint256 swapAmount = wethIn / 2;
+        bool zeroForOne = !tokenIsCurrency0; // base → token
+        BalanceDelta swapDelta = poolManager.swap(
+            _key,
+            SwapParams({
+                zeroForOne: zeroForOne,
+                amountSpecified: -int256(swapAmount),
+                sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            }),
+            ""
+        );
+        int128 outAmt = zeroForOne ? swapDelta.amount1() : swapDelta.amount0();
+        require(outAmt > 0, "no output");
+        uint256 tokensReceived = uint256(uint128(outAmt));
+        if (tokensReceived < minTokensFromSwap) revert InsufficientOutput();
+
+        // 2. Compute liquidity for the LP add. Both halves of the WETH are now claimable —
+        //    swapAmount as input to the swap (we owe to pool) and wethIn - swapAmount that
+        //    will go into the position.
+        uint256 wethForLp = wethIn - swapAmount;
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(_key.toId());
+        uint160 sqrtLowerX96 = TickMath.getSqrtPriceAtTick(tickLower);
+        uint160 sqrtUpperX96 = TickMath.getSqrtPriceAtTick(tickUpper);
+        uint256 amount0 = tokenIsCurrency0 ? tokensReceived : wethForLp;
+        uint256 amount1 = tokenIsCurrency0 ? wethForLp : tokensReceived;
+        liquidity = LiquidityAmounts.getLiquidityForAmounts(
+            sqrtPriceX96, sqrtLowerX96, sqrtUpperX96, amount0, amount1
+        );
+
+        // 3. Add the position keyed by POL_SALT.
+        (BalanceDelta addDelta,) = poolManager.modifyLiquidity(
+            _key,
+            ModifyLiquidityParams({
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: int256(uint256(liquidity)),
+                salt: POL_SALT
+            }),
+            ""
+        );
+
+        // 4. Settle deltas. After swap+add the locker owes WETH (input + LP add) and may be
+        //    owed leftover token dust if the LP add consumed less than `tokensReceived`.
+        int128 a0 = swapDelta.amount0() + addDelta.amount0();
+        int128 a1 = swapDelta.amount1() + addDelta.amount1();
+        if (a0 < 0) _settleERC20(_key.currency0, uint256(uint128(-a0)));
+        if (a1 < 0) _settleERC20(_key.currency1, uint256(uint128(-a1)));
+        if (a0 > 0) poolManager.take(_key.currency0, address(this), uint256(uint128(a0)));
+        if (a1 > 0) poolManager.take(_key.currency1, address(this), uint256(uint128(a1)));
+
+        // The LP-add legs (positive = locker owes, taken from `addDelta` which has both negative
+        // for an add). For the indexer-friendly emit, report what the position consumed.
+        int128 add0 = addDelta.amount0();
+        int128 add1 = addDelta.amount1();
+        // Adds have negative deltas; |add| is what the position consumed.
+        uint256 added0 = add0 < 0 ? uint256(uint128(-add0)) : 0;
+        uint256 added1 = add1 < 0 ? uint256(uint128(-add1)) : 0;
+        if (tokenIsCurrency0) {
+            tokensUsed = added0;
+            wethUsed = added1;
+        } else {
+            tokensUsed = added1;
+            wethUsed = added0;
+        }
+        emit PolLiquidityAdded(wethIn, wethUsed, tokensUsed, liquidity);
+    }
+
+    /// @notice Liquidity of the POL position currently held by this locker.
+    function polLiquidity() external view returns (uint128) {
+        bytes32 positionId = keccak256(abi.encodePacked(address(this), tickLower, tickUpper, POL_SALT));
+        return poolManager.getPositionLiquidity(_key.toId(), positionId);
     }
 
     function _takeAndSplit(Currency currency, uint256 amount) internal {

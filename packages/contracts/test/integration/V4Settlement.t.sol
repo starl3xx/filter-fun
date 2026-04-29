@@ -16,9 +16,10 @@ import {FilterLauncher} from "../../src/FilterLauncher.sol";
 import {FilterFactory} from "../../src/FilterFactory.sol";
 import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
-import {SeasonVault, IBonusFunding} from "../../src/SeasonVault.sol";
+import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {POLVault} from "../../src/POLVault.sol";
+import {POLManager, IPOLVaultRecord} from "../../src/POLManager.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
@@ -34,6 +35,7 @@ contract V4SettlementTest is Test, Deployers {
     FilterHook hook;
     BonusDistributor bonus;
     POLVault polVault;
+    POLManager polManager;
     MockWETH weth;
 
     address owner = address(this);
@@ -53,15 +55,11 @@ contract V4SettlementTest is Test, Deployers {
         polVault = new POLVault(address(this));
 
         launcher = new FilterLauncher(
-            owner,
-            oracle,
-            treasury,
-            mechanics,
-            address(polVault),
-            IBonusFunding(address(bonus)),
-            address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
         );
-        polVault.setLauncher(address(launcher));
+        polManager = new POLManager(address(launcher), address(weth), IPOLVaultRecord(address(polVault)));
+        launcher.setPolManager(IPOLManager(address(polManager)));
+        polVault.setPolManager(address(polManager));
         polVault.transferOwnership(polVaultOwner);
 
         // Required hook flags: BEFORE_ADD_LIQUIDITY (1<<11) | BEFORE_REMOVE_LIQUIDITY (1<<9) = 0xA00.
@@ -73,7 +71,12 @@ contract V4SettlementTest is Test, Deployers {
         require(address(hook) == expectedHookAddr, "hook addr mismatch");
 
         factory = new FilterFactory(
-            manager, hook, address(launcher), address(weth), address(launcher.creatorFeeDistributor())
+            manager,
+            hook,
+            address(launcher),
+            address(weth),
+            address(launcher.creatorFeeDistributor()),
+            address(polManager)
         );
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));
@@ -137,8 +140,8 @@ contract V4SettlementTest is Test, Deployers {
         assertGt(vault.polReserveBalance(), 0, "POL acc");
         assertGt(weth.balanceOf(mechanics) - mechanicsBefore, 0, "mechanics paid mid-event");
         assertGt(weth.balanceOf(treasury) - treasuryBefore, 0, "treasury paid mid-event");
-        // POL stays as WETH — no winner-token purchase yet.
-        assertEq(IERC20(winnerToken).balanceOf(address(polVault)), 0, "POL not deployed yet");
+        // POL stays as WETH — no LP add yet.
+        assertEq(polVault.deploymentCount(), 0, "POL not deployed yet");
 
         // 5. Final settlement: oracle commits the winner. Vault drains rollover + bonus +
         //    POL reserves and buys winner tokens via the WINNER's locker (real V4 swap path).
@@ -157,10 +160,20 @@ contract V4SettlementTest is Test, Deployers {
         assertGt(vaultWinnerAfter - vaultWinnerBefore, 0, "rollover bought winner");
         assertEq(vault.rolloverWinnerTokens(), vaultWinnerAfter - vaultWinnerBefore);
 
-        // POL deployed: WETH reserve drained, winner tokens parked in POLVault.
+        // POL deployed: WETH reserve drained, deployment recorded on POLVault. The actual LP
+        // sits inside the winner's FilterLpLocker (POL_SALT-keyed position) — not in POLVault.
         assertEq(vault.polReserveBalance(), 0, "POL reserve drained");
-        assertGt(IERC20(winnerToken).balanceOf(address(polVault)), 0, "POL deployed to vault");
-        assertEq(polVault.seasonDeposit(1), vault.polDeployedTokens());
+        assertEq(polVault.deploymentCount(), 1, "POL recorded on vault");
+        POLVault.Deployment memory dep = polVault.deploymentOf(1);
+        assertEq(dep.winner, winnerToken);
+        assertEq(dep.wethDeployed, vault.polDeployedWeth());
+        assertEq(dep.tokensDeployed, vault.polDeployedTokens());
+        assertEq(dep.liquidity, vault.polDeployedLiquidity());
+        assertGt(dep.liquidity, 0, "real V4 liquidity minted");
+        // The winner's locker now holds two positions (seed + POL); the POL one's liquidity
+        // matches what we recorded.
+        FilterLpLocker winnerLocker = FilterLpLocker(launcher.lockerOf(1, winnerToken));
+        assertEq(winnerLocker.polLiquidity(), dep.liquidity, "locker holds POL position");
 
         // 6. Holder claims their full share. Single-leaf tree → empty proof.
         bytes32[] memory proof = new bytes32[](0);

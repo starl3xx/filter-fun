@@ -5,15 +5,15 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
-import {SeasonVault, IBonusFunding} from "../../src/SeasonVault.sol";
+import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
-import {POLVault} from "../../src/POLVault.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
 import {MockFilterFactory} from "../mocks/MockFilterFactory.sol";
 import {MockLpLocker} from "../mocks/MockLpLocker.sol";
+import {MockPOLManager} from "../mocks/MockPOLManager.sol";
 import {MiniMerkle} from "../utils/MiniMerkle.sol";
 
 /// @notice End-to-end happy path on mocks: protocol launches $FILTER, two users launch tokens,
@@ -23,14 +23,13 @@ contract WeeklyLifecycleTest is Test {
     FilterLauncher launcher;
     MockFilterFactory factory;
     BonusDistributor bonus;
-    POLVault polVault;
+    MockPOLManager polManager;
     MockWETH weth;
 
     address owner = address(this);
     address oracle = address(0xCAFE);
     address treasury = address(0xD000);
     address mechanics = address(0xE000);
-    address polVaultOwner = address(0xF111);
 
     address creator1 = address(0xC1);
     address creator2 = address(0xC2);
@@ -40,18 +39,16 @@ contract WeeklyLifecycleTest is Test {
     function setUp() public {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
-        polVault = new POLVault(address(this));
+        // POLVault is deliberately omitted from this end-to-end mock test: the real POLVault
+        // is exercised by the V4 integration tests (where the locker actually mints LP). Here
+        // we use MockPOLManager which reports `(weth, tokens, liquidity)` synthetically; the
+        // SeasonVault → POLManager seam is what this test pins.
+        polManager = new MockPOLManager(weth);
+        polManager.setMintRate(100_000e18); // matches MockLpLocker default; see below
         launcher = new FilterLauncher(
-            owner,
-            oracle,
-            treasury,
-            mechanics,
-            address(polVault),
-            IBonusFunding(address(bonus)),
-            address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
         );
-        polVault.setLauncher(address(launcher));
-        polVault.transferOwnership(polVaultOwner);
+        launcher.setPolManager(IPOLManager(address(polManager)));
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
     }
@@ -115,8 +112,8 @@ contract WeeklyLifecycleTest is Test {
         assertEq(weth.balanceOf(mechanics), 0.243_75 ether, "mechanics paid mid-week");
         assertEq(weth.balanceOf(treasury), 0.243_75 ether, "treasury paid mid-week");
         assertEq(vault.polReserveBalance(), 0.243_75 ether, "POL accumulated");
-        // POL is held as WETH — no winner-token purchases yet.
-        assertEq(IERC20(filterToken).balanceOf(address(polVault)), 0, "POL not deployed mid-week");
+        // POL is held as WETH — no LP add yet (POLManager untouched until submitWinner).
+        assertEq(polManager.callCount(), 0, "POLManager not invoked mid-week");
 
         // Filter event 2 (final cut): tokenA. Proceeds 1.5 WETH:
         //   bounty 2.5%   = 0.0375 (cum 0.1)
@@ -151,10 +148,17 @@ contract WeeklyLifecycleTest is Test {
         // Rollover bought 175_500e18 winner tokens, held by vault.
         assertEq(IERC20(filterToken).balanceOf(address(vault)), 175_500e18);
 
-        // POL deployed: 0.39 WETH × 100_000 = 39_000e18 winner tokens, parked in POLVault.
-        assertEq(IERC20(filterToken).balanceOf(address(polVault)), 39_000e18);
-        assertEq(polVault.seasonDeposit(sid), 39_000e18);
-        assertEq(polVault.seasonWinner(sid), filterToken);
+        // POL deployed: 0.39 WETH committed via the (mock) POLManager. The mock reports
+        // tokensDeployed at the configured 100_000-tokens-per-WETH mintRate even though no
+        // real LP is added — the SeasonVault → POLManager seam is what we're exercising here.
+        assertEq(polManager.callCount(), 1, "polManager invoked at submitWinner");
+        assertEq(polManager.lastSender(), address(vault));
+        assertEq(polManager.lastSeasonId(), sid);
+        assertEq(polManager.lastWinner(), filterToken);
+        assertEq(polManager.lastWethAmount(), 0.39 ether);
+        assertEq(polManager.lastTokens(), 39_000e18);
+        assertEq(vault.polDeployedWeth(), 0.39 ether);
+        assertEq(vault.polDeployedTokens(), 39_000e18);
 
         // Champion bounty (0.1 WETH) paid to filterToken's creator. The launcher records
         // creator = msg.sender at launch time — for `launchProtocolToken` that's `address(this)`.

@@ -10,7 +10,8 @@ import {FilterHook} from "../src/FilterHook.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
 import {TreasuryTimelock} from "../src/TreasuryTimelock.sol";
 import {POLVault} from "../src/POLVault.sol";
-import {IBonusFunding} from "../src/SeasonVault.sol";
+import {POLManager, IPOLVaultRecord} from "../src/POLManager.sol";
+import {IBonusFunding, IPOLManager} from "../src/SeasonVault.sol";
 import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 
 /// @notice Bootstraps filter.fun on Base. Reads addresses + multisig signers from env.
@@ -57,46 +58,51 @@ contract DeployGenesis is Script {
         BonusDistributor bonus = new BonusDistributor(deployer, weth, oracle);
         console2.log("BonusDistributor:", address(bonus));
 
-        // 3. POLVault — singleton, holds protocol-owned exposure across all seasons. Deployed
-        //    with the deployer as initial owner so we can call `setLauncher` before handing
-        //    ownership to the multisig. The multisig runs the LP-add migration in a future
-        //    iteration.
+        // 3. POLVault — singleton accounting layer for protocol-owned LP positions. Deployed
+        //    with the deployer as initial owner so we can call `setPolManager` before handing
+        //    ownership to the multisig.
         POLVault polVault = new POLVault(deployer);
         console2.log("POLVault:", address(polVault));
 
-        // 4. FilterLauncher.
+        // 4. FilterLauncher. POLManager is wired post-construction (chicken-and-egg: POLManager
+        //    wants the launcher's address).
         FilterLauncher launcher = new FilterLauncher(
-            deployer,
-            oracle,
-            address(treasury),
-            mechanics,
-            address(polVault),
-            IBonusFunding(address(bonus)),
-            weth
+            deployer, oracle, address(treasury), mechanics, IBonusFunding(address(bonus)), weth
         );
         console2.log("FilterLauncher:", address(launcher));
 
-        // 5. Wire launcher into POLVault (one-shot; required for vault auth on deposit).
-        polVault.setLauncher(address(launcher));
+        // 5. POLManager — orchestrator that turns the season's POL WETH into a permanent V4 LP
+        //    position on the winner pool, then records on POLVault for indexer/UI visibility.
+        POLManager polManager = new POLManager(address(launcher), weth, IPOLVaultRecord(address(polVault)));
+        console2.log("POLManager:", address(polManager));
 
-        // 6. FilterHook (deterministic via CREATE2 salt to satisfy hook flag bits).
+        // 6. Wire POLManager into the launcher and POLVault (both one-shot setters).
+        launcher.setPolManager(IPOLManager(address(polManager)));
+        polVault.setPolManager(address(polManager));
+
+        // 7. FilterHook (deterministic via CREATE2 salt to satisfy hook flag bits).
         //    Constructor takes no args — factory is wired post-construction via initialize().
         FilterHook hook = new FilterHook{salt: hookSalt}();
         console2.log("FilterHook:", address(hook));
 
-        // 7. FilterFactory wires hook + manager + launcher + weth.
+        // 8. FilterFactory wires hook + manager + launcher + weth + polManager.
         FilterFactory factory = new FilterFactory(
-            IPoolManager(pmAddr), hook, address(launcher), weth, address(launcher.creatorFeeDistributor())
+            IPoolManager(pmAddr),
+            hook,
+            address(launcher),
+            weth,
+            address(launcher.creatorFeeDistributor()),
+            address(polManager)
         );
         console2.log("FilterFactory:", address(factory));
 
-        // 8. Initialize hook with factory address (one-shot).
+        // 9. Initialize hook with factory address (one-shot).
         hook.initialize(address(factory));
 
-        // 9. Wire factory into launcher.
+        // 10. Wire factory into launcher.
         launcher.setFactory(IFilterFactory(address(factory)));
 
-        // 10. Hand POLVault ownership to the multisig (Ownable2Step — multisig must accept).
+        // 11. Hand POLVault ownership to the multisig (Ownable2Step — multisig must accept).
         polVault.transferOwnership(polVaultOwner);
 
         // 11. Open Season 1.

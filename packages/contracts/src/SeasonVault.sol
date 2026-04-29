@@ -13,8 +13,10 @@ interface IBonusFunding {
     function fundBonus(uint256 seasonId, address winnerToken, uint256 unlockTime, uint256 amount) external;
 }
 
-interface IPOLVault {
-    function deposit(uint256 seasonId, address winnerToken, uint256 amount) external;
+interface IPOLManager {
+    function deployPOL(uint256 seasonId, address winner, uint256 wethAmount, uint256 minTokensFromSwap)
+        external
+        returns (uint256 wethUsed, uint256 tokensUsed, uint128 liquidity);
 }
 
 interface ILauncherView {
@@ -80,7 +82,10 @@ contract SeasonVault is ReentrancyGuard {
     address public immutable weth;
     address public immutable treasury;
     address public immutable mechanics;
-    address public immutable polVault;
+    /// @notice POL orchestrator. Receives the season's accumulated POL WETH at `submitWinner`
+    ///         and turns it into a permanent V4 LP position on the winner pool. Records the
+    ///         deployment on the singleton POLVault for indexer + UI visibility.
+    IPOLManager public immutable polManager;
     IBonusFunding public immutable bonusDistributor;
     SeasonPOLReserve public immutable polReserve;
     uint256 public immutable bonusUnlockDelay;
@@ -126,6 +131,7 @@ contract SeasonVault is ReentrancyGuard {
     uint256 public bonusFunded;
     uint256 public polDeployedWeth;
     uint256 public polDeployedTokens;
+    uint128 public polDeployedLiquidity;
     uint256 public claimedRolloverShares;
     mapping(address => bool) public claimed;
 
@@ -186,7 +192,7 @@ contract SeasonVault is ReentrancyGuard {
         address oracle_,
         address treasury_,
         address mechanics_,
-        address polVault_,
+        IPOLManager polManager_,
         IBonusFunding bonusDistributor_,
         uint256 bonusUnlockDelay_,
         ICreatorRegistry creatorRegistry_,
@@ -198,7 +204,7 @@ contract SeasonVault is ReentrancyGuard {
         oracle = oracle_;
         treasury = treasury_;
         mechanics = mechanics_;
-        polVault = polVault_;
+        polManager = polManager_;
         bonusDistributor = bonusDistributor_;
         bonusUnlockDelay = bonusUnlockDelay_;
         creatorRegistry = creatorRegistry_;
@@ -360,18 +366,20 @@ contract SeasonVault is ReentrancyGuard {
                 .buyTokenWithWETH(rolloverAmount, address(this), minWinnerTokensRollover);
         }
 
-        // 3. POL → withdraw, buy winner tokens, deposit into POLVault.
+        // 3. POL → withdraw WETH, hand to POLManager which adds a permanent V4 LP position
+        //    on the winner pool (swap-half + addLiquidity owned by the locker). The
+        //    `minWinnerTokensPol` floor is the oracle's TWAP-based slippage guard on the
+        //    locker's swap leg — without it, this publicly-visible tx is sandwich-bait.
         uint256 polAmount = polReserve.withdrawAll();
         uint256 polTokensOut = 0;
+        uint128 polLiq = 0;
         if (polAmount > 0) {
-            IERC20(weth).forceApprove(winnerLocker, polAmount);
-            polTokensOut =
-                ILpLocker(winnerLocker).buyTokenWithWETH(polAmount, address(this), minWinnerTokensPol);
-            IERC20(winner_).forceApprove(polVault, polTokensOut);
-            IPOLVault(polVault).deposit(seasonId, winner_, polTokensOut);
+            IERC20(weth).forceApprove(address(polManager), polAmount);
+            (, polTokensOut, polLiq) = polManager.deployPOL(seasonId, winner_, polAmount, minWinnerTokensPol);
         }
         polDeployedWeth = polAmount;
         polDeployedTokens = polTokensOut;
+        polDeployedLiquidity = polLiq;
 
         // 4. Trading-fee residue (whatever WETH is still here that isn't claim-bound) → treasury.
         //    `winner` tokens are claim-bound; remaining WETH is fee residue.
