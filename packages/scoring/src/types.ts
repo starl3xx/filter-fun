@@ -80,12 +80,14 @@ export const PRE_FILTER_WEIGHTS: ScoringWeights = {
 /// Finals weights: emphasize conviction — sticky liquidity and retention are
 /// higher; raw velocity matters less (the cohort is already small + filtered).
 /// Late surges still count via momentum, but coasting on staked liquidity +
-/// loyal holders is rewarded.
+/// loyal holders is rewarded. Conviction (sticky + retention = 0.50) genuinely
+/// outweighs discovery (velocity + effective buyers = 0.40); a 30/15 vs 25/20
+/// split was equal at 0.45/0.45 and only "won" via floating-point luck.
 export const FINALS_WEIGHTS: ScoringWeights = {
-  velocity: 0.30,
+  velocity: 0.25,
   effectiveBuyers: 0.15,
   stickyLiquidity: 0.25,
-  retention: 0.20,
+  retention: 0.25,
   momentum: 0.10,
 } as const;
 

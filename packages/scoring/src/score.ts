@@ -130,11 +130,19 @@ function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): num
   const floor = bigintToFloat(config.walletCapFloorWeth);
   const churnWindow = BigInt(config.churnWindowSec);
 
-  // Latest buy timestamp per wallet — used to detect churn on sells.
-  const latestBuyByWallet = new Map<Address, bigint>();
+  // All buy timestamps per wallet, sorted ascending. We can't store only the
+  // latest: an attacker who buys, dumps within the churn window, then places
+  // a tiny later buy would shift "latest" past the dump and bypass the
+  // discount. Instead each sell looks up the latest buy that happened
+  // *before or at* the sell time — a later buy can't reset the check.
+  const buyTimestampsByWallet = new Map<Address, bigint[]>();
   for (const b of t.buys) {
-    const prev = latestBuyByWallet.get(b.wallet);
-    if (prev === undefined || b.ts > prev) latestBuyByWallet.set(b.wallet, b.ts);
+    const arr = buyTimestampsByWallet.get(b.wallet);
+    if (arr) arr.push(b.ts);
+    else buyTimestampsByWallet.set(b.wallet, [b.ts]);
+  }
+  for (const arr of buyTimestampsByWallet.values()) {
+    arr.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
   const buyDecayedByWallet = new Map<Address, number>();
@@ -152,8 +160,17 @@ function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): num
     if (age < 0) continue;
     const decay = Math.pow(0.5, age / halfLife);
 
-    const lastBuy = latestBuyByWallet.get(sell.wallet);
-    const churn = lastBuy !== undefined && sell.ts >= lastBuy && sell.ts - lastBuy <= churnWindow;
+    // Latest same-wallet buy at or before this sell.
+    const arr = buyTimestampsByWallet.get(sell.wallet);
+    let lastBuyBeforeSell: bigint | null = null;
+    if (arr) {
+      for (const ts of arr) {
+        if (ts > sell.ts) break;
+        lastBuyBeforeSell = ts;
+      }
+    }
+    const churn =
+      lastBuyBeforeSell !== null && sell.ts - lastBuyBeforeSell <= churnWindow;
     const churnBoost = churn ? 2 : 1;
 
     const amt = bigintToFloat(sell.amountWeth) * decay * churnBoost;

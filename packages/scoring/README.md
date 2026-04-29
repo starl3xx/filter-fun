@@ -88,11 +88,13 @@ All five components are normalized to `[0, 1]` across the cohort. Final HP is al
 
 | Component         | Pre-filter | Finals | Default |
 | ----------------- | ----------:| ------:| -------:|
-| Velocity          | 40%        | 30%    | 35%     |
+| Velocity          | 40%        | 25%    | 35%     |
 | Effective buyers  | 25%        | 15%    | 20%     |
 | Sticky liquidity  | 15%        | 25%    | 20%     |
-| Retention         | 10%        | 20%    | 15%     |
+| Retention         | 10%        | 25%    | 15%     |
 | Momentum          | 10%        | 10%    | 10%     |
+
+Pre-filter rewards discovery + breadth. In finals, conviction (sticky + retention = 50%) genuinely outweighs discovery (velocity + buyers = 40%) so a token can't coast through finals on raw volume alone.
 
 Pre-filter rewards discovery + breadth; finals rewards conviction + commitment. Pass `config.phase` to switch; pass `config.weights` to override entirely (for experiments).
 

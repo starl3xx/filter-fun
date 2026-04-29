@@ -229,6 +229,38 @@ describe("score (v2)", () => {
     expect(ret).toBeCloseTo(0.8, 5);
   });
 
+  it("a dust buy after a pump-and-dump does not bypass churn detection", () => {
+    // Attacker pattern: big buy → dump within churn window → tiny later buy
+    // to "reset" the latest-buy pointer. The tiny later buy must NOT cancel
+    // the churn discount on the earlier dump.
+    const honest = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys: [{wallet: wallet(1), ts: NOW - 1000n, amountWeth: WETH}],
+      currentHolders: new Set([wallet(1)]),
+      holdersAtRetentionAnchor: new Set([wallet(1)]),
+    });
+    const attacker = makeStats({
+      token: tokenB,
+      volumeByWallet: new Map([[wallet(2), WETH + 1n]]),
+      buys: [
+        // Big initial buy
+        {wallet: wallet(2), ts: NOW - 1000n, amountWeth: WETH},
+        // Dust buy *after* the dump — would shift the latest-buy pointer
+        // forward and trick a naive churn check.
+        {wallet: wallet(2), ts: NOW - 500n, amountWeth: 1n},
+      ],
+      // Dump 90% of the initial buy 60s after buying — inside churn window.
+      sells: [{wallet: wallet(2), ts: NOW - 940n, amountWeth: (WETH * 9n) / 10n}],
+      currentHolders: new Set([wallet(2)]),
+      holdersAtRetentionAnchor: new Set([wallet(2)]),
+    });
+
+    const ranked = score([honest, attacker], NOW);
+    expect(ranked[0]?.token).toBe(tokenA);
+    expect(ranked[1]?.components.velocity.score).toBeLessThan(0.5);
+  });
+
   it("net velocity discounts a wallet that buys then sells inside the churn window", () => {
     // Both tokens have one wallet buying 1 WETH. tokenA holds. tokenB sells
     // most of it inside the churn window — its velocity should crater.
