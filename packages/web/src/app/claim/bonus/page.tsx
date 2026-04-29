@@ -2,7 +2,7 @@
 
 import type {Address, Hex} from "viem";
 
-import {claimBonusCall} from "@filter-fun/scheduler";
+import {BonusDistributorAbi, claimBonusCall} from "@filter-fun/scheduler";
 
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
 
@@ -39,6 +39,12 @@ export default function ClaimBonusPage() {
       jsonPlaceholder='{"seasonId": "1", "distributor": "0x…", "amount": "1000000000000000000", "proof": ["0x…"]}'
       parseJson={parseBonus}
       buildCall={(c) => claimBonusCall(c.contract, c.seasonId, c.numeric, c.proof)}
+      buildClaimedRead={(c, user) => ({
+        address: c.contract,
+        abi: BonusDistributorAbi,
+        functionName: "claimed",
+        args: [c.seasonId, user],
+      })}
     />
   );
 }

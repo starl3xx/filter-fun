@@ -48,4 +48,11 @@ export const SeasonVaultAbi = [
     ],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "claimed",
+    stateMutability: "view",
+    inputs: [{name: "user", type: "address"}],
+    outputs: [{type: "bool"}],
+  },
 ] as const;

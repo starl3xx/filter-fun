@@ -1,9 +1,9 @@
 "use client";
 
-import {useState, type ReactNode} from "react";
+import {useEffect, useState, type ReactNode} from "react";
 import type {Address, Hex} from "viem";
 import {isAddress} from "viem";
-import {useAccount, useWaitForTransactionReceipt, useWriteContract} from "wagmi";
+import {useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract} from "wagmi";
 
 import type {ContractCallShape} from "@filter-fun/scheduler";
 
@@ -33,16 +33,44 @@ export interface ClaimFormProps {
   parseJson: (raw: string) => ParsedClaim;
   /// Builds the contract call. Wired to scheduler's call builders so we share the ABI.
   buildCall: (claim: ParsedClaim) => ContractCallShape;
+  /// Builds the `claimed(...)` read call. Per-flow because rollover keys claims on
+  /// `address` only (one vault per season) while bonus keys on `(seasonId, address)`.
+  buildClaimedRead: (claim: ParsedClaim, user: Address) => ContractCallShape;
 }
 
-export function ClaimForm({title, subtitle, numericLabel, jsonPlaceholder, parseJson, buildCall}: ClaimFormProps) {
-  const {isConnected} = useAccount();
+export function ClaimForm({
+  title,
+  subtitle,
+  numericLabel,
+  jsonPlaceholder,
+  parseJson,
+  buildCall,
+  buildClaimedRead,
+}: ClaimFormProps) {
+  const {address, isConnected} = useAccount();
   const [raw, setRaw] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [parsed, setParsed] = useState<ParsedClaim | null>(null);
 
   const {writeContract, data: txHash, isPending: isSubmitting, error: submitError, reset} = useWriteContract();
   const {isLoading: isMining, isSuccess: isMined} = useWaitForTransactionReceipt({hash: txHash});
+
+  // Read `claimed[user]` once we have both a parsed payload and a connected wallet.
+  const claimedCall = parsed && address ? buildClaimedRead(parsed, address) : null;
+  const {data: alreadyClaimed, refetch: refetchClaimed} = useReadContract({
+    address: claimedCall?.address,
+    abi: claimedCall?.abi as never,
+    functionName: claimedCall?.functionName,
+    args: claimedCall?.args as never,
+    query: {enabled: claimedCall !== null},
+  });
+
+  // After the tx mines, refetch so the badge flips from "eligible" → "already claimed"
+  // without a manual refresh. NOT in writeContract's onSuccess — that fires when the
+  // hash is broadcast to mempool, before any state change has actually landed on-chain.
+  useEffect(() => {
+    if (isMined) void refetchClaimed();
+  }, [isMined, refetchClaimed]);
 
   function handleParse() {
     setParseError(null);
@@ -69,6 +97,8 @@ export function ClaimForm({title, subtitle, numericLabel, jsonPlaceholder, parse
       args: call.args as never,
     });
   }
+
+  const isClaimed = alreadyClaimed === true || isMined;
 
   return (
     <main>
@@ -106,6 +136,11 @@ export function ClaimForm({title, subtitle, numericLabel, jsonPlaceholder, parse
           </Row>
           <Row k={numericLabel}>{parsed.numeric.toString()}</Row>
           <Row k="Proof depth">{parsed.proof.length}</Row>
+          {isConnected && (
+            <Row k="Status">
+              <StatusBadge claimed={isClaimed} unknown={alreadyClaimed === undefined && !isMined} />
+            </Row>
+          )}
         </Section>
       )}
 
@@ -115,8 +150,8 @@ export function ClaimForm({title, subtitle, numericLabel, jsonPlaceholder, parse
             <p style={{color: "var(--muted)"}}>Connect a wallet to claim.</p>
           ) : (
             <>
-              <button onClick={handleClaim} disabled={isSubmitting || isMining || isMined}>
-                {isMined ? "Claimed" : isMining ? "Confirming…" : isSubmitting ? "Submitting…" : "Claim"}
+              <button onClick={handleClaim} disabled={isSubmitting || isMining || isClaimed}>
+                {isClaimed ? "Already claimed" : isMining ? "Confirming…" : isSubmitting ? "Submitting…" : "Claim"}
               </button>
               {txHash && (
                 <p style={{marginTop: 12, color: "var(--muted)", fontSize: 14}}>
@@ -130,6 +165,12 @@ export function ClaimForm({title, subtitle, numericLabel, jsonPlaceholder, parse
       )}
     </main>
   );
+}
+
+function StatusBadge({claimed, unknown}: {claimed: boolean; unknown: boolean}) {
+  if (unknown) return <span style={{color: "var(--muted)"}}>checking…</span>;
+  if (claimed) return <span style={{color: "var(--muted)"}}>already claimed</span>;
+  return <span style={{color: "var(--fg)"}}>eligible</span>;
 }
 
 function Section({label, children}: {label: string; children: ReactNode}) {
