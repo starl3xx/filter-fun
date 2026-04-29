@@ -121,7 +121,9 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         bytes32 positionSalt_
     ) {
         // Invariant: BPS slices must sum to FEE_TOTAL_BPS so the WETH split is exact.
-        require(PRIZE_FEE_BPS + TREASURY_FEE_BPS + MECHANICS_FEE_BPS + CREATOR_FEE_BPS == FEE_TOTAL_BPS, "fee bps");
+        require(
+            PRIZE_FEE_BPS + TREASURY_FEE_BPS + MECHANICS_FEE_BPS + CREATOR_FEE_BPS == FEE_TOTAL_BPS, "fee bps"
+        );
         poolManager = poolManager_;
         factory = factory_;
         vault = vault_;
