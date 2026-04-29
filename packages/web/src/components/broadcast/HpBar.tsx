@@ -79,8 +79,7 @@ export function HpBar({token, below, finalist}: Props) {
         ref={buttonRef}
         type="button"
         aria-describedby={tooltipId}
-        aria-label={`${token.ticker} HP ${fmtNum(token.score)}, click for breakdown`}
-        onClick={() => setOpen((o) => !o)}
+        aria-label={`${token.ticker} HP ${fmtNum(token.score)}, hover or focus for breakdown`}
         style={{
           all: "unset",
           display: "block",

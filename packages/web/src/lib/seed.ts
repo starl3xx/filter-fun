@@ -66,21 +66,48 @@ export const SEED_TOKENS: SeedToken[] = [
   {ticker: "GHOST", name: "Ghost", tag: null, score: 2810, price: 0.00018, supply: 1_000_000_000, ch: -41.8, holders: 92, liq: 1800, status: "risk", mix: [0.4, 0.3, 0.5, 0.5, 0.5]},
 ];
 
-// Build the per-token component breakdown shown in the HP tooltip. `score` is
-// the simulated 0..10000 HP value; we treat it as the cohort-normalized HP and
-// distribute it across components weighted by the token's `mix`. Clamps to
-// [0, 1] so an aggressive mix can max a single component without warping the
-// overall HP (the bar still reads `score`).
+// Build the per-token component breakdown shown in the HP tooltip. `score`
+// is the simulated 0..10000 HP value; the components are biased per `mix`
+// and chosen so `Σ weight_i × component_i ≡ hp` — matching the engine
+// identity so the tooltip's total exactly equals the bar's HP. Algorithm:
+// distribute hp by weighted-normalized mix, then water-fill (clamp +
+// redistribute the residual to free components proportionally to weight)
+// until every value is in [0, 1] and the weighted sum hits hp.
 export function buildComponents(score: number, mix: ComponentMix): HpComponents {
   const hp = Math.max(0, Math.min(1, score / 10000));
   const w = PRE_FILTER_WEIGHTS;
-  const cmp = (raw: number) => Math.max(0, Math.min(1, raw));
+  const wArr = [w.velocity, w.effectiveBuyers, w.stickyLiquidity, w.retention, w.momentum];
+
+  const k = wArr.reduce((s, ww, i) => s + ww * mix[i]!, 0) || 1;
+  const c = mix.map((m) => (hp * m) / k);
+
+  // Water-fill: clamp out-of-range values, then redistribute the residual
+  // (= hp − current weighted sum) across unclamped components proportionally
+  // to their weight. Converges in ≤4 iters for the simulated cohort; the
+  // 12-iter cap is just a safety net for any future mix vector.
+  for (let iter = 0; iter < 12; iter++) {
+    let weighted = 0;
+    let freeWeight = 0;
+    const isFree: boolean[] = new Array(5);
+    for (let i = 0; i < 5; i++) {
+      const clamped = Math.max(0, Math.min(1, c[i]!));
+      c[i] = clamped;
+      weighted += wArr[i]! * clamped;
+      isFree[i] = clamped > 0 && clamped < 1;
+      if (isFree[i]) freeWeight += wArr[i]!;
+    }
+    const residual = hp - weighted;
+    if (Math.abs(residual) < 1e-9 || freeWeight === 0) break;
+    const bump = residual / freeWeight;
+    for (let i = 0; i < 5; i++) if (isFree[i]) c[i] = c[i]! + bump;
+  }
+
   return {
-    velocity:        {score: cmp(hp * mix[0]), weight: w.velocity,        label: COMPONENT_LABELS.velocity},
-    effectiveBuyers: {score: cmp(hp * mix[1]), weight: w.effectiveBuyers, label: COMPONENT_LABELS.effectiveBuyers},
-    stickyLiquidity: {score: cmp(hp * mix[2]), weight: w.stickyLiquidity, label: COMPONENT_LABELS.stickyLiquidity},
-    retention:       {score: cmp(hp * mix[3]), weight: w.retention,       label: COMPONENT_LABELS.retention},
-    momentum:        {score: cmp(hp * mix[4]), weight: w.momentum,        label: COMPONENT_LABELS.momentum},
+    velocity:        {score: c[0]!, weight: w.velocity,        label: COMPONENT_LABELS.velocity},
+    effectiveBuyers: {score: c[1]!, weight: w.effectiveBuyers, label: COMPONENT_LABELS.effectiveBuyers},
+    stickyLiquidity: {score: c[2]!, weight: w.stickyLiquidity, label: COMPONENT_LABELS.stickyLiquidity},
+    retention:       {score: c[3]!, weight: w.retention,       label: COMPONENT_LABELS.retention},
+    momentum:        {score: c[4]!, weight: w.momentum,        label: COMPONENT_LABELS.momentum},
   };
 }
 
