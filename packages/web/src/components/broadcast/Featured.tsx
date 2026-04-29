@@ -80,8 +80,9 @@ export function Featured({token}: Props) {
             fontFamily: F.mono,
             fontVariantNumeric: "tabular-nums",
           }}
+          title={`Price ${fmtPrice(token.price)} · supply ${fmtNum(token.supply)}`}
         >
-          {fmtPrice(token.price)}
+          {fmtUSD(token.mcap)}
         </div>
         <div
           style={{
@@ -95,6 +96,9 @@ export function Featured({token}: Props) {
           }}
         >
           {token.ch >= 0 ? "▲" : "▼"} {Math.abs(token.ch).toFixed(2)}%
+        </div>
+        <div style={{fontSize: 11, fontFamily: F.mono, color: C.dim, marginLeft: "auto"}}>
+          {fmtPrice(token.price)} · {fmtNum(token.supply)} supply
         </div>
       </div>
       <div style={{marginTop: 10, position: "relative"}}>

@@ -1,4 +1,4 @@
-import {fmtCountdown, fmtNum, fmtPrice} from "@/lib/format";
+import {fmtCountdown, fmtNum, fmtUSD} from "@/lib/format";
 import {type Token} from "@/lib/seed";
 import {C, F, tickerColor} from "@/lib/tokens";
 
@@ -104,7 +104,7 @@ export function Leaderboard({survive, filtered, filterIn}: Props) {
         <div>#</div>
         <div></div>
         <div>Token</div>
-        <div style={{textAlign: "right"}}>Price</div>
+        <div style={{textAlign: "right"}}>Mcap</div>
         <div style={{textAlign: "right"}}>24h</div>
         <div>HP / Score</div>
         <div style={{textAlign: "right"}}>Trend</div>
@@ -226,8 +226,9 @@ function Row({token, rank, below}: {token: Token; rank: number; below?: boolean}
           fontVariantNumeric: "tabular-nums",
           fontWeight: 600,
         }}
+        title={`Price ${token.price.toPrecision(4)} · supply ${fmtNum(token.supply)}`}
       >
-        {fmtPrice(token.price)}
+        {fmtUSD(token.mcap)}
       </div>
       <div
         style={{

@@ -1,6 +1,6 @@
 "use client";
 
-import {fmtPrice} from "@/lib/format";
+import {fmtUSD} from "@/lib/format";
 import {type Token} from "@/lib/seed";
 import {C, F, tickerColor} from "@/lib/tokens";
 
@@ -68,7 +68,7 @@ export function TickerTape({tokens}: Props) {
               }}
             />
             <span style={{color: C.text, fontWeight: 800}}>${t.ticker}</span>
-            <span>{fmtPrice(t.price)}</span>
+            <span>{fmtUSD(t.mcap)}</span>
             <span style={{color: t.ch >= 0 ? C.green : C.red, fontWeight: 700}}>
               {t.ch >= 0 ? "▲" : "▼"} {Math.abs(t.ch).toFixed(2)}%
             </span>

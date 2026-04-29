@@ -12,6 +12,7 @@ export function useLiveTokens(): Token[] {
   const [tokens, setTokens] = useState<Token[]>(() =>
     SEED_TOKENS.map((t, i) => ({
       ...t,
+      mcap: t.price * t.supply,
       spark: makeSparkline(t.ticker, 32, t.ch / 30),
       rank: i + 1,
     })),
@@ -27,7 +28,7 @@ export function useLiveTokens(): Token[] {
           const newScore = Math.max(0, t.score + Math.round((Math.random() - 0.45) * 18));
           const last = t.spark[t.spark.length - 1] ?? 0.5;
           const newSpark = [...t.spark.slice(1), Math.max(0.05, Math.min(0.95, last + (Math.random() - 0.5) * 0.14))];
-          return {...t, price: newPrice, ch: newCh, score: newScore, spark: newSpark};
+          return {...t, price: newPrice, mcap: newPrice * t.supply, ch: newCh, score: newScore, spark: newSpark};
         });
         next.sort((a, b) => b.score - a.score);
         return next.map((t, i) => {
