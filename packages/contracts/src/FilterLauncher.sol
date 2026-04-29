@@ -29,7 +29,6 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     error WrongPhase();
     error LaunchCapReached();
     error LaunchWindowClosed();
-    error LaunchWindowOpen();
     error InsufficientPayment();
     error DuplicateSymbol();
     error NotOracle();
@@ -397,13 +396,17 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
 
         for (uint256 i = 0; i < survivors.length; ++i) {
             address t = survivors[i];
+            TokenEntry storage entry = _entry[seasonId][t];
+            // Token must exist in this season AND have come through the public-launch path.
+            // Protocol launches don't carry a stake. Using `entry.token` as the existence
+            // sentinel keeps this resolution sound even if `baseLaunchCost` is set to zero.
+            if (entry.token == address(0) || entry.isProtocolLaunched) revert UnknownToken();
             LaunchInfo storage info = _launchInfo[seasonId][t];
-            if (info.costPaid == 0) revert UnknownToken();
             if (info.refunded || info.filteredEarly) revert AlreadyResolved();
             uint256 amount = info.stakeAmount;
             info.refunded = true;
             info.stakeAmount = 0;
-            address creator = _entry[seasonId][t].creator;
+            address creator = entry.creator;
             if (amount > 0) {
                 (bool ok,) = creator.call{value: amount}("");
                 if (!ok) revert RefundFailed();
@@ -413,13 +416,14 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
 
         for (uint256 i = 0; i < forfeited.length; ++i) {
             address t = forfeited[i];
+            TokenEntry storage entry = _entry[seasonId][t];
+            if (entry.token == address(0) || entry.isProtocolLaunched) revert UnknownToken();
             LaunchInfo storage info = _launchInfo[seasonId][t];
-            if (info.costPaid == 0) revert UnknownToken();
             if (info.refunded || info.filteredEarly) revert AlreadyResolved();
             uint256 amount = info.stakeAmount;
             info.filteredEarly = true;
             info.stakeAmount = 0;
-            address creator = _entry[seasonId][t].creator;
+            address creator = entry.creator;
             if (amount > 0) {
                 (bool ok,) = forfeitRecipient.call{value: amount}("");
                 if (!ok) revert RefundFailed();

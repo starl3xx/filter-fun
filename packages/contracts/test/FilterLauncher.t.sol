@@ -292,6 +292,44 @@ contract FilterLauncherTest is Test {
         assertEq(info.stakeAmount, 0);
     }
 
+    function test_SoftFilterWorksWhenBaseCostZero() public {
+        // Regression: bugbot flagged that `costPaid == 0` was used as the existence sentinel,
+        // which collapses to an `UnknownToken` revert if the owner sets `baseLaunchCost = 0`.
+        // The sentinel now leans on `_entry.token` instead, so zero-cost launches still resolve.
+        launcher.setBaseLaunchCost(0);
+        _openSeason();
+        vm.prank(aliceCreator);
+        (address token,) = launcher.launchToken{value: 0}("A", "AAA", "");
+
+        vm.prank(oracle);
+        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
+
+        address[] memory survivors = new address[](1);
+        survivors[0] = token;
+        address[] memory forfeited = new address[](0);
+
+        vm.prank(oracle);
+        launcher.applySoftFilter(1, survivors, forfeited);
+
+        IFilterLauncher.LaunchInfo memory info = launcher.launchInfoOf(1, token);
+        assertEq(info.refunded, true, "zero-cost launch still resolves");
+    }
+
+    function test_SoftFilterRejectsProtocolToken() public {
+        _openSeason();
+        (address protoToken,) = launcher.launchProtocolToken("filter.fun", "FILTER", "");
+
+        vm.prank(oracle);
+        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
+
+        address[] memory survivors = new address[](1);
+        survivors[0] = protoToken;
+        address[] memory forfeited = new address[](0);
+        vm.prank(oracle);
+        vm.expectRevert(FilterLauncher.UnknownToken.selector);
+        launcher.applySoftFilter(1, survivors, forfeited);
+    }
+
     function test_StakeForfeitedOnFilter() public {
         _openSeason();
         uint256 cost = _slotCost(0);
