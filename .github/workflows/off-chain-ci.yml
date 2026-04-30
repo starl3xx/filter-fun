@@ -42,6 +42,12 @@ jobs:
       - name: indexer (ponder codegen)
         run: npm --workspace @filter-fun/indexer run codegen
 
+      # API handler unit tests (vitest). These cover the pure handlers + builders behind
+      # the /season + /tokens endpoints; they don't boot Ponder, so they can run in CI
+      # without an RPC. Ponder runtime tests still belong on the testnet rehearsal track.
+      - name: indexer (test)
+        run: npm --workspace @filter-fun/indexer run test
+
       - name: scoring (typecheck)
         run: npm --workspace @filter-fun/scoring run typecheck
 

@@ -10,15 +10,19 @@
     "start": "ponder start",
     "codegen": "ponder codegen",
     "lint": "ponder lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "@filter-fun/scoring": "*",
     "@ponder/core": "^0.7.0",
     "hono": "^4.5.0",
     "viem": "^2.21.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
   }
 }
