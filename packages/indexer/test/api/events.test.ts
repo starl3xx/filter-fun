@@ -193,6 +193,21 @@ describe("detectors", () => {
     expect(trade!.data.nearCutLine).toBe(true);
   });
 
+  it("LARGE_TRADE — bugbot regression: mixed-case fee-row addresses still resolve", () => {
+    // `byAddr` lowercases its keys. If a fee-accrual row arrives with a checksummed
+    // address, the detector must still find the matching token. The token snapshot
+    // and the fee row reference the *same* address, but in different cases.
+    const lower = "0x000000000000000000000000000000000000abcd" as `0x${string}`;
+    const upper = "0x000000000000000000000000000000000000ABCD" as `0x${string}`;
+    const prev = snap({tokens: [tok({address: lower, rank: 3, hp: 50})]});
+    const cur = snap({tokens: [tok({address: lower, rank: 3, hp: 50})]});
+    const recent: FeeAccrualRow[] = [
+      {tokenAddress: upper, totalFeeWei: 4n * 10n ** 16n, blockTimestampSec: 100n},
+    ];
+    const events = diffSnapshots(prev, cur, recent, new Map(), testCfg());
+    expect(events.find((e) => e.type === "LARGE_TRADE")).toBeDefined();
+  });
+
   it("FILTER_FIRED fires when a token transitions to liquidated", () => {
     const a = addr(1);
     const prev = snap({tokens: [tok({address: a, liquidated: false})]});
@@ -439,6 +454,30 @@ describe("pipeline", () => {
     );
     expect(r3.emitted).toHaveLength(1);
   });
+
+  it("filter-moment — bugbot regression: HIGH-priority events bypass suppression", () => {
+    // A CUT_LINE_CROSSED that fires *during* the filter-moment window must not be silently
+    // dropped. Spec §36.1.4 + the pipeline's own header doc say only LOW/MEDIUM are suppressed.
+    const state = makeState();
+    const cfg = testCfg({filterMomentWindowMs: 60_000, dedupeWindowMs: 1});
+    const clock = fixedClock(1_000);
+    runPipeline([{type: "FILTER_FIRED", token: tk, data: {}}], state, cfg, clock);
+
+    (clock as PipelineClock & {advance: (n: number) => void}).advance(2_000);
+    const r2 = runPipeline(
+      [
+        {type: "CUT_LINE_CROSSED", token: tk, data: {fromRank: 5, toRank: 7, direction: "below"}},
+        {type: "HP_SPIKE", token: tk, data: {hpDelta: 20}}, // MEDIUM — should still drop
+      ],
+      state,
+      cfg,
+      clock,
+    );
+    const types = r2.emitted.map((e) => e.type);
+    expect(types).toContain("CUT_LINE_CROSSED");
+    expect(types).not.toContain("HP_SPIKE");
+    expect(r2.droppedByStage.filterMoment).toBe(1);
+  });
 });
 
 // ============================================================ Hub backpressure
@@ -515,6 +554,32 @@ describe("Hub backpressure", () => {
     expect(hub.getMetrics().evicted).toBe(1);
     void drained;
     sub.close();
+  });
+
+  it("next(timeoutMs) — bugbot regression: timeout doesn't strand the resolver", async () => {
+    // Repro: a Promise.race-style timeout in the SSE loop left `sub.next()`'s internal
+    // resolver hooked up after the timer won. A subsequent broadcast() routed the event
+    // through that ghost resolver into an abandoned promise, so the next real `await
+    // sub.next()` never received it. With the timeout-aware `next(timeoutMs)`, the
+    // broadcast must reach the next consumer.
+    const hub = new Hub({perConnQueueMax: 10});
+    const sub = hub.connect();
+    const r1 = await sub.next(20); // queue empty → timer wins → null
+    expect(r1).toBeNull();
+
+    hub.broadcast([mkEvt(99, "HIGH")]);
+    const r2 = await sub.next(50);
+    expect(r2?.id).toBe(99);
+    sub.close();
+  });
+
+  it("next() with no args — close still wakes a pending waiter with null", async () => {
+    // Belt-and-suspenders: timeout-aware `next()` must not regress the original close path.
+    const hub = new Hub({perConnQueueMax: 10});
+    const sub = hub.connect();
+    const p = sub.next();
+    sub.close();
+    expect(await p).toBeNull();
   });
 
   it("multi-subscriber broadcast — every connection gets the event", async () => {

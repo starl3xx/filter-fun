@@ -97,12 +97,15 @@ export function runPipeline(
       }
     }
 
-    // Filter-moment suppression.
+    // Filter-moment suppression — drops only LOW/MEDIUM non-filter events. HIGH-priority
+    // signals (e.g. a CUT_LINE_CROSSED that fires *during* the filter window) must always
+    // reach clients; the spec is unambiguous that HIGH events are never silently discarded.
     if (
       state.filterMomentEndsAt > 0 &&
       nowMs < state.filterMomentEndsAt &&
       d.type !== "FILTER_FIRED" &&
-      d.type !== "FILTER_COUNTDOWN"
+      d.type !== "FILTER_COUNTDOWN" &&
+      priority !== "HIGH"
     ) {
       dropped.filterMoment++;
       continue;

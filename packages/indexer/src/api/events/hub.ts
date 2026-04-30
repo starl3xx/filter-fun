@@ -22,8 +22,11 @@ export interface HubMetrics {
 }
 
 export interface Subscriber {
-  /// Block until an event is available. Returns `null` when disconnected.
-  next: () => Promise<TickerEvent | null>;
+  /// Block until an event is available. Returns `null` on disconnect, or — when
+  /// `timeoutMs` is provided and elapses — `null` *without* leaving a stale resolver
+  /// behind on the subscriber (a hub `broadcast()` arriving after a timeout is delivered
+  /// to the *next* `next()` call via the queue, never to an abandoned promise).
+  next: (timeoutMs?: number) => Promise<TickerEvent | null>;
   /// Close the subscriber — pending `next()` resolves to null and further enqueues no-op.
   close: () => void;
 }
@@ -51,12 +54,25 @@ export class Hub {
       queue,
       resolveNext,
       closed: false,
-      next: () => {
+      next: (timeoutMs?: number) => {
         if (sub.closed) return Promise.resolve(null);
         const head = sub.queue.shift();
         if (head) return Promise.resolve(head);
         return new Promise<TickerEvent | null>((res) => {
           sub.resolveNext = res;
+          if (timeoutMs !== undefined) {
+            // On timeout, only fire if the broadcast hasn't already taken over the
+            // resolver — broadcasts and close() each null `resolveNext` after firing,
+            // so the identity check is sufficient and avoids the ghost-resolver bug
+            // where Promise.race-style timeouts left a live `resolveNext` set against
+            // an abandoned promise (events delivered there were silently dropped).
+            setTimeout(() => {
+              if (sub.resolveNext === res) {
+                sub.resolveNext = null;
+                res(null);
+              }
+            }, timeoutMs);
+          }
         });
       },
       close: () => {

@@ -159,7 +159,8 @@ function detectLargeTrade(
     if (cfg.tradeFeeBps <= 0) continue;
     const tradeWei = (f.totalFeeWei * 10_000n) / BigInt(cfg.tradeFeeBps);
     if (tradeWei < cfg.largeTradeWethWei) continue;
-    const tok = tokensByAddr.get(f.tokenAddress);
+    // `byAddr` lowercases its keys; mixed-case fee-row addresses would otherwise miss.
+    const tok = tokensByAddr.get(f.tokenAddress.toLowerCase() as `0x${string}`);
     if (!tok) continue;
     // Near-cut-line large trades elevate to MEDIUM; everything else stays LOW per spec
     // §36.1.4 (individual trades are LOW by default).

@@ -59,13 +59,11 @@ ponder.get("/events", (c) => {
           await stream.writeln(":hb"); // SSE comment — clients ignore, proxies stay alive
           pendingHeartbeat = false;
         }
-        // Race the next event against a short interval so heartbeats can flush even when
-        // no events are flowing. 1 second is short enough to feel snappy + long enough
-        // to avoid burning CPU.
-        const next = await Promise.race([
-          sub.next(),
-          new Promise<null>((res) => setTimeout(() => res(null), 1000)),
-        ]);
+        // Wait up to 1s for the next event so we can periodically check the heartbeat
+        // flag during quiet stretches. The timeout is handled inside `next()` and
+        // explicitly avoids leaving a stale resolver behind — events that arrive after
+        // the timeout land on the queue and are picked up on the next `next()` call.
+        const next = await sub.next(1_000);
         if (next === null) continue;
         await stream.writeSSE({
           id: String(next.id),
