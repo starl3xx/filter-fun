@@ -74,15 +74,22 @@ contract DeployTest is Test, Deployers {
         // The script asserts chainid == 84_532. Spoof it. (Doesn't affect anything else
         // in-test — V4 helpers don't care about chainid.)
         vm.chainId(84_532);
-
-        // Wipe any leftover sandbox manifest so the idempotency check passes the first run.
-        if (vm.exists(TEST_MANIFEST)) vm.removeFile(TEST_MANIFEST);
-
-        _setEnv();
     }
 
     function tearDown() public {
         if (vm.exists(TEST_MANIFEST)) vm.removeFile(TEST_MANIFEST);
+    }
+
+    /// Modifier instead of `setUp()` because forge's per-test isolation mechanism reverts
+    /// `vm.setEnv` mutations made inside `setUp()` before the test body runs (only mutations
+    /// done in the test body itself persist into the test). That means `setUp` cannot reliably
+    /// reset env state between tests; one test setting `FORCE_REDEPLOY=1` would leak into the
+    /// next test's first `deployer.run()` and silently bypass the idempotency guard. Running
+    /// the env-reset and manifest-wipe inside the test body via this modifier sidesteps that.
+    modifier freshEnv() {
+        if (vm.exists(TEST_MANIFEST)) vm.removeFile(TEST_MANIFEST);
+        _setEnv();
+        _;
     }
 
     function _setEnv() internal {
@@ -105,7 +112,7 @@ contract DeployTest is Test, Deployers {
         vm.setEnv("FILTER_METADATA_URI", "ipfs://test-filter-metadata");
     }
 
-    function test_DeployScriptProducesWiredSystem() public {
+    function test_DeployScriptProducesWiredSystem() public freshEnv {
         deployer.run();
 
         // Read the manifest back and pull every address.
@@ -170,60 +177,43 @@ contract DeployTest is Test, Deployers {
         assertEq(POLVault(polVault).polManager(), polMgr, "POLVault.polManager");
 
         // Manifest config block round-trips.
-        assertEq(
-            vm.parseJsonAddress(m, ".config.treasuryOwner"), treasuryOwner, "config.treasuryOwner"
-        );
-        assertEq(
-            vm.parseJsonAddress(m, ".config.schedulerOracle"), scheduler, "config.schedulerOracle"
-        );
-        assertEq(
-            vm.parseJsonAddress(m, ".config.mechanicsWallet"), mechanics, "config.mechanicsWallet"
-        );
-        assertEq(
-            vm.parseJsonAddress(m, ".config.polVaultOwner"), polVaultOwner, "config.polVaultOwner"
-        );
-        assertEq(
-            vm.parseJsonUint(m, ".config.maxLaunchesPerWallet"), 1, "config.maxLaunchesPerWallet"
-        );
-        assertTrue(
-            vm.parseJsonBool(m, ".config.refundableStakeEnabled"),
-            "config.refundableStakeEnabled"
-        );
+        assertEq(vm.parseJsonAddress(m, ".config.treasuryOwner"), treasuryOwner, "config.treasuryOwner");
+        assertEq(vm.parseJsonAddress(m, ".config.schedulerOracle"), scheduler, "config.schedulerOracle");
+        assertEq(vm.parseJsonAddress(m, ".config.mechanicsWallet"), mechanics, "config.mechanicsWallet");
+        assertEq(vm.parseJsonAddress(m, ".config.polVaultOwner"), polVaultOwner, "config.polVaultOwner");
+        assertEq(vm.parseJsonUint(m, ".config.maxLaunchesPerWallet"), 1, "config.maxLaunchesPerWallet");
+        assertTrue(vm.parseJsonBool(m, ".config.refundableStakeEnabled"), "config.refundableStakeEnabled");
 
         // Hook salt was persisted (non-zero implies the script wrote the mined value).
         bytes32 cachedSalt = vm.parseJsonBytes32(m, ".hookSalt");
         assertTrue(cachedSalt != bytes32(0), "hookSalt cached");
     }
 
-    function test_DeployScriptIsIdempotent() public {
+    function test_DeployScriptIsIdempotent() public freshEnv {
         deployer.run();
         // Second run must revert because the manifest now records a real launcher address.
         vm.expectRevert(bytes("manifest exists; set FORCE_REDEPLOY=1 to overwrite"));
         deployer.run();
     }
 
-    function test_DeployScriptHonorsForceRedeploy() public {
+    function test_DeployScriptHonorsForceRedeploy() public freshEnv {
         // Snapshot pre-deploy chain state so we can re-run from scratch (CREATE2 hook would
         // otherwise collide). FORCE_REDEPLOY only governs the manifest guard; the chain reset
         // simulates "operator removed the manifest, now redeploys cleanly".
         uint256 snap = vm.snapshot();
         deployer.run();
-        address firstLauncher =
-            vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher");
+        address firstLauncher = vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher");
 
         vm.revertTo(snap);
         // After revertTo, the chain state is reset but the manifest file remains on disk —
         // exactly the scenario FORCE_REDEPLOY guards against.
         vm.setEnv("FORCE_REDEPLOY", "1");
         deployer.run();
-        address secondLauncher =
-            vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher");
-        assertEq(
-            firstLauncher, secondLauncher, "deterministic deploy: same launcher across reruns"
-        );
+        address secondLauncher = vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher");
+        assertEq(firstLauncher, secondLauncher, "deterministic deploy: same launcher across reruns");
     }
 
-    function test_DeployScriptUsesCachedHookSalt() public {
+    function test_DeployScriptUsesCachedHookSalt() public freshEnv {
         uint256 snap = vm.snapshot();
         deployer.run();
         bytes32 firstSalt = vm.parseJsonBytes32(vm.readFile(TEST_MANIFEST), ".hookSalt");
@@ -248,23 +238,22 @@ contract DeployTest is Test, Deployers {
     /// passes. Avoids duplicating the boilerplate four times.
     function _deployAndStartSeason(bool openSeason) internal returns (FilterLauncher launcher) {
         deployer.run();
-        launcher = FilterLauncher(
-            vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher")
-        );
+        launcher =
+            FilterLauncher(vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher"));
         if (openSeason) {
             vm.prank(scheduler);
             launcher.startSeason();
         }
     }
 
-    function test_SeedFilterRefusesIfSeasonNotStarted() public {
+    function test_SeedFilterRefusesIfSeasonNotStarted() public freshEnv {
         _deployAndStartSeason(false);
         // No oracle call → currentSeasonId == 0 → script reverts at the pre-flight check.
         vm.expectRevert(bytes("no season open; oracle must call startSeason() first"));
         seed.run();
     }
 
-    function test_SeedFilterRefusesIfPhaseNotLaunch() public {
+    function test_SeedFilterRefusesIfPhaseNotLaunch() public freshEnv {
         FilterLauncher launcher = _deployAndStartSeason(true);
         vm.prank(scheduler);
         launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
@@ -273,7 +262,7 @@ contract DeployTest is Test, Deployers {
         seed.run();
     }
 
-    function test_SeedFilterPopulatesManifest() public {
+    function test_SeedFilterPopulatesManifest() public freshEnv {
         FilterLauncher launcher = _deployAndStartSeason(true);
         seed.run();
 
@@ -300,7 +289,7 @@ contract DeployTest is Test, Deployers {
     /// as an object. The original guard probed `.filterToken` as a string, threw on the
     /// object, and the catch silently allowed the second seed. Fixed guard probes
     /// `.filterToken.address` and refuses when it's non-zero.
-    function test_SeedFilterRefusesDoubleSeed() public {
+    function test_SeedFilterRefusesDoubleSeed() public freshEnv {
         _deployAndStartSeason(true);
         seed.run();
         vm.expectRevert(bytes("manifest.filterToken already set; remove it to re-seed"));

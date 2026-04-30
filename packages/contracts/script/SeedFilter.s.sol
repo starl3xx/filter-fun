@@ -71,8 +71,7 @@ contract SeedFilter is Script {
         console2.log("metadataURI: ", metadataUri);
 
         vm.startBroadcast(pk);
-        (address token, address locker) =
-            launcher.launchProtocolToken("filter", "FILTER", metadataUri);
+        (address token, address locker) = launcher.launchProtocolToken("filter", "FILTER", metadataUri);
         vm.stopBroadcast();
 
         console2.log("$FILTER token:  ", token);
@@ -98,8 +97,7 @@ contract SeedFilter is Script {
         // by `address(this)` (the SeedFilter contract — fresh every `new SeedFilter()`) +
         // the token address gives a unique id every invocation, so stale builder entries
         // from a prior call can't bleed into this one.
-        string memory key =
-            string.concat("ft_", vm.toString(address(this)), "_", vm.toString(token));
+        string memory key = string.concat("ft_", vm.toString(address(this)), "_", vm.toString(token));
         vm.serializeAddress(key, "address", token);
         vm.serializeAddress(key, "locker", locker);
         vm.serializeString(key, "name", "filter");

@@ -93,6 +93,13 @@ else
   CHAIN_FLAG="--chain base_sepolia"
   COMMON="$CHAIN_FLAG --etherscan-api-key $BASESCAN_API_KEY --watch --skip-is-verified-check"
 
+  # Capture the deployer EOA address ONCE, *before* `set -x`, so the trace can't echo
+  # the private key. Bugbot caught this: with `set -x` enabled and `cast wallet address
+  # --private-key "$DEPLOYER_PRIVATE_KEY"` evaluated mid-trace, bash prints the fully
+  # expanded command (including the raw key) to stderr. CI logs persist that trace,
+  # leaking the key to anyone who can read the run.
+  DEPLOYER_ADDR="$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")"
+
   # Reconstruct the constructor args foundry-style. Each call shape mirrors the deploy
   # in DeploySepolia.s.sol — keep these in lockstep when changing constructors.
   set -x
@@ -102,16 +109,15 @@ else
 
   forge verify-contract "$B" src/BonusDistributor.sol:BonusDistributor $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address,address,address)' \
-      "$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")" "$WETH_ADDRESS" "$SCHEDULER_ORACLE_ADDRESS")"
+      "$DEPLOYER_ADDR" "$WETH_ADDRESS" "$SCHEDULER_ORACLE_ADDRESS")"
 
   forge verify-contract "$V" src/POLVault.sol:POLVault $COMMON \
-    --constructor-args "$(cast abi-encode 'constructor(address)' \
-      "$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")")"
+    --constructor-args "$(cast abi-encode 'constructor(address)' "$DEPLOYER_ADDR")"
 
   forge verify-contract "$L" src/FilterLauncher.sol:FilterLauncher $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address,address,address,address,address,address)' \
-      "$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")" \
-      "$SCHEDULER_ORACLE_ADDRESS" "$T" "${MECHANICS_WALLET:-$TREASURY_OWNER}" "$B" "$WETH_ADDRESS")"
+      "$DEPLOYER_ADDR" "$SCHEDULER_ORACLE_ADDRESS" "$T" \
+      "${MECHANICS_WALLET:-$TREASURY_OWNER}" "$B" "$WETH_ADDRESS")"
 
   forge verify-contract "$M" src/POLManager.sol:POLManager $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address,address,address)' \
@@ -129,12 +135,12 @@ else
   # against the in-source artifact — no separate constructor args here are practical to
   # pass, so we leave a TODO. Operators can verify these via the basescan UI given the
   # source is identical.
+  set +x
   echo "Note: CR/CFD/TR/TV inline-deployed; verify via Basescan UI if needed:"
   echo "  CreatorRegistry:        $CR"
   echo "  CreatorFeeDistributor:  $CFD"
   echo "  TournamentRegistry:     $TR"
   echo "  TournamentVault:        $TV"
-  set +x
 fi
 
 # ----- Optional $FILTER seed --------------------------------------------------------

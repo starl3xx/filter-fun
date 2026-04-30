@@ -295,66 +295,179 @@ contract DeploySepolia is Script {
         bool refundableStake;
     }
 
+    /// Manual JSON construction. We deliberately bypass Foundry's `vm.serialize*` builder
+    /// here because that cheatcode caches state per-id at the cheatcode-handler level and
+    /// the cache persists across script invocations in the same forge process. Across our
+    /// test suite that surfaced as flaky failures: stale fields from a prior run bled into
+    /// the current write, producing malformed JSON or wrong addresses. Manual string-concat
+    /// is verbose but completely stateless — every call writes exactly what we asked for.
+    /// Each value goes through a typed quoter (`_quoteAddr` / `_quoteBytes32`) that emits
+    /// JSON-valid output without escaping concerns.
     function _writeManifest(string memory path, ManifestArgs memory a) internal {
-        // Foundry's JSON builder serializes by *key prefix*: each `vm.serializeX(prefix, ...)`
-        // call appends to a json blob keyed under that prefix. The state is held at the
-        // cheatcode-handler level and persists across script invocations in the same forge
-        // process — so a fixed id like "addresses" accumulates fields across test runs. We
-        // discriminate by `address(this)` (the script contract address) which is fresh on
-        // every `new DeploySepolia()`; combined with `block.timestamp` it's unique across
-        // every run in any forge process.
-        string memory disc =
-            string.concat(vm.toString(address(this)), "_", vm.toString(block.timestamp));
-        string memory addrs = string.concat("addresses_", disc);
-        vm.serializeAddress(addrs, "treasuryTimelock", a.treasury);
-        vm.serializeAddress(addrs, "bonusDistributor", a.bonus);
-        vm.serializeAddress(addrs, "polVault", a.polVault);
-        vm.serializeAddress(addrs, "filterLauncher", a.launcher);
-        vm.serializeAddress(addrs, "polManager", a.polManager);
-        vm.serializeAddress(addrs, "filterHook", a.hook);
-        vm.serializeAddress(addrs, "filterFactory", a.factory);
-        vm.serializeAddress(addrs, "creatorRegistry", a.creatorRegistry);
-        vm.serializeAddress(addrs, "creatorFeeDistributor", a.creatorFeeDistributor);
-        vm.serializeAddress(addrs, "tournamentRegistry", a.tournamentRegistry);
-        vm.serializeAddress(addrs, "tournamentVault", a.tournamentVault);
-        vm.serializeAddress(addrs, "v4PoolManager", a.v4PoolManager);
-        string memory addrsJson = vm.serializeAddress(addrs, "weth", a.weth);
-
-        string memory cfg = string.concat("config_", disc);
-        vm.serializeAddress(cfg, "treasuryOwner", a.treasuryOwner);
-        vm.serializeAddress(cfg, "schedulerOracle", a.oracle);
-        vm.serializeAddress(cfg, "mechanicsWallet", a.mechanics);
-        vm.serializeAddress(cfg, "polVaultOwner", a.polVaultOwner);
-        vm.serializeUint(cfg, "maxLaunchesPerWallet", a.maxLaunchesPerWallet);
-        string memory cfgJson = vm.serializeBool(cfg, "refundableStakeEnabled", a.refundableStake);
-
-        // `filterToken` placeholder. Must be an *object* (not a string) so SeedFilter can
-        // overwrite it via `vm.writeJson(value, path, ".filterToken")` — that cheatcode
-        // refuses if the existing key is a scalar. Zero addresses signal "not yet seeded";
-        // SeedFilter's guard probes `.filterToken.address != address(0)` to refuse double-seed.
-        string memory ftKey = string.concat("filterTokenPlaceholder_", disc);
-        vm.serializeAddress(ftKey, "address", address(0));
-        vm.serializeAddress(ftKey, "locker", address(0));
-        vm.serializeString(ftKey, "name", "");
-        vm.serializeString(ftKey, "symbol", "");
-        vm.serializeUint(ftKey, "seededAt", 0);
-        string memory ftJson = vm.serializeString(ftKey, "metadataURI", "");
-
-        string memory root = string.concat("manifest_", disc);
-        vm.serializeUint(root, "chainId", block.chainid);
-        vm.serializeString(root, "network", "base-sepolia");
-        vm.serializeUint(root, "deployBlockNumber", block.number);
-        vm.serializeUint(root, "deployedAt", block.timestamp);
-        vm.serializeAddress(root, "deployerAddress", a.deployer);
-        vm.serializeBytes32(root, "hookSalt", a.hookSalt);
-        vm.serializeString(root, "filterToken", ftJson);
-        vm.serializeString(
-            root, "deployCommitHash", _envOrDefaultString("DEPLOY_COMMIT_HASH", "unknown")
+        string memory addressesObj = string.concat(
+            "{",
+            _kv("treasuryTimelock", a.treasury),
+            ",",
+            _kv("bonusDistributor", a.bonus),
+            ",",
+            _kv("polVault", a.polVault),
+            ",",
+            _kv("filterLauncher", a.launcher),
+            ",",
+            _kv("polManager", a.polManager),
+            ",",
+            _kv("filterHook", a.hook),
+            ",",
+            _kv("filterFactory", a.factory),
+            ",",
+            _kv("creatorRegistry", a.creatorRegistry),
+            ",",
+            _kv("creatorFeeDistributor", a.creatorFeeDistributor),
+            ",",
+            _kv("tournamentRegistry", a.tournamentRegistry),
+            ",",
+            _kv("tournamentVault", a.tournamentVault),
+            ",",
+            _kv("v4PoolManager", a.v4PoolManager),
+            ",",
+            _kv("weth", a.weth),
+            "}"
         );
-        vm.serializeString(root, "addresses", addrsJson);
-        string memory finalJson = vm.serializeString(root, "config", cfgJson);
+
+        string memory configObj = string.concat(
+            "{",
+            _kv("treasuryOwner", a.treasuryOwner),
+            ",",
+            _kv("schedulerOracle", a.oracle),
+            ",",
+            _kv("mechanicsWallet", a.mechanics),
+            ",",
+            _kv("polVaultOwner", a.polVaultOwner),
+            ",",
+            _kvUint("maxLaunchesPerWallet", a.maxLaunchesPerWallet),
+            ",",
+            _kvBool("refundableStakeEnabled", a.refundableStake),
+            "}"
+        );
+
+        // `filterToken` placeholder. MUST be an object (not a string) so SeedFilter can
+        // overwrite via `vm.writeJson(value, path, ".filterToken")` — that cheatcode rejects
+        // a scalar destination. Zero addresses signal "not yet seeded"; SeedFilter's guard
+        // probes `.filterToken.address != address(0)` to refuse double-seed.
+        string memory filterTokenObj = string.concat(
+            "{",
+            _kv("address", address(0)),
+            ",",
+            _kv("locker", address(0)),
+            ",",
+            _kvStr("name", ""),
+            ",",
+            _kvStr("symbol", ""),
+            ",",
+            _kvUint("seededAt", 0),
+            ",",
+            _kvStr("metadataURI", ""),
+            "}"
+        );
+
+        string memory finalJson = string.concat(
+            "{",
+            _kvUint("chainId", block.chainid),
+            ",",
+            _kvStr("network", "base-sepolia"),
+            ",",
+            _kvUint("deployBlockNumber", block.number),
+            ",",
+            _kvUint("deployedAt", block.timestamp),
+            ",",
+            _kv("deployerAddress", a.deployer),
+            ",",
+            _kvBytes32("hookSalt", a.hookSalt),
+            ",",
+            _kvRaw("filterToken", filterTokenObj),
+            ",",
+            _kvStr("deployCommitHash", _envOrDefaultString("DEPLOY_COMMIT_HASH", "unknown")),
+            ",",
+            _kvRaw("addresses", addressesObj),
+            ",",
+            _kvRaw("config", configObj),
+            "}"
+        );
 
         vm.writeJson(finalJson, path);
+    }
+
+    // ---------- JSON-emit helpers ----------
+
+    function _kv(string memory key, address value) private pure returns (string memory) {
+        return string.concat("\"", key, "\":\"", _addrToString(value), "\"");
+    }
+
+    function _kvStr(string memory key, string memory value) private pure returns (string memory) {
+        return string.concat("\"", key, "\":\"", value, "\"");
+    }
+
+    function _kvUint(string memory key, uint256 value) private pure returns (string memory) {
+        return string.concat("\"", key, "\":", _uintToString(value));
+    }
+
+    function _kvBool(string memory key, bool value) private pure returns (string memory) {
+        return string.concat("\"", key, "\":", value ? "true" : "false");
+    }
+
+    function _kvBytes32(string memory key, bytes32 value) private pure returns (string memory) {
+        return string.concat("\"", key, "\":\"", _bytes32ToHex(value), "\"");
+    }
+
+    function _kvRaw(string memory key, string memory rawJson) private pure returns (string memory) {
+        return string.concat("\"", key, "\":", rawJson);
+    }
+
+    /// Lowercase hex address with `0x` prefix — the `vm.toString(address)` cheatcode emits
+    /// EIP-55 mixed case which is fine but inconsistent across runs; we normalize to
+    /// lowercase so the manifest output is deterministic for diffs.
+    function _addrToString(address a) private pure returns (string memory) {
+        bytes memory hexChars = "0123456789abcdef";
+        bytes memory out = new bytes(42);
+        out[0] = "0";
+        out[1] = "x";
+        uint160 value = uint160(a);
+        for (uint256 i = 0; i < 20; ++i) {
+            uint8 b = uint8(value >> (8 * (19 - i)));
+            out[2 + i * 2] = hexChars[b >> 4];
+            out[2 + i * 2 + 1] = hexChars[b & 0x0f];
+        }
+        return string(out);
+    }
+
+    function _bytes32ToHex(bytes32 v) private pure returns (string memory) {
+        bytes memory hexChars = "0123456789abcdef";
+        bytes memory out = new bytes(66);
+        out[0] = "0";
+        out[1] = "x";
+        for (uint256 i = 0; i < 32; ++i) {
+            uint8 b = uint8(v[i]);
+            out[2 + i * 2] = hexChars[b >> 4];
+            out[2 + i * 2 + 1] = hexChars[b & 0x0f];
+        }
+        return string(out);
+    }
+
+    function _uintToString(uint256 v) private pure returns (string memory) {
+        if (v == 0) return "0";
+        uint256 tmp = v;
+        uint256 digits;
+        while (tmp != 0) {
+            ++digits;
+            tmp /= 10;
+        }
+        bytes memory buf = new bytes(digits);
+        while (v != 0) {
+            --digits;
+            buf[digits] = bytes1(uint8(48 + (v % 10)));
+            v /= 10;
+        }
+        return string(buf);
     }
 
     function _envOrDefaultString(string memory key, string memory fallback_)
