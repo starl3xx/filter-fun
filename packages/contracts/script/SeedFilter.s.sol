@@ -29,21 +29,27 @@ import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 ///           - launcher.currentSeasonId() > 0 and current phase == Launch
 ///           - manifest.filterToken is empty (don't double-seed)
 contract SeedFilter is Script {
-    string internal constant MANIFEST_PATH = "./deployments/base-sepolia.json";
+    string internal constant DEFAULT_MANIFEST_PATH = "./deployments/base-sepolia.json";
 
     function run() external {
-        require(vm.exists(MANIFEST_PATH), "manifest missing; run DeploySepolia first");
-        string memory manifest = vm.readFile(MANIFEST_PATH);
+        string memory manifestPath = _manifestPath();
+        require(vm.exists(manifestPath), "manifest missing; run DeploySepolia first");
+        string memory manifest = vm.readFile(manifestPath);
 
         address launcherAddr = vm.parseJsonAddress(manifest, ".addresses.filterLauncher");
         require(launcherAddr != address(0), "launcher address missing from manifest");
 
-        // Refuse to double-seed. We don't want a second protocol-launch silently overwriting
-        // the manifest's `filterToken` and orphaning the original token off-chain visibility.
-        try vm.parseJsonString(manifest, ".filterToken") returns (string memory existing) {
-            require(bytes(existing).length == 0, "manifest.filterToken already set; remove it to re-seed");
+        // Refuse to double-seed. After DeploySepolia the manifest carries `filterToken: ""`
+        // (empty string), and after the first successful SeedFilter it carries an object
+        // `{ "address": "0x...", "locker": "0x...", ... }`. We probe `.filterToken.address`:
+        // if it exists and is non-zero, the seed already ran. The earlier draft probed
+        // `.filterToken` as a string — which silently fell into the `catch` after the first
+        // seed (because the key shape changed from string to object) and bypassed the guard
+        // entirely, allowing a second seed to overwrite the manifest. Bugbot caught this.
+        try vm.parseJsonAddress(manifest, ".filterToken.address") returns (address existing) {
+            require(existing == address(0), "manifest.filterToken already set; remove it to re-seed");
         } catch {
-            // No filterToken key — fine, treat as fresh.
+            // `.filterToken` is absent or not an object → fresh state, proceed.
         }
 
         string memory metadataUri = vm.envString("FILTER_METADATA_URI");
@@ -72,7 +78,7 @@ contract SeedFilter is Script {
         console2.log("$FILTER token:  ", token);
         console2.log("$FILTER locker: ", locker);
 
-        _appendFilterToken(manifest, token, locker, metadataUri);
+        _appendFilterToken(manifestPath, token, locker, metadataUri);
     }
 
     /// Persist `filterToken` (and locker / metadata) into the manifest. We rebuild the JSON via
@@ -81,7 +87,7 @@ contract SeedFilter is Script {
     /// keys. Since we want both `filterToken` (object) and to keep all prior keys, the cleanest
     /// path is `vm.writeJson(serialized, path, ".filterToken")`.
     function _appendFilterToken(
-        string memory, /* manifest */
+        string memory manifestPath,
         address token,
         address locker,
         string memory metadataUri
@@ -96,7 +102,17 @@ contract SeedFilter is Script {
 
         // Targeted write: replaces only the `filterToken` key in the manifest, leaving every
         // other key untouched. Avoids any chance of dropping addresses we wrote earlier.
-        vm.writeJson(value, MANIFEST_PATH, ".filterToken");
+        vm.writeJson(value, manifestPath, ".filterToken");
+    }
+
+    /// Manifest path with optional env override — keeps tests from clobbering the real
+    /// `./deployments/base-sepolia.json` and mirrors the pattern in `DeploySepolia.s.sol`.
+    function _manifestPath() internal view returns (string memory) {
+        try vm.envString("MANIFEST_PATH_OVERRIDE") returns (string memory v) {
+            return bytes(v).length == 0 ? DEFAULT_MANIFEST_PATH : v;
+        } catch {
+            return DEFAULT_MANIFEST_PATH;
+        }
     }
 
     function _envPrivateKey() internal view returns (uint256) {
