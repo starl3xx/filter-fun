@@ -36,6 +36,7 @@ import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
 import {useTrendBuffers} from "@/hooks/arena/useTrendBuffers";
 import {Stars} from "@/components/broadcast/Stars";
+import {fmtEth} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
 
 export default function ArenaPage() {
@@ -149,14 +150,14 @@ function PoolsCard({season}: {season: ReturnType<typeof useSeason>["data"]}) {
       <div>
         <div style={{fontSize: 9, fontFamily: F.mono, color: C.faint, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>Champion Pool 🔻</div>
         <div style={{fontSize: 22, fontFamily: F.mono, fontWeight: 800, color: C.yellow, fontVariantNumeric: "tabular-nums"}}>
-          {season ? `Ξ ${Number(season.championPool).toFixed(2)}` : "Ξ —"}
+          {season ? fmtEth(season.championPool) : "Ξ —"}
         </div>
         <div style={{fontSize: 10, color: C.dim, marginTop: 2}}>Winner takes everything.</div>
       </div>
       <div>
         <div style={{fontSize: 9, fontFamily: F.mono, color: C.faint, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>Champion Backing</div>
         <div style={{fontSize: 22, fontFamily: F.mono, fontWeight: 800, color: C.cyan, fontVariantNumeric: "tabular-nums"}}>
-          {season ? `Ξ ${Number(season.polReserve).toFixed(2)}` : "Ξ —"}
+          {season ? fmtEth(season.polReserve) : "Ξ —"}
         </div>
         <div style={{fontSize: 10, color: C.dim, marginTop: 2}}>Protocol backing for the winner.</div>
       </div>
