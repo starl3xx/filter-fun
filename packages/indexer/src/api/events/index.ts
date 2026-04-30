@@ -24,6 +24,13 @@ import {streamSSE} from "hono/streaming";
 
 import {feeAccrual, season, token} from "../../../ponder.schema";
 
+import {
+  clientIpFromContext,
+  releaseEventsConn,
+  tryClaimEventsConn,
+  type MwContext,
+} from "../middleware.js";
+
 import {loadConfigFromEnv} from "./config.js";
 import {aggregateFeesByToken, lockerToTokenMap, translateFeeRows} from "./feeAdapter.js";
 import {Hub} from "./hub.js";
@@ -38,12 +45,33 @@ const hub = new Hub({perConnQueueMax: cfg.perConnQueueMax});
 let engine: TickEngine | null = null;
 
 ponder.get("/events", (c) => {
-  ensureEngineStarted(c.db);
-  // Ponder's typed context narrows the Hono generics; streamSSE wants the wide form.
-  return streamSSE(c as unknown as Context, async (stream) => {
-    const sub = hub.connect();
-    let heartbeatHandle: ReturnType<typeof setInterval> | null = null;
-    try {
+  // Per-IP connection cap. SSE is long-lived, so we count active streams instead of
+  // running this through the GET token bucket — a single client could otherwise burn a
+  // bucket's worth of capacity per minute by reconnecting. Existing streams are not
+  // affected when the cap is hit; only the *new* connection is refused.
+  const ip = clientIpFromContext(c as unknown as MwContext);
+  const claim = tryClaimEventsConn(ip);
+  if (!claim.allowed) {
+    (c as unknown as MwContext).header("Retry-After", String(claim.retryAfterSec));
+    return c.json(
+      {error: "events connection limit reached", retryAfterSec: claim.retryAfterSec},
+      429,
+    );
+  }
+  // Engine startup + streamSSE handoff happen *after* the slot is claimed, so a throw
+  // here would otherwise leak the slot — `releaseEventsConn` only runs inside the
+  // `streamSSE` callback's finally block, which never fires if we never reach it. Wrap
+  // the synchronous stretch in try/catch and release explicitly on failure. With
+  // `engine` staying null on a constructor failure, every retry would otherwise leak
+  // another slot until the per-IP cap is permanently exhausted.
+  let stream: Response;
+  try {
+    ensureEngineStarted(c.db);
+    // Ponder's typed context narrows the Hono generics; streamSSE wants the wide form.
+    stream = streamSSE(c as unknown as Context, async (stream) => {
+      const sub = hub.connect();
+      let heartbeatHandle: ReturnType<typeof setInterval> | null = null;
+      try {
       // Idle keepalive — SSE comment line every `heartbeatMs`. Awaiting `writeSSE` inside
       // setInterval would race the main event loop, so we use a flag the loop respects.
       let pendingHeartbeat = false;
@@ -71,11 +99,22 @@ ponder.get("/events", (c) => {
           data: JSON.stringify(next),
         });
       }
-    } finally {
-      if (heartbeatHandle) clearInterval(heartbeatHandle);
-      sub.close();
-    }
-  });
+      } finally {
+        if (heartbeatHandle) clearInterval(heartbeatHandle);
+        sub.close();
+        // Release the per-IP slot. Critical that this lives in `finally` so abnormal
+        // closes (network drop, client refresh, server-side abort) don't leak slots and
+        // eventually exhaust the cap for the IP.
+        releaseEventsConn(ip);
+      }
+    });
+  } catch (err) {
+    // ensureEngineStarted (or streamSSE itself) threw before the SSE callback ran. The
+    // streamSSE callback's `finally` will never execute, so we own the release here.
+    releaseEventsConn(ip);
+    throw err;
+  }
+  return stream;
 });
 
 /// Construct + start the engine on first request. Subsequent calls no-op.
