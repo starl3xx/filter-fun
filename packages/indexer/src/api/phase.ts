@@ -37,6 +37,17 @@ export function toApiPhase(p: ContractPhase | string): ApiPhase {
   }
 }
 
+/// Returns the next-cut timestamp as Unix seconds (bigint). Returns `null` for `settled`
+/// phase since no future cut is expected. Used by the events detector to gate
+/// FILTER_COUNTDOWN on time-to-cut without re-parsing ISO strings.
+export function nextCutEpochSec(startedAtSec: bigint, phase: ApiPhase): bigint | null {
+  if (phase === "settled") return null;
+  const offset = phase === "launch" || phase === "competition"
+    ? FIRST_CUT_OFFSET
+    : FINAL_SETTLEMENT_OFFSET;
+  return startedAtSec + offset;
+}
+
 /// Returns the ISO8601 timestamp of the next cut event for `season`.
 ///
 /// - In `launch` / `competition` phase: next cut = startedAt + 72h (Day 3 first cut).

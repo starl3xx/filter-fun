@@ -50,6 +50,7 @@ function snap(over: Partial<Snapshot> & {tokens: TokenSnapshot[]}): Snapshot {
     takenAtSec: 1_700_000_000n,
     seasonId: 1n,
     phase: "Filter",
+    nextCutAtSec: null,
     ...over,
   };
 }
@@ -243,6 +244,73 @@ describe("detectors", () => {
     const events = diffSnapshots(prev, cur, [], new Map(), testCfg());
     const filt = events.filter((e) => e.type === "FILTER_FIRED");
     expect(filt).toHaveLength(1);
+  });
+
+  it("FILTER_COUNTDOWN — fires once when time-to-cut crosses below threshold", () => {
+    const a = addr(1);
+    const cfg = testCfg({filterCountdownThresholdSec: 600});
+    const tNow = 1_700_000_000n;
+    // prev: 15 min remaining (above threshold)
+    const prev = snap({
+      tokens: [tok({address: a})],
+      takenAtSec: tNow,
+      nextCutAtSec: tNow + 900n,
+    });
+    // cur: 8 min remaining (below threshold)
+    const cur = snap({
+      tokens: [tok({address: a})],
+      takenAtSec: tNow + 60n,
+      nextCutAtSec: tNow + 60n + 480n,
+    });
+    const events = diffSnapshots(prev, cur, [], new Map(), cfg);
+    const fc = events.filter((e) => e.type === "FILTER_COUNTDOWN");
+    expect(fc).toHaveLength(1);
+    expect(fc[0]!.data.minutesUntilCut).toBe(8);
+  });
+
+  it("FILTER_COUNTDOWN — does NOT re-fire on subsequent ticks already inside the window", () => {
+    const a = addr(1);
+    const cfg = testCfg({filterCountdownThresholdSec: 600});
+    const tNow = 1_700_000_000n;
+    const prev = snap({
+      tokens: [tok({address: a})],
+      takenAtSec: tNow,
+      nextCutAtSec: tNow + 480n, // 8 min — already inside
+    });
+    const cur = snap({
+      tokens: [tok({address: a})],
+      takenAtSec: tNow + 60n,
+      nextCutAtSec: tNow + 60n + 420n, // 7 min — still inside
+    });
+    const events = diffSnapshots(prev, cur, [], new Map(), cfg);
+    expect(events.find((e) => e.type === "FILTER_COUNTDOWN")).toBeUndefined();
+  });
+
+  it("FILTER_COUNTDOWN — does NOT fire when no cut is scheduled (settled phase)", () => {
+    const a = addr(1);
+    const cfg = testCfg({filterCountdownThresholdSec: 600});
+    const prev = snap({tokens: [tok({address: a})], nextCutAtSec: null});
+    const cur = snap({tokens: [tok({address: a})], nextCutAtSec: null});
+    const events = diffSnapshots(prev, cur, [], new Map(), cfg);
+    expect(events.find((e) => e.type === "FILTER_COUNTDOWN")).toBeUndefined();
+  });
+
+  it("FILTER_COUNTDOWN — does NOT fire after the cut time has passed", () => {
+    const a = addr(1);
+    const cfg = testCfg({filterCountdownThresholdSec: 600});
+    const tNow = 1_700_000_000n;
+    const prev = snap({
+      tokens: [tok({address: a})],
+      takenAtSec: tNow,
+      nextCutAtSec: tNow + 60n, // 1 min remaining — inside threshold
+    });
+    const cur = snap({
+      tokens: [tok({address: a})],
+      takenAtSec: tNow + 120n, // cut was 1 min ago
+      nextCutAtSec: tNow + 60n,
+    });
+    const events = diffSnapshots(prev, cur, [], new Map(), cfg);
+    expect(events.find((e) => e.type === "FILTER_COUNTDOWN")).toBeUndefined();
   });
 
   it("PHASE_ADVANCED fires on phase change exactly once", () => {
@@ -662,11 +730,18 @@ describe("feeAdapter — locker→token translation", () => {
     },
   ];
 
-  it("lockerToTokenMap — keys are lowercase, values are token addresses", () => {
-    const m = lockerToTokenMap(tokenRows);
-    expect(m.get(lockerAddr.toLowerCase())).toBe(tokenAddr);
-    expect(m.get(otherLocker.toLowerCase())).toBe(otherToken);
-    expect(m.size).toBe(2);
+  it("lockerToTokenMap — keys + values are both lowercased so downstream lookups don't need to re-normalize", () => {
+    const checksummedTokenRows: TokenLockerRow[] = [
+      {
+        id: "0x000000000000000000000000000000000000AAAA" as `0x${string}`,
+        locker: "0x000000000000000000000000000000000000BBBB" as `0x${string}`,
+        seasonId: 1n,
+      },
+    ];
+    const m = lockerToTokenMap(checksummedTokenRows);
+    expect(m.get("0x000000000000000000000000000000000000bbbb")).toBe(
+      "0x000000000000000000000000000000000000aaaa",
+    );
   });
 
   it("translateFeeRows — bugbot regression: locker addresses are resolved to token contract addresses", () => {
@@ -724,7 +799,12 @@ describe("TickEngine", () => {
       latestSeason: async () =>
         opts.seasonPhase === undefined
           ? null
-          : {seasonId: 1n, phase: opts.seasonPhase, takenAtSec: 1_700_000_000n},
+          : {
+              seasonId: 1n,
+              phase: opts.seasonPhase,
+              startedAtSec: 1_700_000_000n,
+              takenAtSec: 1_700_000_000n,
+            },
       tokensForSnapshot: async () =>
         (opts.tokens ?? []).map((t) => ({
           address: t.address,
@@ -768,6 +848,7 @@ describe("TickEngine", () => {
       latestSeason: async () => ({
         seasonId: 1n,
         phase,
+        startedAtSec: BigInt(Math.floor(Date.now() / 1000)),
         takenAtSec: BigInt(Math.floor(Date.now() / 1000)),
       }),
       tokensForSnapshot: async () => [

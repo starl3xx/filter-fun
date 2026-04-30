@@ -40,6 +40,11 @@ export interface Snapshot {
   takenAtSec: bigint;
   seasonId: bigint;
   phase: string; // contract-level phase string ("Launch" / "Filter" / etc.)
+  /// Wall-clock seconds at which the next cut is expected. Sourced from
+  /// `phase.nextCutEpochSec(season, phase)` which derives from `season.startedAt` plus
+  /// the spec §36.1.5 phase offsets. Used by the FILTER_COUNTDOWN detector. `null` when
+  /// no cut is upcoming (settled / closed phases).
+  nextCutAtSec: bigint | null;
   tokens: ReadonlyArray<TokenSnapshot>;
 }
 

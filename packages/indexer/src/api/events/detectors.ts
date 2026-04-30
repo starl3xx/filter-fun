@@ -36,6 +36,7 @@ export function diffSnapshots(
   out.push(...detectVolumeSpike(current, recentFees, volumeBaselineByToken, cfg));
   out.push(...detectLargeTrade(current, recentFees, cfg));
   out.push(...detectFilterEvents(prev, current));
+  out.push(...detectFilterCountdown(prev, current, cfg));
   out.push(...systemDetectors(prev, current));
   return out;
 }
@@ -199,6 +200,38 @@ function detectFilterEvents(prev: Snapshot, cur: Snapshot): DetectedEvent[] {
     }
   }
   return out;
+}
+
+/// Fires once when time-to-next-cut crosses below `cfg.filterCountdownThresholdSec`.
+/// Edge-triggered: the previous tick must have been *above* the threshold (or had no
+/// upcoming cut), and the current tick is *below* it. Subsequent ticks within the
+/// window are silenced by dedupe — the UI handles ongoing countdown rendering itself.
+function detectFilterCountdown(
+  prev: Snapshot,
+  cur: Snapshot,
+  cfg: EventsConfig,
+): DetectedEvent[] {
+  if (cur.nextCutAtSec === null) return [];
+  const remainingSec = cur.nextCutAtSec - cur.takenAtSec;
+  if (remainingSec > BigInt(cfg.filterCountdownThresholdSec)) return [];
+  if (remainingSec < 0n) return []; // cut already passed — no countdown to announce
+
+  // Edge-trigger: only fire if the PREVIOUS tick was outside the threshold (i.e. either
+  // had no cut scheduled, or had > threshold remaining). Without this, every tick inside
+  // the window would re-emit until dedupe kicked in — wasted work.
+  if (prev.nextCutAtSec !== null) {
+    const prevRemaining = prev.nextCutAtSec - prev.takenAtSec;
+    if (prevRemaining <= BigInt(cfg.filterCountdownThresholdSec)) return [];
+  }
+
+  const minutesUntilCut = Number((remainingSec + 59n) / 60n); // ceil to whole minutes
+  return [
+    {
+      type: "FILTER_COUNTDOWN",
+      token: null,
+      data: {minutesUntilCut, secondsUntilCut: Number(remainingSec)},
+    },
+  ];
 }
 
 function systemDetectors(prev: Snapshot | null, cur: Snapshot): DetectedEvent[] {

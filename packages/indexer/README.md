@@ -126,7 +126,7 @@ Clients connect with the standard `EventSource` API. The browser handles auto-re
 |---|---|---|
 | `CUT_LINE_CROSSED` | HIGH | A token's rank crossed position 6 (the cut line) |
 | `FILTER_FIRED` | HIGH | A token transitioned to liquidated — also arms a 60s "filter moment" suppression window |
-| `FILTER_COUNTDOWN` | HIGH | < N min until the next cut |
+| `FILTER_COUNTDOWN` | HIGH | Time-to-next-cut crosses below `EVENTS_FILTER_COUNTDOWN_THRESHOLD_SEC` (default 600s = 10 min). Edge-triggered: fires once per crossing |
 | `RANK_CHANGED` | MEDIUM | A rank delta of ≥ `EVENTS_RANK_CHANGE_MIN` that didn't cross the cut line |
 | `HP_SPIKE` | MEDIUM | `|Δhp|` ≥ `EVENTS_HP_SPIKE_THRESHOLD` between snapshots |
 | `VOLUME_SPIKE` | MEDIUM | Current-window WETH fee / trailing baseline ≥ `EVENTS_VOLUME_SPIKE_RATIO` |
@@ -149,7 +149,7 @@ Clients connect with the standard `EventSource` API. The browser handles auto-re
 - `EVENTS_HP_SPIKE_THRESHOLD`, `EVENTS_RANK_CHANGE_MIN`
 - `EVENTS_VOLUME_SPIKE_RATIO`, `EVENTS_VOLUME_SPIKE_MIN_WETH` (decimal-ether: `"0.1"`)
 - `EVENTS_LARGE_TRADE_WETH` (decimal-ether: `"0.5"`), `EVENTS_TRADE_FEE_BPS`
-- `EVENTS_FILTER_MOMENT_WINDOW_MS`
+- `EVENTS_FILTER_MOMENT_WINDOW_MS`, `EVENTS_FILTER_COUNTDOWN_THRESHOLD_SEC`
 
 ### `GET /token/:address`
 

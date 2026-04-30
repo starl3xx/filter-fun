@@ -55,6 +55,11 @@ export interface EventsConfig {
   /// events are dropped for this many ms (spec §36.1.4: "during filter moments, suppress
   /// all but filter-related events").
   filterMomentWindowMs: number;
+
+  /// FILTER_COUNTDOWN trigger: a HIGH-priority "🔻 Filter in Nm" event fires the first tick
+  /// after `(nextCutSec - takenAtSec) <= filterCountdownThresholdSec`. Default = 600s
+  /// (10 min) per spec §20 examples.
+  filterCountdownThresholdSec: number;
 }
 
 const DEFAULTS: EventsConfig = {
@@ -71,6 +76,7 @@ const DEFAULTS: EventsConfig = {
   perConnQueueMax: 200,
   heartbeatMs: 15_000,
   filterMomentWindowMs: 60_000,
+  filterCountdownThresholdSec: 600,
 };
 
 /// Returns a config merged from `DEFAULTS` and the partial overrides. Used by both the
@@ -96,6 +102,10 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): EventsC
     filterMomentWindowMs: parseIntEnv(
       env.EVENTS_FILTER_MOMENT_WINDOW_MS,
       DEFAULTS.filterMomentWindowMs,
+    ),
+    filterCountdownThresholdSec: parseIntEnv(
+      env.EVENTS_FILTER_COUNTDOWN_THRESHOLD_SEC,
+      DEFAULTS.filterCountdownThresholdSec,
     ),
   });
 }

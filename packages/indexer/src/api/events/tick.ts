@@ -10,7 +10,7 @@
 /// indexer would mean moving this state to redis pub/sub (out of scope for genesis).
 
 import {scoreCohort} from "../hp.js";
-import {toApiPhase} from "../phase.js";
+import {nextCutEpochSec, toApiPhase} from "../phase.js";
 
 import {loadConfigFromEnv, type EventsConfig} from "./config.js";
 import {diffSnapshots} from "./detectors.js";
@@ -20,10 +20,12 @@ import type {FeeAccrualRow, Snapshot, TokenSnapshot} from "./types.js";
 
 export interface EventsQueries {
   /// Latest season metadata + the contract-level phase string. Returns null if no season
-  /// has been indexed yet.
+  /// has been indexed yet. `startedAt` drives next-cut math for the FILTER_COUNTDOWN
+  /// detector; `takenAtSec` is the wall-clock at which this snapshot is being constructed.
   latestSeason: () => Promise<{
     seasonId: bigint;
     phase: string;
+    startedAtSec: bigint;
     takenAtSec: bigint;
   } | null>;
   /// Tokens for `seasonId`, with the columns needed for HP composition + status.
@@ -101,14 +103,16 @@ export class TickEngine {
         hp: hpAsInt100(s?.hp ?? 0),
         isFinalist: t.isFinalist,
         liquidated: t.liquidated,
-        cumulativeFeeWei: cumulativeFees.get(t.address) ?? 0n,
+        cumulativeFeeWei: cumulativeFees.get(t.address.toLowerCase() as `0x${string}`) ?? 0n,
       };
     });
 
+    const nextCutAtSec = nextCutEpochSec(seasonRow.startedAtSec, apiPhase);
     const current: Snapshot = {
       takenAtSec: seasonRow.takenAtSec,
       seasonId: seasonRow.seasonId,
       phase: seasonRow.phase,
+      nextCutAtSec,
       tokens: snapshotTokens,
     };
 

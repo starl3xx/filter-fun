@@ -98,6 +98,7 @@ function buildQueries(db: ApiContext["db"]): EventsQueries {
       return {
         seasonId: row.id,
         phase: row.phase,
+        startedAtSec: row.startedAt,
         takenAtSec: BigInt(Math.floor(Date.now() / 1000)),
       };
     },

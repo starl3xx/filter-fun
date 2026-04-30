@@ -32,12 +32,14 @@ export interface TokenLockerRow {
   seasonId: bigint;
 }
 
-/// Build a case-insensitive locker→token map from token rows.
+/// Build a case-insensitive locker→token map from token rows. Both keys (locker) and
+/// values (token contract addresses) are lowercased so downstream consumers can do
+/// case-insensitive lookups without re-normalizing on each side.
 export function lockerToTokenMap(
   rows: ReadonlyArray<TokenLockerRow>,
 ): Map<string, `0x${string}`> {
   const m = new Map<string, `0x${string}`>();
-  for (const r of rows) m.set(r.locker.toLowerCase(), r.id);
+  for (const r of rows) m.set(r.locker.toLowerCase(), r.id.toLowerCase() as `0x${string}`);
   return m;
 }
 
