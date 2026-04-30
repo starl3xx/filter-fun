@@ -57,18 +57,21 @@ All five components are normalized to `[0, 1]` across the cohort. Final HP is al
 - Per-wallet net is divided by `log2(1 + walletTotal/floor)` — whales contribute log-scaled, not linearly.
 - Sum per-wallet contributions; min-max normalize across the cohort.
 
-### Effective buyers — log-flattened wallet count
+### Effective buyers — economic-significance dampening
 
-- For each wallet with cumulative buy volume above `buyerDustFloorWeth`: `log(1 + volume)`.
-- Wallets below the dust floor contribute exactly zero (sybil resistance — no signal from a sea of 1-wei addresses).
-- Sum across wallets; min-max normalize.
-- The `log` is aggressive: 30 wallets at 1 WETH ≈ 1242, single whale at 1000 WETH ≈ 48. Distributed real participation dominates.
+- For each wallet with cumulative buy volume above `buyerDustFloorWeth`: `f(volume)`, where `f` is configurable via `config.effectiveBuyersFunc`:
+  - **`"sqrt"` (default, spec §6.4.2).** 30 wallets at 1 WETH ≈ 3.0e10, single whale at 1000 WETH ≈ 3.16e10 — distributed buying still wins on headcount but a real whale isn't completely flattened. Gentler at the top end.
+  - **`"log"`.** 30 wallets at 1 WETH ≈ 1242, whale at 1000 WETH ≈ 48 — heavy headcount preference, useful when broad participation is the entire signal.
+- Wallets below the dust floor contribute exactly zero (sybil resistance — no signal from a sea of 1-wei addresses) regardless of which function is selected.
+- Sum across wallets; min-max normalize across the cohort.
 
 ### Sticky liquidity — time-weighted depth, withdrawal-penalized
 
 - Base value: `avgLiquidityDepthWeth` (trailing time-weighted) if provided, else `liquidityDepthWeth`.
-- Penalty: `(recentLiquidityRemoved / avgDepth) × recentWithdrawalPenalty`. A 100% recent withdrawal at default penalty (0.5) halves the sticky score.
+- Penalty: `(recentLiquidityRemoved / avgDepth) × α`, where α = `recentWithdrawalPenalty`. **Default α = 1.0** (spec §6.4.3): a 100%-of-depth recent withdrawal fully zeroes the sticky score; a 50%-of-depth withdrawal halves it. Lower values soften the penalty for tuning.
 - Min-max normalize across the cohort.
+
+> **Indexer responsibility.** Protocol-controlled LP unwinds during filter events (settlement teardowns, system actions) are not market signal. The indexer must exclude those tx hashes from `recentLiquidityRemovedWeth` upstream of scoring (filter by tx originator). Scoring trusts whatever input is supplied; it cannot tell system actions apart from user actions on its own.
 
 ### Retention — two-anchor holder conviction
 
@@ -81,22 +84,21 @@ All five components are normalized to `[0, 1]` across the cohort. Final HP is al
 
 - `delta = currentBaseComposite − priorBaseComposite`.
 - `momentum = clip(delta / momentumScale, −1, 1)` mapped to `[0, 1]`.
+- Then clipped by `momentumCap` (default `1.0` = no extra cap beyond normalization). Operators can tighten — e.g. `0.5` caps momentum's HP contribution to half its weight — if empirical data shows momentum-driven rank flips.
 - If no prior is supplied, momentum defaults to neutral (`0.5`) so first-tick tokens aren't punished.
-- Capped by its weight (default 10%) so it can never dominate the score — late surges help, but a token still has to have real fundamentals.
+- Final HP contribution is `weights.momentum × momentum.score`. With default 10% weight × 1.0 cap, momentum can contribute at most 10 points (out of 100) to HP — so a single late surge cannot flip a token past peers with stronger fundamentals on the other four components.
 
 ## Phase weights
 
 | Component         | Pre-filter | Finals | Default |
 | ----------------- | ----------:| ------:| -------:|
-| Velocity          | 40%        | 25%    | 35%     |
+| Velocity          | 40%        | 30%    | 35%     |
 | Effective buyers  | 25%        | 15%    | 20%     |
 | Sticky liquidity  | 15%        | 25%    | 20%     |
-| Retention         | 10%        | 25%    | 15%     |
+| Retention         | 10%        | 20%    | 15%     |
 | Momentum          | 10%        | 10%    | 10%     |
 
-Pre-filter rewards discovery + breadth. In finals, conviction (sticky + retention = 50%) genuinely outweighs discovery (velocity + buyers = 40%) so a token can't coast through finals on raw volume alone.
-
-Pre-filter rewards discovery + breadth; finals rewards conviction + commitment. Pass `config.phase` to switch; pass `config.weights` to override entirely (for experiments).
+Pre-filter rewards discovery + breadth (velocity + buyers = 65%). Finals rewards conviction + commitment (sticky + retention = 45%) while keeping velocity above effective-buyers (30 > 15), so a finalist with sustained broad buying can still climb. Pass `config.phase` to switch; pass `config.weights` to override entirely (for experiments).
 
 ## Configuration
 
@@ -108,9 +110,11 @@ Pre-filter rewards discovery + breadth; finals rewards conviction + commitment. 
 - `walletCapFloorWeth` — sybil log-cap floor (0.001 WETH default).
 - `churnWindowSec` — pump-and-dump window (1h default).
 - `buyerDustFloorWeth` — effective-buyers cutoff (0.005 WETH default).
+- `effectiveBuyersFunc` — `"sqrt"` (spec default) or `"log"` (heavier headcount preference).
 - `retentionLongWeight` / `retentionShortWeight` — 0.6 / 0.4 default.
-- `recentWithdrawalPenalty` — 0.5 default.
+- `recentWithdrawalPenalty` — α multiplier on the sticky-liq haircut. **1.0 default** (spec §6.4.3): full penalty for recent withdrawals.
 - `momentumScale` — full-momentum delta (0.10 default).
+- `momentumCap` — hard ceiling on the normalized momentum score. **1.0 default** (no extra cap beyond normalization × weight); operators can tighten if rank-flip noise from momentum is observed.
 
 ## Tests
 
@@ -119,17 +123,19 @@ npm install
 npm --workspace @filter-fun/scoring test
 ```
 
-14 tests cover:
+21 tests cover:
 
 - **basics** — empty input, single-token cohort, ranking by stronger metrics.
 - **whale resistance** — distributed wallets outscore a whale on effective buyers; whale-pumped low-mcap tokens lose HP overall when they have thin LP / churning holders.
-- **sybil resistance** — dust wallets contribute zero to effective buyers regardless of count.
+- **sybil resistance** — dust wallets contribute zero to effective buyers regardless of count; above-floor sybil swarms with thin LP still lose to real distributed buyers via composition.
 - **net velocity** — pump-and-dump inside the churn window craters velocity.
 - **time decay** — old buys count less than fresh ones.
 - **retention** — two-anchor combination; bleeding recent holders penalizes a token with sticky-old retention.
-- **sticky liquidity** — recent LP withdrawal hurts sticky-liq even when avg depth is unchanged.
-- **momentum** — late surger gets a momentum boost capped by weight; first-tick tokens aren't punished.
-- **phase weights** — same cohort ranks differently under pre-filter vs finals.
+- **sticky liquidity** — recent LP withdrawal hurts sticky-liq even when avg depth is unchanged; α=1.0 zeroes the score on a 100%-of-depth pull; α=0.5 halves it.
+- **momentum** — late surger gets a momentum boost capped by weight; first-tick tokens aren't punished; `momentumCap` clips the normalized score for operators who want tighter bounds.
+- **effective-buyers function** — `"sqrt"` (default) and `"log"` toggle behave correctly.
+- **phase weights** — same cohort ranks differently under pre-filter vs finals; finals weights match spec §6.5 (30/15/25/20/10).
+- **§27.6 integration** — steady distributed buying improves HP across all components.
 
 ## Outstanding
 

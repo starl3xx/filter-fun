@@ -9,7 +9,7 @@ import {
   weightsForPhase,
 } from "./types.js";
 
-/// Computes the v2 composite HP for each token in the cohort.
+/// Computes the v3 composite HP for each token in the cohort.
 ///
 /// HP = w_velocity * velocity
 ///    + w_effectiveBuyers * effectiveBuyers
@@ -72,7 +72,9 @@ export function score(
 
     // Momentum compares this tick's base composite against the prior's. If
     // there's no prior (first tick), momentum is neutral 0.5 so a token can't
-    // be punished for not having history yet.
+    // be punished for not having history yet. The post-normalization value is
+    // clipped to `momentumCap` so operators can bound momentum's contribution
+    // tighter than the natural [0, weight] range produced by normalization.
     let momentum: number;
     if (typeof r.priorBaseComposite === "number") {
       const delta = baseComposite - r.priorBaseComposite;
@@ -81,6 +83,7 @@ export function score(
     } else {
       momentum = 0.5;
     }
+    momentum = Math.min(momentum, config.momentumCap);
 
     const hp =
       weights.velocity * v +
@@ -189,22 +192,33 @@ function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): num
   return total;
 }
 
-/// Effective buyers — sum of `log(1 + walletBuyVolume)` across wallets above
-/// the dust floor. The log flattens whales aggressively: 30 wallets each
-/// buying 1 WETH produce ~30 × log(1e18) = 1242, while a single whale buying
-/// 1000 WETH produces only log(1e21) ≈ 48. Distributed real participation
-/// dominates orders of magnitude over a single big check.
+/// Effective buyers — sum of `f(walletBuyVolume)` across wallets above the
+/// dust floor, where `f` is the configured dampening function (spec §6.4.2).
+///
+/// **sqrt (default).** Economic-significance weighted: 30 wallets at 1 WETH
+/// produce 30 × √(1e18) ≈ 3.0e10, a single whale at 1000 WETH produces
+/// √(1e21) ≈ 3.16e10 — the whale's commitment is roughly equivalent to 30
+/// distributed buyers. Distributed buying still wins on headcount (and the
+/// sybil dust floor still filters 1-wei swarms) but a real whale is not
+/// completely flattened.
+///
+/// **log.** Heavy headcount preference: 30 × log(1e18) ≈ 1242 vs whale's
+/// log(1e21) ≈ 48 — distributed dominates the whale by ~25×. Useful when
+/// breadth is the entire signal.
 ///
 /// Dust wallets (below `buyerDustFloorWeth`) contribute exactly zero —
 /// filtered out before the formula is applied, so a sea of 1-wei sybils
-/// does not produce any signal.
+/// does not produce any signal regardless of the chosen function.
 function computeEffectiveBuyers(t: TokenStats, config: ScoringConfig): number {
   const dust = bigintToFloat(config.buyerDustFloorWeth);
+  const dampen = config.effectiveBuyersFunc === "log"
+    ? (v: number) => Math.log(1 + v)
+    : (v: number) => Math.sqrt(v);
   let sum = 0;
   for (const vol of t.volumeByWallet.values()) {
     const v = bigintToFloat(vol);
     if (v < dust) continue;
-    sum += Math.log(1 + v);
+    sum += dampen(v);
   }
   return sum;
 }
@@ -213,9 +227,16 @@ function computeEffectiveBuyers(t: TokenStats, config: ScoringConfig): number {
 ///
 /// `avgLiquidityDepthWeth` is the trailing time-weighted average from the
 /// indexer. If unset (genesis) we fall back to current depth.
-/// `recentLiquidityRemovedWeth / avgDepth` × `recentWithdrawalPenalty` is the
-/// fractional haircut. A token whose avg depth is $1M but just withdrew
-/// $500k loses 25% of its sticky-liq score (with default penalty 0.5).
+/// `recentLiquidityRemovedWeth / avgDepth` × α (`recentWithdrawalPenalty`) is
+/// the fractional haircut. With default α=1.0 (spec §6.4.3) a 100%-of-depth
+/// recent withdrawal fully zeroes the score; a 50%-of-depth withdrawal
+/// halves it.
+///
+/// **Indexer responsibility.** Protocol-controlled LP unwinds (filter-event
+/// liquidations, settlement teardowns) are system actions, not market
+/// signal — the indexer must exclude those tx hashes from
+/// `recentLiquidityRemovedWeth` upstream of scoring. Scoring trusts whatever
+/// is supplied; it cannot tell them apart on its own.
 function computeStickyLiquidity(t: TokenStats, config: ScoringConfig): number {
   const avg = t.avgLiquidityDepthWeth ?? t.liquidityDepthWeth;
   const avgF = bigintToFloat(avg);
