@@ -9,6 +9,7 @@
 /// monotonic event id. There's exactly one engine per process; horizontally scaling the
 /// indexer would mean moving this state to redis pub/sub (out of scope for genesis).
 
+import {hpAsInt100} from "../builders.js";
 import {scoreCohort} from "../hp.js";
 import {nextCutEpochSec, toApiPhase} from "../phase.js";
 
@@ -38,10 +39,6 @@ export interface EventsQueries {
       liquidationProceeds: bigint | null;
     }>
   >;
-  /// Cumulative fee accruals per token across the lifetime of the season — used to seed
-  /// the snapshot's `cumulativeFeeWei`. Differencing across snapshots gives per-tick
-  /// trading volume for the volume-spike + large-trade detectors.
-  cumulativeFeesByToken: (seasonId: bigint) => Promise<Map<`0x${string}`, bigint>>;
   /// Fee accruals since `sinceSec` for the volume-spike + large-trade detectors. Each row
   /// is one `FeesCollected` event from the indexer schema.
   recentFees: (sinceSec: bigint) => Promise<FeeAccrualRow[]>;
@@ -84,7 +81,6 @@ export class TickEngine {
     if (!seasonRow) return {snapshot: null, emitted: 0};
 
     const tokens = await this.opts.queries.tokensForSnapshot(seasonRow.seasonId);
-    const cumulativeFees = await this.opts.queries.cumulativeFeesByToken(seasonRow.seasonId);
 
     const apiPhase = toApiPhase(seasonRow.phase);
     const scored = scoreCohort(
@@ -103,7 +99,6 @@ export class TickEngine {
         hp: hpAsInt100(s?.hp ?? 0),
         isFinalist: t.isFinalist,
         liquidated: t.liquidated,
-        cumulativeFeeWei: cumulativeFees.get(t.address.toLowerCase() as `0x${string}`) ?? 0n,
       };
     });
 
@@ -177,8 +172,3 @@ export class TickEngine {
   }
 }
 
-function hpAsInt100(hp01: number): number {
-  if (!Number.isFinite(hp01)) return 0;
-  const clamped = Math.max(0, Math.min(1, hp01));
-  return Math.round(clamped * 100);
-}

@@ -30,10 +30,6 @@ export interface TokenSnapshot {
   hp: number;     // 0–100 wire format
   isFinalist: boolean;
   liquidated: boolean;
-  /// Cumulative WETH fee accrual (sum of toVault + toTreasury + toMechanics) since the
-  /// indexer started tracking the token. Used to derive per-tick trading volume by
-  /// differencing across snapshots.
-  cumulativeFeeWei: bigint;
 }
 
 export interface Snapshot {

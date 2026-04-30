@@ -40,7 +40,6 @@ function tok(over: Partial<TokenSnapshot> & {address: `0x${string}`}): TokenSnap
     hp: 50,
     isFinalist: false,
     liquidated: false,
-    cumulativeFeeWei: 0n,
     ...over,
   };
 }
@@ -791,7 +790,6 @@ describe("TickEngine", () => {
       liquidated?: boolean;
       liquidationProceeds?: bigint | null;
     }>;
-    cumulative?: Map<`0x${string}`, bigint>;
     recent?: FeeAccrualRow[];
     baseline?: Map<`0x${string}`, bigint>;
   }): EventsQueries {
@@ -813,7 +811,6 @@ describe("TickEngine", () => {
           liquidated: t.liquidated ?? false,
           liquidationProceeds: t.liquidationProceeds ?? null,
         })),
-      cumulativeFeesByToken: async () => opts.cumulative ?? new Map(),
       recentFees: async () => opts.recent ?? [],
       baselineFees: async () => opts.baseline ?? new Map(),
     };
@@ -854,7 +851,6 @@ describe("TickEngine", () => {
       tokensForSnapshot: async () => [
         {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null},
       ],
-      cumulativeFeesByToken: async () => new Map(),
       recentFees: async () => [],
       baselineFees: async () => new Map(),
     };

@@ -25,11 +25,7 @@ import {streamSSE} from "hono/streaming";
 import {feeAccrual, season, token} from "../../../ponder.schema";
 
 import {loadConfigFromEnv} from "./config.js";
-import {
-  aggregateFeesByToken,
-  lockerToTokenMap,
-  translateFeeRows,
-} from "./feeAdapter.js";
+import {aggregateFeesByToken, lockerToTokenMap, translateFeeRows} from "./feeAdapter.js";
 import {Hub} from "./hub.js";
 import {TickEngine, type EventsQueries} from "./tick.js";
 
@@ -111,15 +107,6 @@ function buildQueries(db: ApiContext["db"]): EventsQueries {
         liquidated: r.liquidated,
         liquidationProceeds: r.liquidationProceeds,
       }));
-    },
-    cumulativeFeesByToken: async (seasonId) => {
-      // Scope locker→token resolution to this season so we don't accidentally mix in
-      // fee history from prior cohorts that happen to share a locker (they don't —
-      // every launch deploys its own locker — but the explicit scope is cheap insurance).
-      const seasonTokens = await db.select().from(token).where(eq(token.seasonId, seasonId));
-      const lToT = lockerToTokenMap(seasonTokens);
-      const rows = await db.select().from(feeAccrual);
-      return aggregateFeesByToken(rows, lToT);
     },
     recentFees: async (sinceSec) => {
       const rows = await db
