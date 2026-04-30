@@ -36,6 +36,7 @@ import {
   loadRateLimitConfigFromEnv,
   makeBucketState,
   makeConnectionState,
+  pruneBuckets,
   releaseConnection,
   resolveClientIp,
   tryClaimConnection,
@@ -51,6 +52,25 @@ const cacheCfg: CacheConfig = loadCacheConfigFromEnv();
 
 const bucketState: TokenBucketState = makeBucketState();
 const connectionState: ConnectionState = makeConnectionState();
+
+/// Periodic GC for the per-IP bucket map. Without this, a long-running indexer exposed
+/// to the public internet accumulates one entry per unique IP forever — bots, scanners,
+/// and one-time visitors leak memory unboundedly. We prune every `PRUNE_INTERVAL_MS`
+/// (10 min) and drop any bucket idle for `PRUNE_IDLE_MS` (15 min — strictly larger than
+/// the burst-refill window so an active client never gets evicted mid-flight).
+///
+/// `unref()` so the timer doesn't hold the process alive in tests / CLI entries that
+/// import this module without a long-running server. The interval handle is kept on the
+/// module scope intentionally — if a future caller wants to inspect or stop it (e.g.
+/// the `__resetEventsEngineForTests`-style hook), exporting a stop fn is cheap.
+const PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+const PRUNE_IDLE_MS = 15 * 60 * 1000;
+const pruneTimer: ReturnType<typeof setInterval> = setInterval(() => {
+  pruneBuckets(bucketState, Date.now(), PRUNE_IDLE_MS);
+}, PRUNE_INTERVAL_MS);
+if (typeof pruneTimer === "object" && pruneTimer && "unref" in pruneTimer) {
+  (pruneTimer as {unref: () => void}).unref();
+}
 
 /// Per-route cache instances. We could share one cache across all routes and namespace
 /// keys by route prefix, but separate instances let each route keep its own TTL +

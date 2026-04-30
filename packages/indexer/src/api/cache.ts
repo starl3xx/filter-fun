@@ -20,6 +20,8 @@
 /// byte-for-byte equivalence by JSON.stringify-ing both the original miss body and the
 /// hit body — that's a sufficient invariant.
 
+import {numEnv} from "./env.js";
+
 export interface Cache<V> {
   /// Returns the cached value if present and unexpired, else `null`.
   get(key: string): V | null;
@@ -145,14 +147,4 @@ export function loadCacheConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Ca
     profileTtlMs: numEnv(env, "CACHE_TTL_PROFILE_MS", 30_000),
     maxEntries: numEnv(env, "CACHE_MAX_ENTRIES", 10_000),
   };
-}
-
-function numEnv(env: NodeJS.ProcessEnv, key: string, dflt: number): number {
-  const raw = env[key];
-  if (raw === undefined || raw === "") return dflt;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`${key} must be a positive number, got ${JSON.stringify(raw)}`);
-  }
-  return n;
 }

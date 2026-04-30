@@ -18,6 +18,8 @@
 /// can drive them without HTTP plumbing. The middleware adapter that resolves IPs from
 /// Hono context lives in `index.ts`.
 
+import {boolEnv, numEnv} from "./env.js";
+
 export interface RateLimitConfig {
   /// Sustained rate, per IP, for GET endpoints. The bucket refills at this rate / 60s.
   getPerMin: number;
@@ -194,23 +196,3 @@ export function resolveClientIp(
   return socketAddr || "unknown";
 }
 
-// ============================================================ env helpers
-
-function numEnv(env: NodeJS.ProcessEnv, key: string, dflt: number): number {
-  const raw = env[key];
-  if (raw === undefined || raw === "") return dflt;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`${key} must be a positive number, got ${JSON.stringify(raw)}`);
-  }
-  return n;
-}
-
-function boolEnv(env: NodeJS.ProcessEnv, key: string, dflt: boolean): boolean {
-  const raw = env[key];
-  if (raw === undefined || raw === "") return dflt;
-  const v = raw.toLowerCase();
-  if (v === "1" || v === "true" || v === "yes") return true;
-  if (v === "0" || v === "false" || v === "no") return false;
-  throw new Error(`${key} must be a boolean, got ${JSON.stringify(raw)}`);
-}

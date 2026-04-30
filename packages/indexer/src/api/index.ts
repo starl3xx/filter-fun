@@ -28,6 +28,7 @@ import {and, count, desc, eq} from "@ponder/core";
 
 import {bonusClaim, rolloverClaim, season, token} from "../../ponder.schema";
 
+import {isAddressLike} from "./builders.js";
 import {cached} from "./cache.js";
 import {
   getSeasonHandler,
@@ -109,9 +110,11 @@ ponder.get("/profile/:address", async (c) => {
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
   // Validate before computing the cache key so invalid addresses can't pollute cache
-  // entries / get parked under a 400-shaped value.
+  // entries / get parked under a 400-shaped value. Goes through the centralized
+  // `isAddressLike` so any future change to address-shape (e.g. accepting checksummed
+  // input) lands in one place and not in a route-local copy.
   const normalized = raw.toLowerCase();
-  if (!/^0x[0-9a-f]{40}$/.test(normalized)) {
+  if (!isAddressLike(normalized)) {
     return c.json({error: "invalid address"}, 400);
   }
   const bypass = shouldBypassCache(mw);
