@@ -92,7 +92,14 @@ contract SeedFilter is Script {
         address locker,
         string memory metadataUri
     ) internal {
-        string memory key = "filterToken";
+        // Foundry's JSON serializer caches state per-id at the cheatcode-handler level —
+        // across multiple `run()` invocations in the same forge process (e.g. test runs)
+        // a fixed id like "filterToken" accumulates fields from prior calls. Discriminating
+        // by `address(this)` (the SeedFilter contract — fresh every `new SeedFilter()`) +
+        // the token address gives a unique id every invocation, so stale builder entries
+        // from a prior call can't bleed into this one.
+        string memory key =
+            string.concat("ft_", vm.toString(address(this)), "_", vm.toString(token));
         vm.serializeAddress(key, "address", token);
         vm.serializeAddress(key, "locker", locker);
         vm.serializeString(key, "name", "filter");

@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Deployers} from "v4-core/test/utils/Deployers.sol";
 
 import {DeploySepolia} from "../script/DeploySepolia.s.sol";
+import {SeedFilter} from "../script/SeedFilter.s.sol";
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {FilterFactory} from "../src/FilterFactory.sol";
 import {FilterHook} from "../src/FilterHook.sol";
@@ -16,21 +17,30 @@ import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 
 import {MockWETH} from "./mocks/MockWETH.sol";
 
-/// @notice Deploy correctness tests. Runs the actual `DeploySepolia` script in-process
-///         against a v4 PoolManager spun up via the v4-core Deployers helper, then asserts:
+/// @notice Deploy + seed correctness tests. Runs the actual `DeploySepolia` and
+///         `SeedFilter` scripts in-process against a v4 PoolManager spun up via the
+///         v4-core Deployers helper, then asserts:
 ///           - every deployed address is non-zero
 ///           - cross-wiring is correct (factory ↔ hook ↔ launcher ↔ POL stack)
 ///           - `setMaxLaunchesPerWallet` + `setRefundableStakeEnabled` were applied
 ///           - the manifest file lands on disk, contains the right chainId + addresses, and
 ///             has the salt cached so re-runs read it instead of re-mining
 ///           - re-running the script with a populated manifest reverts (idempotency)
+///           - the `SeedFilter` script seeds $FILTER and refuses to double-seed
 ///
 ///         We don't fork the live network — the goal is to exercise the *script's* deploy
 ///         sequence and JSON output, not to validate Base Sepolia's PoolManager bytecode.
 ///         A separate vitest in the indexer package validates the manifest schema once a
 ///         real deploy runs.
+///
+///         Both scripts live in the same test contract so they run sequentially. Splitting
+///         them into two contracts caused CI flakes: forge runs different test files in
+///         parallel and they raced on shared `vm.setEnv` state (e.g. `MANIFEST_PATH_OVERRIDE`,
+///         `V4_POOL_MANAGER_ADDRESS`), silently producing the wrong manifest path / pool
+///         manager mid-test.
 contract DeployTest is Test, Deployers {
     DeploySepolia internal deployer;
+    SeedFilter internal seed;
     MockWETH internal weth;
 
     /// Deterministic Foundry default test wallet. The script reads it via
@@ -55,6 +65,7 @@ contract DeployTest is Test, Deployers {
 
         weth = new MockWETH();
         deployer = new DeploySepolia();
+        seed = new SeedFilter();
         deployerAddr = vm.addr(DEPLOYER_PK);
 
         // Fund the deployer so `new` calls under broadcast don't OOG.
@@ -90,6 +101,8 @@ contract DeployTest is Test, Deployers {
         // every knob that *another* test might have set, otherwise stale state leaks in.
         vm.setEnv("FORCE_REDEPLOY", "0");
         vm.setEnv("HOOK_SALT", "");
+        // Used by SeedFilter; harmless when DeploySepolia tests run.
+        vm.setEnv("FILTER_METADATA_URI", "ipfs://test-filter-metadata");
     }
 
     function test_DeployScriptProducesWiredSystem() public {
@@ -226,5 +239,71 @@ contract DeployTest is Test, Deployers {
         address secondHook = vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterHook");
         assertEq(secondSalt, firstSalt, "salt round-trips when supplied via env");
         assertEq(secondHook, firstHook, "hook lands at the same address with cached salt");
+    }
+
+    // ============================================================ SeedFilter
+
+    /// Helper used by all SeedFilter tests: runs the deploy, pulls the launcher, and (when
+    /// `openSeason` is true) pranks the oracle to start Season 1 so SeedFilter's pre-flight
+    /// passes. Avoids duplicating the boilerplate four times.
+    function _deployAndStartSeason(bool openSeason) internal returns (FilterLauncher launcher) {
+        deployer.run();
+        launcher = FilterLauncher(
+            vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher")
+        );
+        if (openSeason) {
+            vm.prank(scheduler);
+            launcher.startSeason();
+        }
+    }
+
+    function test_SeedFilterRefusesIfSeasonNotStarted() public {
+        _deployAndStartSeason(false);
+        // No oracle call → currentSeasonId == 0 → script reverts at the pre-flight check.
+        vm.expectRevert(bytes("no season open; oracle must call startSeason() first"));
+        seed.run();
+    }
+
+    function test_SeedFilterRefusesIfPhaseNotLaunch() public {
+        FilterLauncher launcher = _deployAndStartSeason(true);
+        vm.prank(scheduler);
+        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
+
+        vm.expectRevert(bytes("season not in Launch phase"));
+        seed.run();
+    }
+
+    function test_SeedFilterPopulatesManifest() public {
+        FilterLauncher launcher = _deployAndStartSeason(true);
+        seed.run();
+
+        string memory manifest = vm.readFile(TEST_MANIFEST);
+        address tokenAddr = vm.parseJsonAddress(manifest, ".filterToken.address");
+        address lockerAddr = vm.parseJsonAddress(manifest, ".filterToken.locker");
+        string memory name = vm.parseJsonString(manifest, ".filterToken.name");
+        string memory symbol = vm.parseJsonString(manifest, ".filterToken.symbol");
+
+        assertTrue(tokenAddr != address(0), "filterToken.address populated");
+        assertTrue(lockerAddr != address(0), "filterToken.locker populated");
+        assertEq(name, "filter");
+        assertEq(symbol, "FILTER");
+
+        // Spec §5.3: $FILTER takes its place in the season alongside public launches and is
+        // *not* counted toward `launchCount`. Confirm both invariants.
+        assertEq(launcher.launchCount(1), 0, "$FILTER doesn't count toward public launches");
+        IFilterLauncher.TokenEntry memory entry = launcher.entryOf(1, tokenAddr);
+        assertEq(entry.token, tokenAddr, "token registered in season");
+        assertTrue(entry.isProtocolLaunched, "marked as protocol-launched");
+    }
+
+    /// Bugbot regression: after a first successful seed the manifest stores `.filterToken`
+    /// as an object. The original guard probed `.filterToken` as a string, threw on the
+    /// object, and the catch silently allowed the second seed. Fixed guard probes
+    /// `.filterToken.address` and refuses when it's non-zero.
+    function test_SeedFilterRefusesDoubleSeed() public {
+        _deployAndStartSeason(true);
+        seed.run();
+        vm.expectRevert(bytes("manifest.filterToken already set; remove it to re-seed"));
+        seed.run();
     }
 }

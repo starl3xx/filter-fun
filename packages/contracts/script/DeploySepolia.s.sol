@@ -297,9 +297,15 @@ contract DeploySepolia is Script {
 
     function _writeManifest(string memory path, ManifestArgs memory a) internal {
         // Foundry's JSON builder serializes by *key prefix*: each `vm.serializeX(prefix, ...)`
-        // call appends to a json blob keyed under that prefix and returns the cumulative
-        // string. Build the two sub-objects, then attach them to the root.
-        string memory addrs = "addresses";
+        // call appends to a json blob keyed under that prefix. The state is held at the
+        // cheatcode-handler level and persists across script invocations in the same forge
+        // process — so a fixed id like "addresses" accumulates fields across test runs. We
+        // discriminate by `address(this)` (the script contract address) which is fresh on
+        // every `new DeploySepolia()`; combined with `block.timestamp` it's unique across
+        // every run in any forge process.
+        string memory disc =
+            string.concat(vm.toString(address(this)), "_", vm.toString(block.timestamp));
+        string memory addrs = string.concat("addresses_", disc);
         vm.serializeAddress(addrs, "treasuryTimelock", a.treasury);
         vm.serializeAddress(addrs, "bonusDistributor", a.bonus);
         vm.serializeAddress(addrs, "polVault", a.polVault);
@@ -314,7 +320,7 @@ contract DeploySepolia is Script {
         vm.serializeAddress(addrs, "v4PoolManager", a.v4PoolManager);
         string memory addrsJson = vm.serializeAddress(addrs, "weth", a.weth);
 
-        string memory cfg = "config";
+        string memory cfg = string.concat("config_", disc);
         vm.serializeAddress(cfg, "treasuryOwner", a.treasuryOwner);
         vm.serializeAddress(cfg, "schedulerOracle", a.oracle);
         vm.serializeAddress(cfg, "mechanicsWallet", a.mechanics);
@@ -322,15 +328,26 @@ contract DeploySepolia is Script {
         vm.serializeUint(cfg, "maxLaunchesPerWallet", a.maxLaunchesPerWallet);
         string memory cfgJson = vm.serializeBool(cfg, "refundableStakeEnabled", a.refundableStake);
 
-        string memory root = "manifest";
+        // `filterToken` placeholder. Must be an *object* (not a string) so SeedFilter can
+        // overwrite it via `vm.writeJson(value, path, ".filterToken")` — that cheatcode
+        // refuses if the existing key is a scalar. Zero addresses signal "not yet seeded";
+        // SeedFilter's guard probes `.filterToken.address != address(0)` to refuse double-seed.
+        string memory ftKey = string.concat("filterTokenPlaceholder_", disc);
+        vm.serializeAddress(ftKey, "address", address(0));
+        vm.serializeAddress(ftKey, "locker", address(0));
+        vm.serializeString(ftKey, "name", "");
+        vm.serializeString(ftKey, "symbol", "");
+        vm.serializeUint(ftKey, "seededAt", 0);
+        string memory ftJson = vm.serializeString(ftKey, "metadataURI", "");
+
+        string memory root = string.concat("manifest_", disc);
         vm.serializeUint(root, "chainId", block.chainid);
         vm.serializeString(root, "network", "base-sepolia");
         vm.serializeUint(root, "deployBlockNumber", block.number);
         vm.serializeUint(root, "deployedAt", block.timestamp);
         vm.serializeAddress(root, "deployerAddress", a.deployer);
         vm.serializeBytes32(root, "hookSalt", a.hookSalt);
-        // `filterToken` placeholder — SeedFilter.s.sol writes the real value over this.
-        vm.serializeString(root, "filterToken", "");
+        vm.serializeString(root, "filterToken", ftJson);
         vm.serializeString(
             root, "deployCommitHash", _envOrDefaultString("DEPLOY_COMMIT_HASH", "unknown")
         );
