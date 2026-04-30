@@ -24,6 +24,13 @@ import {streamSSE} from "hono/streaming";
 
 import {feeAccrual, season, token} from "../../../ponder.schema";
 
+import {
+  clientIpFromContext,
+  releaseEventsConn,
+  tryClaimEventsConn,
+  type MwContext,
+} from "../middleware.js";
+
 import {loadConfigFromEnv} from "./config.js";
 import {aggregateFeesByToken, lockerToTokenMap, translateFeeRows} from "./feeAdapter.js";
 import {Hub} from "./hub.js";
@@ -38,6 +45,19 @@ const hub = new Hub({perConnQueueMax: cfg.perConnQueueMax});
 let engine: TickEngine | null = null;
 
 ponder.get("/events", (c) => {
+  // Per-IP connection cap. SSE is long-lived, so we count active streams instead of
+  // running this through the GET token bucket — a single client could otherwise burn a
+  // bucket's worth of capacity per minute by reconnecting. Existing streams are not
+  // affected when the cap is hit; only the *new* connection is refused.
+  const ip = clientIpFromContext(c as unknown as MwContext);
+  const claim = tryClaimEventsConn(ip);
+  if (!claim.allowed) {
+    (c as unknown as MwContext).header("Retry-After", String(claim.retryAfterSec));
+    return c.json(
+      {error: "events connection limit reached", retryAfterSec: claim.retryAfterSec},
+      429,
+    );
+  }
   ensureEngineStarted(c.db);
   // Ponder's typed context narrows the Hono generics; streamSSE wants the wide form.
   return streamSSE(c as unknown as Context, async (stream) => {
@@ -74,6 +94,10 @@ ponder.get("/events", (c) => {
     } finally {
       if (heartbeatHandle) clearInterval(heartbeatHandle);
       sub.close();
+      // Release the per-IP slot. Critical that this lives in `finally` so abnormal closes
+      // (network drop, client refresh, server-side abort) don't leak slots and eventually
+      // exhaust the cap for the IP.
+      releaseEventsConn(ip);
     }
   });
 });
