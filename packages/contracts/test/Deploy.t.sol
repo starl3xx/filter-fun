@@ -49,7 +49,7 @@ contract DeployTest is Test, Deployers {
     uint256 internal constant DEPLOYER_PK = uint256(keccak256("filter.fun.test.deployer"));
 
     /// Where the test writes its sandbox manifest. Picked to live under the same package so
-    /// fs_permissions allow it; cleaned up in tearDown.
+    /// fs_permissions allow it; the `freshEnv` modifier wipes any leftover before every test.
     string internal constant TEST_MANIFEST = "./deployments/base-sepolia.test.json";
 
     address internal deployerAddr;
@@ -74,10 +74,6 @@ contract DeployTest is Test, Deployers {
         // The script asserts chainid == 84_532. Spoof it. (Doesn't affect anything else
         // in-test — V4 helpers don't care about chainid.)
         vm.chainId(84_532);
-    }
-
-    function tearDown() public {
-        if (vm.exists(TEST_MANIFEST)) vm.removeFile(TEST_MANIFEST);
     }
 
     /// Modifier instead of `setUp()` because forge's per-test isolation mechanism reverts
