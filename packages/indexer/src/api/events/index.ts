@@ -108,33 +108,29 @@ function buildQueries(db: ApiContext["db"]): EventsQueries {
         liquidationProceeds: r.liquidationProceeds,
       }));
     },
-    recentFees: async (sinceSec) => {
+    tokenAddressByLocker: async () => {
+      // Resolve LOCKER → token contract address. The fee-accrual schema stores the
+      // FilterLpLocker address (it's the FeesCollected emitter), not the token contract;
+      // every fee row silently failed the downstream `tokensByAddr.get(...)` lookup in
+      // detectVolumeSpike + detectLargeTrade until this resolution was added. The map is
+      // fetched once per tick by the engine and shared between recentFees + baselineFees.
+      const allTokens = await db.select().from(token);
+      return lockerToTokenMap(allTokens);
+    },
+    recentFees: async (sinceSec, lockerMap) => {
       const rows = await db
         .select()
         .from(feeAccrual)
         .where(gte(feeAccrual.blockTimestamp, sinceSec));
-      // Resolve LOCKER → token contract address. Without this, every fee row silently
-      // failed the downstream `tokensByAddr.get(...)` lookup in detectVolumeSpike +
-      // detectLargeTrade — both detectors went dark in production.
-      const allTokens = await db.select().from(token);
-      const lToT = lockerToTokenMap(allTokens);
-      return translateFeeRows(rows, lToT);
+      return translateFeeRows(rows, lockerMap);
     },
-    baselineFees: async (sinceSec, baselineWindowSec) => {
+    baselineFees: async (sinceSec, baselineWindowSec, lockerMap) => {
       const start = sinceSec - baselineWindowSec;
       const rows = await db
         .select()
         .from(feeAccrual)
         .where(and(gte(feeAccrual.blockTimestamp, start), lte(feeAccrual.blockTimestamp, sinceSec)));
-      const allTokens = await db.select().from(token);
-      const lToT = lockerToTokenMap(allTokens);
-      return aggregateFeesByToken(rows, lToT);
+      return aggregateFeesByToken(rows, lockerMap);
     },
   };
-}
-
-/// Exposed for tests: clears the singleton so a fresh hub/engine can be wired in.
-export function __resetEventsEngineForTests(): void {
-  engine?.stop();
-  engine = null;
 }

@@ -39,14 +39,24 @@ export interface EventsQueries {
       liquidationProceeds: bigint | null;
     }>
   >;
+  /// Per-tick locker→token resolution map. The fee-accrual schema stores LOCKER
+  /// addresses (FilterLpLocker is the FeesCollected emitter), but detectors look up by
+  /// token contract address. Returning the map from queries lets the engine fetch the
+  /// token table once per tick and share it between `recentFees` and `baselineFees`.
+  tokenAddressByLocker: () => Promise<Map<string, `0x${string}`>>;
   /// Fee accruals since `sinceSec` for the volume-spike + large-trade detectors. Each row
-  /// is one `FeesCollected` event from the indexer schema.
-  recentFees: (sinceSec: bigint) => Promise<FeeAccrualRow[]>;
+  /// is one `FeesCollected` event from the indexer schema, with locker addresses already
+  /// resolved to token contract addresses via `lockerMap`.
+  recentFees: (
+    sinceSec: bigint,
+    lockerMap: ReadonlyMap<string, `0x${string}`>,
+  ) => Promise<FeeAccrualRow[]>;
   /// Trailing-baseline fees per token over `[sinceSec - baselineWindow, sinceSec]`. Used
   /// as the volume-spike denominator.
   baselineFees: (
     sinceSec: bigint,
     baselineWindowSec: bigint,
+    lockerMap: ReadonlyMap<string, `0x${string}`>,
   ) => Promise<Map<`0x${string}`, bigint>>;
 }
 
@@ -130,10 +140,14 @@ export class TickEngine {
       let baseline = new Map<string, bigint>();
       if (prev) {
         const sinceSec = prev.takenAtSec;
-        recentFees = await this.opts.queries.recentFees(sinceSec);
+        // Locker→token map, fetched once per tick and shared between both fee queries.
+        // The token table changes only when a new token launches (rare); fetching twice
+        // per 5s tick was strictly duplicate work.
+        const lockerMap = await this.opts.queries.tokenAddressByLocker();
+        recentFees = await this.opts.queries.recentFees(sinceSec, lockerMap);
         // Baseline window: the previous full window of equal length, i.e. [sinceSec - delta, sinceSec).
         const delta = current.takenAtSec - sinceSec;
-        const baselineByAddr = await this.opts.queries.baselineFees(sinceSec, delta);
+        const baselineByAddr = await this.opts.queries.baselineFees(sinceSec, delta, lockerMap);
         baseline = new Map(
           [...baselineByAddr.entries()].map(([k, v]) => [k.toLowerCase(), v]),
         );

@@ -900,6 +900,7 @@ describe("TickEngine", () => {
           liquidated: t.liquidated ?? false,
           liquidationProceeds: t.liquidationProceeds ?? null,
         })),
+      tokenAddressByLocker: async () => new Map(),
       recentFees: async () => opts.recent ?? [],
       baselineFees: async () => opts.baseline ?? new Map(),
     };
@@ -952,6 +953,7 @@ describe("TickEngine", () => {
           {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null},
         ];
       },
+      tokenAddressByLocker: async () => new Map(),
       recentFees: async () => [],
       baselineFees: async () => new Map(),
     };
@@ -979,6 +981,7 @@ describe("TickEngine", () => {
       tokensForSnapshot: async () => [
         {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null},
       ],
+      tokenAddressByLocker: async () => new Map(),
       recentFees: async () => [],
       baselineFees: async () => new Map(),
     };
@@ -991,5 +994,47 @@ describe("TickEngine", () => {
     const evt = await sub.next();
     expect(evt?.type).toBe("PHASE_ADVANCED");
     sub.close();
+  });
+
+  it("locker→token map is fetched once per tick, shared between fee queries", async () => {
+    // Regression: previously, the Drizzle adapter rebuilt the locker map twice per tick
+    // (once inside recentFees, once inside baselineFees), running `db.select().from(token)`
+    // every 5s × 2. The engine now fetches it once and threads it through both.
+    const hub = new Hub({perConnQueueMax: 10});
+    let lockerCalls = 0;
+    let recentFeesLockerArg: ReadonlyMap<string, `0x${string}`> | null = null;
+    let baselineFeesLockerArg: ReadonlyMap<string, `0x${string}`> | null = null;
+    const sharedMap = new Map<string, `0x${string}`>([["0xlocker", a]]);
+    const queries: EventsQueries = {
+      latestSeason: async () => ({
+        seasonId: 1n,
+        phase: "Filter",
+        startedAtSec: 1_700_000_000n,
+        takenAtSec: 1_700_000_000n,
+      }),
+      tokensForSnapshot: async () => [
+        {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null},
+      ],
+      tokenAddressByLocker: async () => {
+        lockerCalls++;
+        return sharedMap;
+      },
+      recentFees: async (_sinceSec, lockerMap) => {
+        recentFeesLockerArg = lockerMap;
+        return [];
+      },
+      baselineFees: async (_sinceSec, _delta, lockerMap) => {
+        baselineFeesLockerArg = lockerMap;
+        return new Map();
+      },
+    };
+    const eng = new TickEngine({cfg: testCfg(), queries, hub});
+    await eng.tick(); // seeds prev — no fee queries on first tick
+    expect(lockerCalls).toBe(0);
+    await eng.tick(); // second tick triggers fee queries
+    expect(lockerCalls).toBe(1);
+    // Same reference passed through — proves the map was *shared*, not re-fetched
+    expect(recentFeesLockerArg).toBe(sharedMap);
+    expect(baselineFeesLockerArg).toBe(sharedMap);
   });
 });
