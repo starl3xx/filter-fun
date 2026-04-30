@@ -354,10 +354,14 @@ describe("HP component shape", () => {
     const rows = [{id: addr(1), liquidationProceeds: null}];
     const scored = scoreCohort(rows, "finals", 0n);
     const c = scored.get(addr(1).toLowerCase())!.components;
+    // Spec §6.5 finals: 30/15/25/20/10. Conviction (sticky+retention=0.45)
+    // sits at parity with discovery (velocity+effectiveBuyers=0.45); the
+    // shift from pre-filter is in *within-group* emphasis, not group totals.
     expect(c.stickyLiquidity.weight).toBeCloseTo(0.25);
-    expect(c.retention.weight).toBeCloseTo(0.25);
-    // Velocity weight in finals: 0.25, less than the pre-filter 0.40.
-    expect(c.velocity.weight).toBeCloseTo(0.25);
+    expect(c.retention.weight).toBeCloseTo(0.20);
+    expect(c.velocity.weight).toBeCloseTo(0.30); // less than pre-filter 0.40
+    expect(c.effectiveBuyers.weight).toBeCloseTo(0.15);
+    expect(c.momentum.weight).toBeCloseTo(0.10);
   });
 });
 
