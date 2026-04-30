@@ -7,8 +7,9 @@ Ponder-based on-chain event indexer for filter.fun. Consumes `FilterLauncher`, `
 - `ponder.config.ts` — networks, contracts, factory patterns. Reads addresses from env.
 - `ponder.schema.ts` — `season`, `token`, `feeAccrual`, `phaseChange`, `liquidation`, `rolloverClaim`, `bonusFunding`, `bonusClaim`.
 - `src/*.ts` — event handlers grouped by source contract.
-- `src/api/*.ts` — HTTP API (Epic 1.3 part 1/3): `/season`, `/tokens`, `/token/:address`. Pure handlers in `handlers.ts`/`builders.ts`/`hp.ts`/`status.ts`/`phase.ts`; route wiring + Drizzle adapter in `index.ts`.
-- `test/api/*.test.ts` — vitest unit tests against the pure handlers.
+- `src/api/*.ts` — HTTP API (Epic 1.3 parts 1+2/3): `/season`, `/tokens`, `/token/:address`, `/events` (SSE). Pure handlers in `handlers.ts`/`builders.ts`/`hp.ts`/`status.ts`/`phase.ts`; route wiring + Drizzle adapter in `index.ts`.
+- `src/api/events/*.ts` — `/events` stream: pure detectors + priority pipeline + connection hub + tick engine; SSE route in `events/index.ts`.
+- `test/api/*.test.ts` — vitest unit tests against the pure handlers + events module.
 - `abis/*.json` — Foundry-extracted ABIs. Run `npm run abi:sync` after any contract change.
 
 ## Setup
@@ -92,6 +93,64 @@ Cohort for the current season, sorted by ascending rank (rank 1 first). Matches 
 
 HP weights follow spec §6.5: `preFilter` weights during launch + competition, `finals` weights during finals + settled.
 
+### `GET /events` — Server-Sent Events stream (Epic 1.3 part 2/3)
+
+Powers the Arena ticker (spec §20). Long-lived SSE stream of `TickerEvent` records. Each record uses the standard SSE framing:
+
+```
+id: 42
+event: ticker
+data: {"id":42,"type":"HP_SPIKE","priority":"MEDIUM",...}
+```
+
+Clients connect with the standard `EventSource` API. The browser handles auto-reconnect; the server emits a `:hb` SSE comment every `EVENTS_HEARTBEAT_MS` (default 15s) so reverse-proxy idle timeouts don't drop quiet streams. There is no server-side replay buffer — reconnects miss any events delivered during the disconnect window. Acceptable for genesis since the ticker is a "what's happening now" surface, not an audit log.
+
+**Wire format** (per spec §26.4):
+
+```json
+{
+  "id": 42,
+  "type": "CUT_LINE_CROSSED",
+  "priority": "HIGH",
+  "token": "$EDGE",
+  "address": "0x…",
+  "message": "$EDGE just dropped below the cut line 🔻",
+  "data": {"fromRank": 5, "toRank": 7, "direction": "below"},
+  "timestamp": "2026-04-30T14:00:05.123Z"
+}
+```
+
+**Event types + default priorities** (spec §36.1.4):
+
+| Type | Priority | Trigger |
+|---|---|---|
+| `CUT_LINE_CROSSED` | HIGH | A token's rank crossed position 6 (the cut line) |
+| `FILTER_FIRED` | HIGH | A token transitioned to liquidated — also arms a 60s "filter moment" suppression window |
+| `FILTER_COUNTDOWN` | HIGH | < N min until the next cut |
+| `RANK_CHANGED` | MEDIUM | A rank delta of ≥ `EVENTS_RANK_CHANGE_MIN` that didn't cross the cut line |
+| `HP_SPIKE` | MEDIUM | `|Δhp|` ≥ `EVENTS_HP_SPIKE_THRESHOLD` between snapshots |
+| `VOLUME_SPIKE` | MEDIUM | Current-window WETH fee / trailing baseline ≥ `EVENTS_VOLUME_SPIKE_RATIO` |
+| `PHASE_ADVANCED` | MEDIUM | `season.phase` changed |
+| `LARGE_TRADE` | LOW (MEDIUM near cut) | Inferred trade size ≥ `EVENTS_LARGE_TRADE_WETH` (`tradeWei = totalFee × 10000 / EVENTS_TRADE_FEE_BPS`); rank-7 ± window elevates to MEDIUM |
+
+**Pipeline** runs once per detector tick (default `EVENTS_TICK_MS = 5000`) on top of the diffed snapshot. Stages, in order:
+
+1. **Dedupe** — collapses repeated `(token, type)` pairs within `EVENTS_DEDUPE_WINDOW_MS` (default 30s)
+2. **Throttle** — at most `EVENTS_THROTTLE_PER_TOKEN` (default 3) token-scoped events per `EVENTS_THROTTLE_WINDOW_MS`
+3. **Filter-moment suppression** — after a `FILTER_FIRED`, all non-filter events drop for `EVENTS_FILTER_MOMENT_WINDOW_MS` (default 60s)
+4. **LOW suppression** — if the surviving batch carries any HIGH/MEDIUM event, all LOW events from that batch drop (suppressed events do *not* burn dedupe/throttle slots — they reach the client cleanly on the next tick once things calm down)
+
+**Backpressure** — every connection has a bounded queue of `EVENTS_PER_CONN_QUEUE_MAX` (default 200) events. When full, the hub evicts oldest LOW first, then oldest MEDIUM. **HIGH events are never evicted** — important signals always arrive even if the consumer is behind.
+
+**Configuration knobs** (env vars, all optional with the defaults shown above):
+
+- `EVENTS_TICK_MS`, `EVENTS_HEARTBEAT_MS`, `EVENTS_PER_CONN_QUEUE_MAX`
+- `EVENTS_DEDUPE_WINDOW_MS`, `EVENTS_THROTTLE_WINDOW_MS`, `EVENTS_THROTTLE_PER_TOKEN`
+- `EVENTS_HP_SPIKE_THRESHOLD`, `EVENTS_RANK_CHANGE_MIN`
+- `EVENTS_VOLUME_SPIKE_RATIO`, `EVENTS_VOLUME_SPIKE_MIN_WETH` (decimal-ether: `"0.1"`)
+- `EVENTS_LARGE_TRADE_WETH` (decimal-ether: `"0.5"`), `EVENTS_TRADE_FEE_BPS`
+- `EVENTS_FILTER_MOMENT_WINDOW_MS`
+
 ### `GET /token/:address`
 
 Per-token detail — used by the leaderboard click-through. Returns `404` for any address the indexer has never seen, `400` for malformed addresses.
@@ -108,7 +167,7 @@ Per-token detail — used by the leaderboard click-through. Returns `404` for an
 }
 ```
 
-## Known gaps (Epic 1.3 part 1/3)
+## Known gaps (Epic 1.3 parts 1+2/3)
 
 The API is shipped with the spec §26.4 shape locked, but several fields currently surface placeholders because the underlying indexer schema doesn't track the relevant events yet. Documented here so callers know what is real vs. stand-in:
 
@@ -116,11 +175,13 @@ The API is shipped with the spec §26.4 shape locked, but several fields current
 - **Market-data fields** on `/tokens` (`price`, `priceChange24h`, `volume24h`, `liquidity`, `holders`) are placeholders. Populating them requires the same swap/transfer/LP indexing as HP.
 - **`polReserve`** on `/season` is `"0"` until POLManager / SeasonPOLReserve events are indexed. Schema has no POL accrual table yet.
 - **Cadence anchors** (`nextCutAt`, `finalSettlementAt`) are derived from `season.startedAt` + spec §36.1.5 offsets (72h cut, 168h settlement). When Epic 1.10 lands and the contract emits explicit cadence anchors, swap the helpers in `phase.ts` for direct reads.
+- **`/events` volume baselines** rely on the `feeAccrual.token` column, which stores the per-token *locker* address (the emitter) rather than the token contract. The locker→token mapping isn't indexed in the API path yet, so `cumulativeFeesByToken` returns an empty map and the volume-spike detector falls back to the recent-fees-only path. Index a locker→token relation to populate cumulative volume properly — see the TODO in `events/index.ts`.
+- **`/events` swap-derived signals** — once swap events are indexed (the same gap that blocks real HP), individual-trade detection can move from fee-derived inference to direct trade events (cleaner near-cut elevation, no dependency on `EVENTS_TRADE_FEE_BPS`).
 
 ## Status (genesis-of-indexer)
 
 - Schema + handlers cover every event the contracts emit.
-- HTTP API wired (Epic 1.3 part 1/3).
+- HTTP API wired (Epic 1.3 parts 1+2/3 — `/season`, `/tokens`, `/token/:address`, `/events` SSE).
 - Factory pattern wired: `SeasonVault` instances tracked via `FilterLauncher.SeasonStarted`; `FilterLpLocker` instances tracked via `FilterFactory.TokenDeployed`.
 - Addresses are placeholders — real wiring happens at testnet deploy.
 
@@ -130,7 +191,6 @@ Off-chain CI (`.github/workflows/off-chain-ci.yml`) runs `typecheck`, `codegen`,
 
 ## Outstanding
 
-- Indexer-side: track swap / transfer / LP events so HP inputs and market-data fields are real.
-- `/events` SSE/websocket stream (Epic 1.3 part 2/3) for the ticker.
+- Indexer-side: track swap / transfer / LP events so HP inputs, market-data fields, and `/events` volume baselines are real.
 - `/profile/:address`, cache layer, rate limiting (Epic 1.3 part 3/3).
 - `FilterFactory.TokenDeployed` adds the locker but doesn't index `FilterFactory` directly. If we want pool keys / start blocks per launch in the index, add a small handler.
