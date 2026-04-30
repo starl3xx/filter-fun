@@ -25,9 +25,13 @@ import {streamSSE} from "hono/streaming";
 import {feeAccrual, season, token} from "../../../ponder.schema";
 
 import {loadConfigFromEnv} from "./config.js";
+import {
+  aggregateFeesByToken,
+  lockerToTokenMap,
+  translateFeeRows,
+} from "./feeAdapter.js";
 import {Hub} from "./hub.js";
 import {TickEngine, type EventsQueries} from "./tick.js";
-import type {FeeAccrualRow} from "./types.js";
 
 const cfg = loadConfigFromEnv();
 const hub = new Hub({perConnQueueMax: cfg.perConnQueueMax});
@@ -108,29 +112,25 @@ function buildQueries(db: ApiContext["db"]): EventsQueries {
       }));
     },
     cumulativeFeesByToken: async (seasonId) => {
-      // The `feeAccrual.token` column stores the LOCKER address (per-token locker is the
-      // emitter), not the token contract — we'd need to resolve via `token.locker` to map
-      // back. The current schema doesn't index a locker→token mapping in the API path,
-      // so for genesis we sum all fees by emitter and let the route consumer match by
-      // locker address. For now this returns an empty map — large-trade and volume-spike
-      // detectors fall back to the recent-fees-only path (which is what they actually
-      // need).
-      // TODO(events part 3): index a locker→token mapping to populate this properly.
-      void seasonId;
-      return new Map();
+      // Scope locker→token resolution to this season so we don't accidentally mix in
+      // fee history from prior cohorts that happen to share a locker (they don't —
+      // every launch deploys its own locker — but the explicit scope is cheap insurance).
+      const seasonTokens = await db.select().from(token).where(eq(token.seasonId, seasonId));
+      const lToT = lockerToTokenMap(seasonTokens);
+      const rows = await db.select().from(feeAccrual);
+      return aggregateFeesByToken(rows, lToT);
     },
     recentFees: async (sinceSec) => {
       const rows = await db
         .select()
         .from(feeAccrual)
         .where(gte(feeAccrual.blockTimestamp, sinceSec));
-      return rows.map(
-        (r): FeeAccrualRow => ({
-          tokenAddress: r.token,
-          totalFeeWei: r.toVault + r.toTreasury + r.toMechanics,
-          blockTimestampSec: r.blockTimestamp,
-        }),
-      );
+      // Resolve LOCKER → token contract address. Without this, every fee row silently
+      // failed the downstream `tokensByAddr.get(...)` lookup in detectVolumeSpike +
+      // detectLargeTrade — both detectors went dark in production.
+      const allTokens = await db.select().from(token);
+      const lToT = lockerToTokenMap(allTokens);
+      return translateFeeRows(rows, lToT);
     },
     baselineFees: async (sinceSec, baselineWindowSec) => {
       const start = sinceSec - baselineWindowSec;
@@ -138,12 +138,9 @@ function buildQueries(db: ApiContext["db"]): EventsQueries {
         .select()
         .from(feeAccrual)
         .where(and(gte(feeAccrual.blockTimestamp, start), lte(feeAccrual.blockTimestamp, sinceSec)));
-      const acc = new Map<`0x${string}`, bigint>();
-      for (const r of rows) {
-        const sum = r.toVault + r.toTreasury + r.toMechanics;
-        acc.set(r.token, (acc.get(r.token) ?? 0n) + sum);
-      }
-      return acc;
+      const allTokens = await db.select().from(token);
+      const lToT = lockerToTokenMap(allTokens);
+      return aggregateFeesByToken(rows, lToT);
     },
   };
 }

@@ -8,6 +8,13 @@ import {beforeEach, describe, expect, it} from "vitest";
 
 import {withDefaults, type EventsConfig} from "../../src/api/events/config.js";
 import {diffSnapshots} from "../../src/api/events/detectors.js";
+import {
+  aggregateFeesByToken,
+  lockerToTokenMap,
+  translateFeeRows,
+  type FeeAccrualDbRow,
+  type TokenLockerRow,
+} from "../../src/api/events/feeAdapter.js";
 import {Hub} from "../../src/api/events/hub.js";
 import {priorityOf, renderEvent} from "../../src/api/events/message.js";
 import {makeState, runPipeline, type PipelineClock} from "../../src/api/events/pipeline.js";
@@ -614,6 +621,84 @@ describe("Hub backpressure", () => {
     expect(rb?.id).toBe(42);
     a.close();
     b.close();
+  });
+});
+
+// ============================================================ Fee adapter
+
+describe("feeAdapter — locker→token translation", () => {
+  const tokenAddr = "0x000000000000000000000000000000000000aaaa" as `0x${string}`;
+  const lockerAddr = "0x000000000000000000000000000000000000bbbb" as `0x${string}`;
+  const otherToken = "0x000000000000000000000000000000000000cccc" as `0x${string}`;
+  const otherLocker = "0x000000000000000000000000000000000000dddd" as `0x${string}`;
+  const orphanLocker = "0x000000000000000000000000000000000000eeee" as `0x${string}`;
+
+  const tokenRows: TokenLockerRow[] = [
+    {id: tokenAddr, locker: lockerAddr, seasonId: 1n},
+    {id: otherToken, locker: otherLocker, seasonId: 1n},
+  ];
+
+  const feeRows: FeeAccrualDbRow[] = [
+    {
+      token: lockerAddr,
+      toVault: 10n,
+      toTreasury: 5n,
+      toMechanics: 5n,
+      blockTimestamp: 100n,
+    },
+    {
+      token: otherLocker.toUpperCase() as `0x${string}`, // checksummed — must still resolve
+      toVault: 1n,
+      toTreasury: 1n,
+      toMechanics: 1n,
+      blockTimestamp: 110n,
+    },
+    {
+      token: orphanLocker, // no token row points here — must drop
+      toVault: 1n,
+      toTreasury: 1n,
+      toMechanics: 1n,
+      blockTimestamp: 120n,
+    },
+  ];
+
+  it("lockerToTokenMap — keys are lowercase, values are token addresses", () => {
+    const m = lockerToTokenMap(tokenRows);
+    expect(m.get(lockerAddr.toLowerCase())).toBe(tokenAddr);
+    expect(m.get(otherLocker.toLowerCase())).toBe(otherToken);
+    expect(m.size).toBe(2);
+  });
+
+  it("translateFeeRows — bugbot regression: locker addresses are resolved to token contract addresses", () => {
+    const m = lockerToTokenMap(tokenRows);
+    const translated = translateFeeRows(feeRows, m);
+    expect(translated).toHaveLength(2); // orphan filtered out
+    expect(translated[0]!.tokenAddress).toBe(tokenAddr); // not the locker
+    expect(translated[0]!.totalFeeWei).toBe(20n);
+    expect(translated[1]!.tokenAddress).toBe(otherToken); // mixed-case locker still resolved
+    expect(translated[1]!.totalFeeWei).toBe(3n);
+  });
+
+  it("translateFeeRows — drops fee rows whose locker isn't in the token map", () => {
+    const m = lockerToTokenMap([{id: tokenAddr, locker: lockerAddr, seasonId: 1n}]);
+    const out = translateFeeRows(feeRows, m);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.tokenAddress).toBe(tokenAddr);
+  });
+
+  it("aggregateFeesByToken — sums fee rows and groups by resolved token contract address", () => {
+    const m = lockerToTokenMap(tokenRows);
+    // Two fee rows for the same locker — should sum.
+    const rows: FeeAccrualDbRow[] = [
+      {token: lockerAddr, toVault: 10n, toTreasury: 0n, toMechanics: 0n, blockTimestamp: 1n},
+      {token: lockerAddr, toVault: 0n, toTreasury: 5n, toMechanics: 5n, blockTimestamp: 2n},
+      {token: otherLocker, toVault: 100n, toTreasury: 0n, toMechanics: 0n, blockTimestamp: 3n},
+      {token: orphanLocker, toVault: 999n, toTreasury: 0n, toMechanics: 0n, blockTimestamp: 4n},
+    ];
+    const acc = aggregateFeesByToken(rows, m);
+    expect(acc.get(tokenAddr)).toBe(20n);
+    expect(acc.get(otherToken)).toBe(100n);
+    expect(acc.size).toBe(2); // orphan didn't land
   });
 });
 
