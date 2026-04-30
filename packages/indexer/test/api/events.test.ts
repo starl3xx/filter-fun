@@ -879,6 +879,45 @@ describe("TickEngine", () => {
     expect(r.emitted).toBe(0);
   });
 
+  it("overlapping tick() calls — second invocation no-ops via in-flight guard", async () => {
+    // Regression: setInterval doesn't await async callbacks, so a slow tick can be
+    // lapped by the next firing. Without the guard, both runs read+write
+    // `prevSnapshot` across await points and step on each other (fees queried against
+    // one prev, detectors run against another). The guard makes the lap a no-op.
+    const hub = new Hub({perConnQueueMax: 10});
+    let releaseFirstTokensQuery!: () => void;
+    const tokensGate = new Promise<void>((resolve) => {
+      releaseFirstTokensQuery = resolve;
+    });
+    let tokensCalls = 0;
+    const queries: EventsQueries = {
+      latestSeason: async () => ({
+        seasonId: 1n,
+        phase: "Filter",
+        startedAtSec: 1_700_000_000n,
+        takenAtSec: 1_700_000_000n,
+      }),
+      tokensForSnapshot: async () => {
+        tokensCalls++;
+        if (tokensCalls === 1) await tokensGate; // hold the first call open
+        return [
+          {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null},
+        ];
+      },
+      recentFees: async () => [],
+      baselineFees: async () => new Map(),
+    };
+    const eng = new TickEngine({cfg: testCfg(), queries, hub});
+    const first = eng.tick();
+    // Second tick fires while the first is still mid-await — must short-circuit.
+    const second = await eng.tick();
+    expect(second).toEqual({snapshot: null, emitted: 0});
+    expect(tokensCalls).toBe(1); // second call never reached the queries layer
+    releaseFirstTokensQuery();
+    const firstResult = await first;
+    expect(firstResult.snapshot).not.toBeNull();
+  });
+
   it("two ticks with phase change — broadcasts PHASE_ADVANCED on the second", async () => {
     const hub = new Hub({perConnQueueMax: 10});
     let phase = "Launch";

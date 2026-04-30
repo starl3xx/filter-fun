@@ -66,7 +66,11 @@ export class TickEngine {
   private pipelineState: PipelineState = makeState();
   private nextEventId = 1;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /// Re-entry guard. `setInterval` doesn't await the async callback, so a slow tick can
+  /// be lapped by the next interval firing. Without this, two `tick()` calls overlap and
+  /// step on each other's `prevSnapshot` reads / writes — fees queried against one prev,
+  /// detectors run against another. We just skip the lap; the next tick picks back up.
+  private inFlight = false;
   private nowFn: () => number;
 
   constructor(private opts: TickEngineOpts) {
@@ -77,72 +81,86 @@ export class TickEngine {
   /// Run a single tick — pulls a snapshot, diffs, broadcasts. Returns the broadcast
   /// payload (also useful for tests).
   async tick(): Promise<{snapshot: Snapshot | null; emitted: number}> {
-    const seasonRow = await this.opts.queries.latestSeason();
-    if (!seasonRow) return {snapshot: null, emitted: 0};
+    if (this.inFlight) return {snapshot: null, emitted: 0};
+    this.inFlight = true;
+    try {
+      // Capture once at the top — `this.prevSnapshot` is read across multiple await
+      // points (fee queries + detectors), and even with the in-flight guard we want a
+      // single coherent reference so the `sinceSec` we queried fees against is the same
+      // snapshot we feed `diffSnapshots`.
+      const prev = this.prevSnapshot;
 
-    const tokens = await this.opts.queries.tokensForSnapshot(seasonRow.seasonId);
+      const seasonRow = await this.opts.queries.latestSeason();
+      if (!seasonRow) return {snapshot: null, emitted: 0};
 
-    const apiPhase = toApiPhase(seasonRow.phase);
-    const scored = scoreCohort(
-      tokens.map((t) => ({id: t.address, liquidationProceeds: t.liquidationProceeds})),
-      apiPhase,
-      seasonRow.takenAtSec,
-    );
+      const tokens = await this.opts.queries.tokensForSnapshot(seasonRow.seasonId);
 
-    const snapshotTokens: TokenSnapshot[] = tokens.map((t) => {
-      const s = scored.get(t.address.toLowerCase());
-      const rank = s?.rank ?? 0;
-      return {
-        address: t.address,
-        ticker: tickerWithDollar(t.symbol),
-        rank,
-        hp: hpAsInt100(s?.hp ?? 0),
-        isFinalist: t.isFinalist,
-        liquidated: t.liquidated,
-      };
-    });
-
-    const nextCutAtSec = nextCutEpochSec(seasonRow.startedAtSec, apiPhase);
-    const current: Snapshot = {
-      takenAtSec: seasonRow.takenAtSec,
-      seasonId: seasonRow.seasonId,
-      phase: seasonRow.phase,
-      nextCutAtSec,
-      tokens: snapshotTokens,
-    };
-
-    // Pull the recent-fees window + baseline only after we have a previous snapshot —
-    // detectors return [] on the first tick so we'd be wasting queries.
-    let recentFees: FeeAccrualRow[] = [];
-    let baseline = new Map<string, bigint>();
-    if (this.prevSnapshot) {
-      const sinceSec = this.prevSnapshot.takenAtSec;
-      recentFees = await this.opts.queries.recentFees(sinceSec);
-      // Baseline window: the previous full window of equal length, i.e. [sinceSec - delta, sinceSec).
-      const delta = current.takenAtSec - sinceSec;
-      const baselineByAddr = await this.opts.queries.baselineFees(sinceSec, delta);
-      baseline = new Map(
-        [...baselineByAddr.entries()].map(([k, v]) => [k.toLowerCase(), v]),
+      const apiPhase = toApiPhase(seasonRow.phase);
+      const scored = scoreCohort(
+        tokens.map((t) => ({id: t.address, liquidationProceeds: t.liquidationProceeds})),
+        apiPhase,
+        seasonRow.takenAtSec,
       );
+
+      const snapshotTokens: TokenSnapshot[] = tokens.map((t) => {
+        const s = scored.get(t.address.toLowerCase());
+        const rank = s?.rank ?? 0;
+        return {
+          address: t.address,
+          ticker: tickerWithDollar(t.symbol),
+          rank,
+          hp: hpAsInt100(s?.hp ?? 0),
+          isFinalist: t.isFinalist,
+          liquidated: t.liquidated,
+        };
+      });
+
+      const nextCutAtSec = nextCutEpochSec(seasonRow.startedAtSec, apiPhase);
+      const current: Snapshot = {
+        takenAtSec: seasonRow.takenAtSec,
+        seasonId: seasonRow.seasonId,
+        phase: seasonRow.phase,
+        nextCutAtSec,
+        tokens: snapshotTokens,
+      };
+
+      // Pull the recent-fees window + baseline only after we have a previous snapshot —
+      // detectors return [] on the first tick so we'd be wasting queries.
+      let recentFees: FeeAccrualRow[] = [];
+      let baseline = new Map<string, bigint>();
+      if (prev) {
+        const sinceSec = prev.takenAtSec;
+        recentFees = await this.opts.queries.recentFees(sinceSec);
+        // Baseline window: the previous full window of equal length, i.e. [sinceSec - delta, sinceSec).
+        const delta = current.takenAtSec - sinceSec;
+        const baselineByAddr = await this.opts.queries.baselineFees(sinceSec, delta);
+        baseline = new Map(
+          [...baselineByAddr.entries()].map(([k, v]) => [k.toLowerCase(), v]),
+        );
+      }
+
+      const detected = diffSnapshots(prev, current, recentFees, baseline, this.cfg);
+
+      const clock: PipelineClock = {
+        nowMs: this.nowFn,
+        now: () => {
+          const id = this.nextEventId++;
+          return {iso: new Date(this.nowFn()).toISOString(), id};
+        },
+      };
+      const result = runPipeline(detected, this.pipelineState, this.cfg, clock);
+      this.opts.hub.broadcast(result.emitted);
+
+      this.prevSnapshot = current;
+      return {snapshot: current, emitted: result.emitted.length};
+    } finally {
+      this.inFlight = false;
     }
-
-    const detected = diffSnapshots(this.prevSnapshot, current, recentFees, baseline, this.cfg);
-
-    const clock: PipelineClock = {
-      nowMs: this.nowFn,
-      now: () => {
-        const id = this.nextEventId++;
-        return {iso: new Date(this.nowFn()).toISOString(), id};
-      },
-    };
-    const result = runPipeline(detected, this.pipelineState, this.cfg, clock);
-    this.opts.hub.broadcast(result.emitted);
-
-    this.prevSnapshot = current;
-    return {snapshot: current, emitted: result.emitted.length};
   }
 
-  /// Start the periodic tick + heartbeat. Idempotent — calling twice is a no-op.
+  /// Start the periodic tick. Idempotent — calling twice is a no-op. The SSE route owns
+  /// its own heartbeat keepalive (driven by `cfg.heartbeatMs`); the engine doesn't run
+  /// one here.
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
@@ -157,18 +175,11 @@ export class TickEngine {
     if (typeof this.timer === "object" && "unref" in this.timer) {
       (this.timer as {unref: () => void}).unref();
     }
-
-    // Heartbeat tick — broadcasts an empty array which the SSE route uses as a signal to
-    // emit the SSE comment line. Hub intentionally doesn't broadcast empty arrays, so the
-    // route reads `cfg.heartbeatMs` directly and emits its own keepalives.
-    // (No-op here; left as a hook so future versions can attach a real heartbeat event.)
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    this.heartbeatTimer = null;
   }
 }
 
