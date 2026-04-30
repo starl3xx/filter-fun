@@ -5,8 +5,10 @@
     "dockerfilePath": "packages/indexer/Dockerfile"
   },
   "deploy": {
-    "startCommand": "npx ponder start",
+    "startCommand": "npx ponder start --hostname 0.0.0.0",
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 5
+    "restartPolicyMaxRetries": 5,
+    "healthcheckPath": "/season",
+    "healthcheckTimeout": 30
   }
 }

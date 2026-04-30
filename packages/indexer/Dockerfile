@@ -21,10 +21,15 @@ COPY packages/web/package.json packages/web/
 #    (`ponder start` is a runtime command).
 RUN npm ci --omit=dev
 
-# 4. Source. Only the indexer is needed at runtime; oracle/scheduler/etc. are workspace
-#    siblings the indexer doesn't import. If that changes, copy them here too.
+# 4. Source. The indexer imports `@filter-fun/scoring` for HP composition in its API
+#    handlers, so copy that workspace package too. Other workspace siblings (oracle,
+#    scheduler, contracts, web) are not imported at runtime.
+COPY packages/scoring ./packages/scoring
 COPY packages/indexer ./packages/indexer
 
 WORKDIR /repo/packages/indexer
+# Ponder's HTTP server (GraphQL + the /season + /tokens API endpoints from src/api/) listens
+# on PORT (Railway auto-injects, default 42069). Bind 0.0.0.0 in the Railway start command
+# so traffic from outside the container reaches it.
 EXPOSE 42069
-CMD ["npx", "ponder", "start"]
+CMD ["npx", "ponder", "start", "--hostname", "0.0.0.0"]
