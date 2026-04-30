@@ -193,6 +193,27 @@ describe("detectors", () => {
     expect(trade!.data.nearCutLine).toBe(true);
   });
 
+  it("RANK_CHANGED / HP_SPIKE / FILTER_FIRED — bugbot regression: mixed-case current.tokens addresses still resolve", () => {
+    // `byAddr` lowercases its keys; the rank, HP, and filter detectors all look up against
+    // it. If `cur.tokens[*].address` arrives checksummed (which it can — the token table
+    // doesn't enforce a canonical case at the API boundary), every detection silently misses.
+    // Lookups are now routed through `lookupByAddr` which lowercases the key.
+    const lower = "0x000000000000000000000000000000000000abcd" as `0x${string}`;
+    const upper = "0x000000000000000000000000000000000000ABCD" as `0x${string}`;
+    const prev = snap({
+      tokens: [tok({address: lower, rank: 5, hp: 30, liquidated: false})],
+    });
+    // Same address but checksummed in the current snapshot.
+    const cur = snap({
+      tokens: [tok({address: upper, rank: 7, hp: 50, liquidated: true})],
+    });
+    const events = diffSnapshots(prev, cur, [], new Map(), testCfg());
+    const types = new Set(events.map((e) => e.type));
+    expect(types.has("CUT_LINE_CROSSED")).toBe(true); // 5 → 7
+    expect(types.has("HP_SPIKE")).toBe(true); // |Δhp|=20 ≥ 10
+    expect(types.has("FILTER_FIRED")).toBe(true); // false → true
+  });
+
   it("LARGE_TRADE — bugbot regression: mixed-case fee-row addresses still resolve", () => {
     // `byAddr` lowercases its keys. If a fee-accrual row arrives with a checksummed
     // address, the detector must still find the matching token. The token snapshot

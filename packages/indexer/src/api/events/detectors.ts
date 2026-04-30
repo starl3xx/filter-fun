@@ -46,7 +46,7 @@ function detectRankAndCutLine(prev: Snapshot, cur: Snapshot, cfg: EventsConfig):
   const prevByAddr = byAddr(prev.tokens);
   const out: DetectedEvent[] = [];
   for (const t of cur.tokens) {
-    const p = prevByAddr.get(t.address);
+    const p = lookupByAddr(prevByAddr, t.address);
     if (!p) continue;
     if (p.rank === 0 || t.rank === 0) continue; // unscored — no signal
 
@@ -87,7 +87,7 @@ function detectHpSpike(prev: Snapshot, cur: Snapshot, cfg: EventsConfig): Detect
   const prevByAddr = byAddr(prev.tokens);
   const out: DetectedEvent[] = [];
   for (const t of cur.tokens) {
-    const p = prevByAddr.get(t.address);
+    const p = lookupByAddr(prevByAddr, t.address);
     if (!p) continue;
     const delta = t.hp - p.hp;
     if (Math.abs(delta) >= cfg.hpSpikeThreshold) {
@@ -159,8 +159,7 @@ function detectLargeTrade(
     if (cfg.tradeFeeBps <= 0) continue;
     const tradeWei = (f.totalFeeWei * 10_000n) / BigInt(cfg.tradeFeeBps);
     if (tradeWei < cfg.largeTradeWethWei) continue;
-    // `byAddr` lowercases its keys; mixed-case fee-row addresses would otherwise miss.
-    const tok = tokensByAddr.get(f.tokenAddress.toLowerCase() as `0x${string}`);
+    const tok = lookupByAddr(tokensByAddr, f.tokenAddress);
     if (!tok) continue;
     // Near-cut-line large trades elevate to MEDIUM; everything else stays LOW per spec
     // §36.1.4 (individual trades are LOW by default).
@@ -189,7 +188,7 @@ function detectFilterEvents(prev: Snapshot, cur: Snapshot): DetectedEvent[] {
   // Filter fired: any token transitioned to liquidated.
   const prevByAddr = byAddr(prev.tokens);
   for (const t of cur.tokens) {
-    const p = prevByAddr.get(t.address);
+    const p = lookupByAddr(prevByAddr, t.address);
     if (!p) continue;
     if (!p.liquidated && t.liquidated) {
       out.push({
@@ -221,4 +220,15 @@ function byAddr(tokens: ReadonlyArray<TokenSnapshot>): Map<`0x${string}`, TokenS
   const m = new Map<`0x${string}`, TokenSnapshot>();
   for (const t of tokens) m.set(t.address.toLowerCase() as `0x${string}`, t);
   return m;
+}
+
+/// Case-insensitive helper for the address-keyed maps `byAddr` produces. Centralized so
+/// every detector lookup goes through the same normalization — addresses can arrive
+/// checksummed from upstream data sources, and a missed `.toLowerCase()` would silently
+/// disable detection for affected tokens.
+function lookupByAddr(
+  m: ReadonlyMap<`0x${string}`, TokenSnapshot>,
+  addr: `0x${string}`,
+): TokenSnapshot | undefined {
+  return m.get(addr.toLowerCase() as `0x${string}`);
 }
