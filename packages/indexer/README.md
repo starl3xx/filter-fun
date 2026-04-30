@@ -23,6 +23,30 @@ npm run dev           # local dev, requires deployed contracts + RPC
 npm run test          # vitest unit tests for the API handlers
 ```
 
+### Pointing at a deployed network
+
+The indexer reads contract addresses from a deploy manifest produced by
+[`packages/contracts/script/DeploySepolia.s.sol`](../contracts/script/DeploySepolia.s.sol)
+(or, on mainnet, the legacy DeployGenesis output). Resolution order, in
+[`src/deployment.ts`](./src/deployment.ts):
+
+1. `DEPLOYMENT_MANIFEST_PATH` env (explicit absolute path — Docker / Railway).
+2. Monorepo default: `../contracts/deployments/<network>.json`.
+3. Env-var fallback: `FILTER_LAUNCHER_ADDRESS` / `FILTER_FACTORY_ADDRESS` /
+   `BONUS_DISTRIBUTOR_ADDRESS` / `DEPLOY_BLOCK`. Set
+   `DEPLOYMENT_MANIFEST_REQUIRED=1` to refuse fallback.
+
+```sh
+# Base Sepolia: just deploy and run.
+PONDER_NETWORK=baseSepolia PONDER_RPC_URL_84532=$BASE_SEPOLIA_RPC_URL npm run dev
+
+# Mainnet: same pattern, with the mainnet manifest in place.
+PONDER_NETWORK=base PONDER_RPC_URL_8453=$BASE_RPC_URL npm run start
+```
+
+The boot log prints the resolved launcher/factory addresses and the deploy commit hash —
+a quick way to verify you're indexing the manifest you think you are.
+
 ## HTTP API
 
 Mounted on Ponder's built-in Hono server (default port 42069; set `PORT` to override). Base path is `/`. Ponder reserves `/health`, `/ready`, `/status`, and `/metrics` for its own use; Railway's healthcheck targets `/health` (always 200 once the HTTP server is up, independent of indexer sync state).

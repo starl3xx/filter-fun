@@ -45,8 +45,14 @@ jobs:
       - name: Build
         run: forge build --sizes
 
+      # `--test-threads 1` keeps tests serialized within a contract. Several scripts
+      # (`DeploySepolia.s.sol`, `SeedFilter.s.sol`) read/write a shared manifest file
+      # under `deployments/` plus several `vm.setEnv`-controlled knobs; those are
+      # process-wide state, so concurrent tests would race and silently produce wrong
+      # paths or stale manifests. Cost: a small fraction of a second on the test step;
+      # benefit: reliable CI.
       - name: Test
-        run: forge test -vv
+        run: forge test -vv --threads 1
 
       - name: Format check
         run: forge fmt --check
