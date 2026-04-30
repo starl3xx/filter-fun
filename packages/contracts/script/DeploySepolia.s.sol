@@ -238,9 +238,17 @@ contract DeploySepolia is Script {
             // the contract's behavior independent of forge-std version drift, which matters
             // because env state leaks across test files (process-wide) and a misparse would
             // silently bypass the FORCE_REDEPLOY guard.
+            //
+            // Reject anything outside the whitelist with a clear error rather than falling
+            // back. An operator typing `FORCE_REDEPLOY=True` (capital T) intends "true"; if
+            // we silently fell back to the default `false`, the idempotency guard would
+            // refuse to overwrite even though the operator asked it to. Loud failure beats
+            // silent surprise here.
             if (_eq(raw, "1") || _eq(raw, "true") || _eq(raw, "TRUE")) return true;
             if (_eq(raw, "0") || _eq(raw, "false") || _eq(raw, "FALSE")) return false;
-            return fallback_;
+            revert(
+                string.concat("DeploySepolia: unrecognized boolean for ", key, "; expected 1/0/true/false")
+            );
         } catch {
             return fallback_;
         }

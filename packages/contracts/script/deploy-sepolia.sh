@@ -90,42 +90,52 @@ else
   TR=$(jq -r '.addresses.tournamentRegistry' "$MANIFEST")
   TV=$(jq -r '.addresses.tournamentVault'    "$MANIFEST")
 
+  # Capture the deployer EOA address ONCE so we don't re-evaluate `cast wallet address
+  # --private-key "$DEPLOYER_PRIVATE_KEY"` per command (each evaluation is a chance to
+  # leak the key in error output or accidental tracing).
+  DEPLOYER_ADDR="$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")"
+
+  # Common verify flags. We deliberately do NOT enable `set -x` for verification: bash's
+  # xtrace prints fully-expanded commands to stderr, and any line referencing
+  # `--etherscan-api-key "$BASESCAN_API_KEY"` would dump the API key into CI logs (where
+  # they're persisted indefinitely). The earlier draft did this; bugbot caught it.
+  # Without xtrace, every call below logs only via the per-contract echo lines, which
+  # contain just the contract address.
   CHAIN_FLAG="--chain base_sepolia"
   COMMON="$CHAIN_FLAG --etherscan-api-key $BASESCAN_API_KEY --watch --skip-is-verified-check"
 
-  # Capture the deployer EOA address ONCE, *before* `set -x`, so the trace can't echo
-  # the private key. Bugbot caught this: with `set -x` enabled and `cast wallet address
-  # --private-key "$DEPLOYER_PRIVATE_KEY"` evaluated mid-trace, bash prints the fully
-  # expanded command (including the raw key) to stderr. CI logs persist that trace,
-  # leaking the key to anyone who can read the run.
-  DEPLOYER_ADDR="$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")"
-
   # Reconstruct the constructor args foundry-style. Each call shape mirrors the deploy
   # in DeploySepolia.s.sol — keep these in lockstep when changing constructors.
-  set -x
+  echo "  verify TreasuryTimelock:    $T"
   forge verify-contract "$T"  src/TreasuryTimelock.sol:TreasuryTimelock $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address[],address[],address)' \
       "[$TREASURY_OWNER]" "[$TREASURY_OWNER]" "$TREASURY_OWNER")"
 
+  echo "  verify BonusDistributor:    $B"
   forge verify-contract "$B" src/BonusDistributor.sol:BonusDistributor $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address,address,address)' \
       "$DEPLOYER_ADDR" "$WETH_ADDRESS" "$SCHEDULER_ORACLE_ADDRESS")"
 
+  echo "  verify POLVault:            $V"
   forge verify-contract "$V" src/POLVault.sol:POLVault $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address)' "$DEPLOYER_ADDR")"
 
+  echo "  verify FilterLauncher:      $L"
   forge verify-contract "$L" src/FilterLauncher.sol:FilterLauncher $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address,address,address,address,address,address)' \
       "$DEPLOYER_ADDR" "$SCHEDULER_ORACLE_ADDRESS" "$T" \
       "${MECHANICS_WALLET:-$TREASURY_OWNER}" "$B" "$WETH_ADDRESS")"
 
+  echo "  verify POLManager:          $M"
   forge verify-contract "$M" src/POLManager.sol:POLManager $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address,address,address)' \
       "$L" "$WETH_ADDRESS" "$V")"
 
   # FilterHook constructor is no-arg.
+  echo "  verify FilterHook:          $H"
   forge verify-contract "$H" src/FilterHook.sol:FilterHook $COMMON
 
+  echo "  verify FilterFactory:       $F"
   forge verify-contract "$F" src/FilterFactory.sol:FilterFactory $COMMON \
     --constructor-args "$(cast abi-encode 'constructor(address,address,address,address,address,address)' \
       "$V4_POOL_MANAGER_ADDRESS" "$H" "$L" "$WETH_ADDRESS" "$CFD" "$M")"
@@ -135,7 +145,6 @@ else
   # against the in-source artifact — no separate constructor args here are practical to
   # pass, so we leave a TODO. Operators can verify these via the basescan UI given the
   # source is identical.
-  set +x
   echo "Note: CR/CFD/TR/TV inline-deployed; verify via Basescan UI if needed:"
   echo "  CreatorRegistry:        $CR"
   echo "  CreatorFeeDistributor:  $CFD"
