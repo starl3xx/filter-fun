@@ -18,7 +18,7 @@
 /// the Arena profile UI to render an empty state for new wallets, and 200/zero avoids
 /// leaking "is this address ever been a player" via status code.
 
-import {tickerWithDollar} from "./builders.js";
+import {isAddressLike, tickerWithDollar} from "./builders.js";
 
 export type CreatedTokenStatus =
   | "ACTIVE"
@@ -165,6 +165,3 @@ function deriveBadges(
   return [...badges];
 }
 
-export function isAddressLike(s: string): boolean {
-  return /^0x[0-9a-f]{40}$/.test(s);
-}

@@ -2,6 +2,7 @@
 
 import {beforeEach, describe, expect, it} from "vitest";
 
+import {clientIpFromContext, type MwContext} from "../../src/api/middleware.js";
 import {
   consumeBucket,
   loadRateLimitConfigFromEnv,
@@ -169,6 +170,61 @@ describe("resolveClientIp", () => {
 
   it("falls back to 'unknown' when both XFF and socket are empty", () => {
     expect(resolveClientIp(null, "", false)).toBe("unknown");
+  });
+});
+
+describe("clientIpFromContext", () => {
+  /// Build a fake MwContext with the Node-server-style `env.incoming.socket` shape that
+  /// `clientIpFromContext` pokes at. The shape mirrors what `@hono/node-server` exposes.
+  function fakeCtx(opts: {
+    xff?: string;
+    serverIncoming?: {socket?: {remoteAddress?: string}};
+    plainIncoming?: {socket?: {remoteAddress?: string}};
+  }): MwContext {
+    return {
+      req: {
+        url: "http://localhost/",
+        header: (name) => (name.toLowerCase() === "x-forwarded-for" ? opts.xff : undefined),
+      },
+      header: () => {},
+      json: () => new Response(),
+      env: {
+        ...(opts.serverIncoming ? {server: {incoming: opts.serverIncoming}} : {}),
+        ...(opts.plainIncoming ? {incoming: opts.plainIncoming} : {}),
+      },
+    };
+  }
+
+  it("regression: reads socket.remoteAddress (client IP) not socket.address() (server bind)", () => {
+    // Bug fix from bugbot review on ba6b868: previous code called `socket.address()`,
+    // which returns the *server's* local bind address, collapsing every client to a
+    // single bucket whenever TRUST_PROXY=false. The correct property is `remoteAddress`.
+    const ip = clientIpFromContext(
+      fakeCtx({plainIncoming: {socket: {remoteAddress: "203.0.113.42"}}}),
+    );
+    expect(ip).toBe("203.0.113.42");
+  });
+
+  it("falls back to env.incoming when env.server.incoming is missing", () => {
+    const ip = clientIpFromContext(
+      fakeCtx({plainIncoming: {socket: {remoteAddress: "198.51.100.7"}}}),
+    );
+    expect(ip).toBe("198.51.100.7");
+  });
+
+  it("prefers env.server.incoming over env.incoming when both are present", () => {
+    const ip = clientIpFromContext(
+      fakeCtx({
+        serverIncoming: {socket: {remoteAddress: "10.0.0.1"}},
+        plainIncoming: {socket: {remoteAddress: "192.168.1.1"}},
+      }),
+    );
+    expect(ip).toBe("10.0.0.1");
+  });
+
+  it("falls back to 'unknown' when no socket info is reachable", () => {
+    const ip = clientIpFromContext(fakeCtx({}));
+    expect(ip).toBe("unknown");
   });
 });
 

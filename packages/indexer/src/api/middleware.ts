@@ -68,15 +68,6 @@ const profileCache = new LruTtlCache<unknown>({
   maxEntries: cacheCfg.maxEntries,
 });
 
-export interface ApiMiddlewareConfig {
-  rate: RateLimitConfig;
-  cache: CacheConfig;
-}
-
-export function getMiddlewareConfig(): ApiMiddlewareConfig {
-  return {rate: rateCfg, cache: cacheCfg};
-}
-
 export const seasonResponseCache: LruTtlCache<unknown> = seasonCache;
 export const tokensResponseCache: LruTtlCache<unknown> = tokensCache;
 export const profileResponseCache: LruTtlCache<unknown> = profileCache;
@@ -90,19 +81,23 @@ export function clientIpFromContext(c: MwContext): string {
   // for it dynamically rather than importing `@hono/node-server/conninfo` because that's
   // a transitive ponder dep — pinning to its module path would couple us to a version we
   // don't directly declare. The shape is stable since hono v4.
+  //
+  // We read `socket.remoteAddress` (a string property — the *client's* IP) rather than
+  // `socket.address()` (a method returning the *server's* local bind address). The
+  // earlier draft used the latter, which collapsed every client to the server IP and
+  // meant per-IP rate limiting became a single shared bucket whenever TRUST_PROXY was
+  // off. Mirrors what hono's own `getConnInfo` does.
   const env = c.env as
     | {
-        incoming?: {socket?: {address?: () => {address?: string}}};
-        server?: {incoming?: {socket?: {address?: () => {address?: string}}}};
+        incoming?: {socket?: {remoteAddress?: string}};
+        server?: {incoming?: {socket?: {remoteAddress?: string}}};
       }
     | undefined;
   let socket = "";
   try {
     const incoming = env?.server?.incoming ?? env?.incoming;
-    const a = incoming?.socket?.address?.();
-    if (a && typeof a === "object" && "address" in a && typeof a.address === "string") {
-      socket = a.address;
-    }
+    const remote = incoming?.socket?.remoteAddress;
+    if (typeof remote === "string") socket = remote;
   } catch {
     // Test environments that synthesize a fetch-style request without a Node socket
     // fall through to "unknown" via resolveClientIp's fallback.
