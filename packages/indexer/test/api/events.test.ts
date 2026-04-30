@@ -493,6 +493,54 @@ describe("pipeline", () => {
     expect(totalThrottled).toBe(1);
   });
 
+  it("throttle — bugbot regression: HIGH-priority events bypass per-token quota", () => {
+    // Without the HIGH exemption, this token's quota of 2 MEDIUM HP_SPIKE events fills
+    // the per-token throttle, and the FILTER_FIRED that follows in the next tick is
+    // silently dropped — violating the spec rule that HIGH-priority signals must always
+    // reach clients. The HIGH event also must not *consume* a slot, so subsequent MEDIUM
+    // events on the same token still see a fresh count.
+    const state = makeState();
+    const cfg = testCfg({throttlePerTokenMax: 2, dedupeWindowMs: 1});
+    const clock = fixedClock(1_000);
+
+    // Tick 1: two MEDIUM events fill the quota.
+    (clock as PipelineClock & {advance: (n: number) => void}).advance(2);
+    const r1 = runPipeline(
+      [{type: "HP_SPIKE", token: tk, data: {hpDelta: 15}}],
+      state,
+      cfg,
+      clock,
+    );
+    (clock as PipelineClock & {advance: (n: number) => void}).advance(2);
+    const r2 = runPipeline(
+      [{type: "VOLUME_SPIKE", token: tk, data: {ratio: 5}}],
+      state,
+      cfg,
+      clock,
+    );
+    expect(r1.emitted).toHaveLength(1);
+    expect(r2.emitted).toHaveLength(1);
+
+    // Tick 3: HIGH-priority FILTER_FIRED arrives on the same token. Quota is full but
+    // the HIGH must still pass.
+    (clock as PipelineClock & {advance: (n: number) => void}).advance(2);
+    const r3 = runPipeline(
+      [{type: "FILTER_FIRED", token: tk, data: {address: tk.address}}],
+      state,
+      cfg,
+      clock,
+    );
+    expect(r3.emitted).toHaveLength(1);
+    expect(r3.emitted[0]!.type).toBe("FILTER_FIRED");
+    expect(r3.droppedByStage.throttle).toBe(0);
+
+    // Quota integrity: HIGH must not *consume* a slot either. The throttle bookkeeping
+    // for this token should still hold the original 2 MEDIUM stamps, not 3 — otherwise
+    // a single CUT_LINE_CROSSED could push a noisy token over its quota and starve
+    // legitimate MEDIUM events on subsequent ticks.
+    expect(state.throttleCounts.get(tk.address.toLowerCase())?.length).toBe(2);
+  });
+
   it("LOW suppression — when the batch carries a HIGH/MEDIUM, drop all LOWs", () => {
     const state = makeState();
     const cfg = testCfg();

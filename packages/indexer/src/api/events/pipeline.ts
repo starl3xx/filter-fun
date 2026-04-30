@@ -137,7 +137,7 @@ export function runPipeline(
   // throttle — the count grows as survivors accumulate.
   const emitted: TickerEvent[] = [];
 
-  for (const {d} of stage2) {
+  for (const {d, priority} of stage2) {
     const tokenKey = d.token?.address.toLowerCase() ?? ""; // "" for system events
     const dedupeKey = `${tokenKey}_${d.type}`;
 
@@ -149,8 +149,14 @@ export function runPipeline(
       continue;
     }
 
-    // Throttle (token-scoped only — system events are exempt).
-    if (tokenKey !== "") {
+    // Throttle (token-scoped only — system events are exempt). HIGH events are *also*
+    // exempt: they're rare, dramatic signals (FILTER_FIRED, CUT_LINE_CROSSED) and the spec
+    // is unambiguous that they must always reach clients. Detectors run in a fixed order
+    // (rank/HP/volume/trade *before* filter), so without this exemption a token producing
+    // a few MEDIUM events first could exhaust its quota and silently swallow the HIGH
+    // event arriving later in the same batch. Mirrors the same HIGH-pass-through rule
+    // already applied in filter-moment suppression and in the hub's eviction policy.
+    if (tokenKey !== "" && priority !== "HIGH") {
       const stamps = state.throttleCounts.get(tokenKey) ?? [];
       if (stamps.length >= cfg.throttlePerTokenMax) {
         dropped.throttle++;
@@ -159,8 +165,10 @@ export function runPipeline(
     }
 
     // Survives — commit immediately so subsequent events in the batch see the update.
+    // HIGH events also don't *consume* a slot; otherwise a single CUT_LINE_CROSSED could
+    // push a noisy token over its quota and starve subsequent legitimate MEDIUMs.
     state.dedupeSeen.set(dedupeKey, nowMs);
-    if (tokenKey !== "") {
+    if (tokenKey !== "" && priority !== "HIGH") {
       const stamps = state.throttleCounts.get(tokenKey) ?? [];
       stamps.push(nowMs);
       state.throttleCounts.set(tokenKey, stamps);
