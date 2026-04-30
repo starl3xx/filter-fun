@@ -267,7 +267,20 @@ export class ReplayEngine {
       const live: TokenState[] = [];
       for (const t of this.tokens.values()) if (t.isLive()) live.push(t);
       if (live.length > 0) {
-        const stats = live.map((t) => this.buildTokenStats(t, clock));
+        // Precompute LP metrics once per (token, tick) — both the scoring
+        // input (avgLp + recentRemoved) and the raw output snapshot need
+        // them, and each is an O(N_lp_events) scan, so caching here halves
+        // the per-tick LP cost. Track E bulk replays will see this.
+        const lpMetrics = new Map<Address, LpMetrics>();
+        for (const t of live) {
+          lpMetrics.set(t.token, {
+            avgLp: t.avgLpDepthOver(clock, this.config.avgLpWindowSec),
+            recentRemoved: t.recentLpRemovedOver(clock, this.config.recentLpWindowSec),
+          });
+        }
+        const stats = live.map((t) =>
+          this.buildTokenStats(t, clock, lpMetrics.get(t.token)!),
+        );
         const scoringConfig: ScoringConfig = {
           ...this.config.scoringConfig,
           phase: this.currentPhase,
@@ -276,7 +289,7 @@ export class ReplayEngine {
         for (const s of scored) {
           const state = this.tokens.get(s.token);
           if (state) state.priorBaseComposite = s.baseComposite;
-          records.push(this.toRecord(s, clock, tickNum));
+          records.push(this.toRecord(s, clock, tickNum, lpMetrics.get(s.token)!));
         }
       }
 
@@ -337,15 +350,13 @@ export class ReplayEngine {
     return t;
   }
 
-  private buildTokenStats(t: TokenState, now: bigint): TokenStats {
+  private buildTokenStats(t: TokenState, now: bigint, lp: LpMetrics): TokenStats {
     const longTs = now - BigInt(this.config.retentionAnchorLongSec);
     const longHolders = t.holdersAt(longTs);
     const currentHolders = t.holdersAt(now);
     const shortHolders = this.config.retentionAnchorShortSec > 0
       ? t.holdersAt(now - BigInt(this.config.retentionAnchorShortSec))
       : undefined;
-    const avgLp = t.avgLpDepthOver(now, this.config.avgLpWindowSec);
-    const recentRemoved = t.recentLpRemovedOver(now, this.config.recentLpWindowSec);
 
     const stats: TokenStats = {
       token: t.token,
@@ -353,8 +364,8 @@ export class ReplayEngine {
       buys: t.buys,
       sells: t.sells,
       liquidityDepthWeth: t.lpDepthWeth,
-      avgLiquidityDepthWeth: avgLp,
-      recentLiquidityRemovedWeth: recentRemoved,
+      avgLiquidityDepthWeth: lp.avgLp,
+      recentLiquidityRemovedWeth: lp.recentRemoved,
       currentHolders,
       holdersAtRetentionAnchor: longHolders,
     };
@@ -369,14 +380,17 @@ export class ReplayEngine {
     return stats;
   }
 
-  private toRecord(s: ScoredToken, clock: bigint, tickNum: number): TickRecord {
+  private toRecord(
+    s: ScoredToken,
+    clock: bigint,
+    tickNum: number,
+    lp: LpMetrics,
+  ): TickRecord {
     const tsSec = Number(clock);
     const wall = new Date(this.config.startWallTimeMs + tsSec * 1000);
     const state = this.tokens.get(s.token)!;
     let totalVolume = 0n;
     for (const v of state.volumeByWallet.values()) totalVolume += v;
-    const avgLp = state.avgLpDepthOver(clock, this.config.avgLpWindowSec);
-    const recentRemoved = state.recentLpRemovedOver(clock, this.config.recentLpWindowSec);
     const holderCount = state.holdersAt(clock).size;
     return {
       timestamp: wall.toISOString(),
@@ -396,12 +410,20 @@ export class ReplayEngine {
         uniqueWallets: state.volumeByWallet.size,
         totalVolumeWeth: totalVolume.toString(),
         lpDepthWeth: state.lpDepthWeth.toString(),
-        avgLpDepthWeth: avgLp.toString(),
-        recentLpRemovedWeth: recentRemoved.toString(),
+        avgLpDepthWeth: lp.avgLp.toString(),
+        recentLpRemovedWeth: lp.recentRemoved.toString(),
         holderCount,
       },
     };
   }
+}
+
+/// Per-(token, tick) LP metrics — precomputed once in `run()` and threaded
+/// through both the scoring input and the raw output snapshot. See the
+/// comment in `run()` for the rationale (avoids duplicate O(N_lp) scans).
+interface LpMetrics {
+  avgLp: bigint;
+  recentRemoved: bigint;
 }
 
 type Mutable<T> = {-readonly [K in keyof T]: T[K]};
