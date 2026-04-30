@@ -160,7 +160,11 @@ export function tickerWithDollar(symbol: string): string {
   return symbol.startsWith("$") ? symbol : `$${symbol}`;
 }
 
-function hpAsInt100(hp01: number): number {
+/// Convert a [0, 1] HP value into the 0–100 wire format. Exported so the events tick
+/// engine can use the same clamp/rounding behavior as the REST API — duplication risks
+/// the two surfaces drifting on edge cases (NaN, out-of-range) that the UI assumes are
+/// identical between `/tokens` and `/events`.
+export function hpAsInt100(hp01: number): number {
   if (!Number.isFinite(hp01)) return 0;
   const clamped = Math.max(0, Math.min(1, hp01));
   return Math.round(clamped * 100);

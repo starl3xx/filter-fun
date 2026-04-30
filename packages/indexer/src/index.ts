@@ -5,7 +5,8 @@ import "./SeasonVault";
 import "./FilterLpLocker";
 import "./BonusDistributor";
 
-// HTTP API routes (Epic 1.3 part 1/3) — `/season` + `/tokens`. Mounts on Ponder's
-// built-in Hono server (default port 42069). See ./api/README sections in the package
-// README for endpoint docs.
+// HTTP API routes (Epic 1.3 parts 1+2/3) — `/season` + `/tokens` + `/token/:address` + `/events`
+// (SSE). Mounts on Ponder's built-in Hono server (default port 42069). See the package README
+// for endpoint docs.
 import "./api/index";
+import "./api/events/index";
