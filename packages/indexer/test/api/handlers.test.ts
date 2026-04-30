@@ -142,6 +142,24 @@ describe("/tokens", () => {
     expect(r.body).toEqual([]);
   });
 
+  it("launch phase: every token is SAFE even when scoring assigns ranks 1..12", async () => {
+    // Bugbot Medium #2 regression at the response level: with degenerate inputs `score()`
+    // still hands back ranks (ties broken arbitrarily). Without the launch-phase short
+    // circuit, tokens 7..12 would surface as AT_RISK / FILTERED before any competition
+    // has begun — wrong product behavior.
+    const tokens = Array.from({length: 12}, (_, i) =>
+      mkToken({id: addr(i + 1), symbol: `T${i + 1}`}),
+    );
+    const r = await getTokensHandler(
+      fixtureQueries({season: mkSeason({phase: "Launch"}), tokens}),
+      STARTED_AT + 12n * HOUR,
+    );
+    const list = r.body as unknown as Array<Record<string, unknown>>;
+    for (const tok of list) {
+      expect(tok.status).toBe("SAFE");
+    }
+  });
+
   it("returns the cohort with shape per spec §26.4 — full 12-token competition season", async () => {
     const tokens = Array.from({length: 12}, (_, i) =>
       mkToken({
@@ -276,6 +294,14 @@ describe("status mapping", () => {
       .toBe("SAFE");
     expect(statusOf({phase: "competition", rank: 6, isFinalist: false, liquidated: false}))
       .toBe("SAFE");
+  });
+  it("launch phase forces SAFE regardless of rank — pre-cut, no token is at risk", () => {
+    // Bugbot Medium #2 regression: previously `phase` was ignored, so a token ranked 7
+    // during launch would surface as AT_RISK even though no cut threat exists yet.
+    for (const rank of [1, 6, 7, 9, 10, 12]) {
+      expect(statusOf({phase: "launch", rank, isFinalist: false, liquidated: false}))
+        .toBe("SAFE");
+    }
   });
   it("rank 7-9 is AT_RISK", () => {
     expect(statusOf({phase: "competition", rank: 7, isFinalist: false, liquidated: false}))

@@ -154,7 +154,9 @@ export function buildTokensResponse(
 
 /// Always-prefix `$` for the ticker — spec §26.4 example uses `$FILTER`. Symbols that
 /// already start with `$` (defensive against future contract changes) pass through untouched.
-function tickerWithDollar(symbol: string): string {
+/// Exported because both `/tokens` (this file) and `/token/:address` (handlers.ts) format
+/// the ticker; keeping the rule in one place avoids drift when the formatting changes.
+export function tickerWithDollar(symbol: string): string {
   return symbol.startsWith("$") ? symbol : `$${symbol}`;
 }
 

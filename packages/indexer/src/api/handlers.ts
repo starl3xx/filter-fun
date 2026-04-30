@@ -8,6 +8,7 @@
 import {
   buildSeasonResponse,
   buildTokensResponse,
+  tickerWithDollar,
   type SeasonResponse,
   type SeasonRow,
   type TokenResponse,
@@ -103,7 +104,7 @@ export async function getTokenDetailHandler(
   if (!row) return err(404, "unknown token");
   return ok({
     token: row.id,
-    ticker: row.symbol.startsWith("$") ? row.symbol : `$${row.symbol}`,
+    ticker: tickerWithDollar(row.symbol),
     name: row.name,
     seasonId: Number(row.seasonId),
     isProtocolLaunched: row.isProtocolLaunched,

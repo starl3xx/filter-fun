@@ -24,7 +24,7 @@ npm run test          # vitest unit tests for the API handlers
 
 ## HTTP API
 
-Mounted on Ponder's built-in Hono server (default port 42069; set `PORT` to override). Base path is `/`.
+Mounted on Ponder's built-in Hono server (default port 42069; set `PORT` to override). Base path is `/`. Ponder reserves `/health`, `/ready`, `/status`, and `/metrics` for its own use; Railway's healthcheck targets `/health` (always 200 once the HTTP server is up, independent of indexer sync state).
 
 ### `GET /season`
 

@@ -6,6 +6,11 @@
 ///   GET /tokens             — ranked cohort with HP + components + status + market data
 ///   GET /token/:address     — minimal per-token detail (used by the leaderboard token card)
 ///
+/// Liveness (`/health`), readiness (`/ready`), and metrics (`/metrics`) are served by
+/// Ponder itself — they're reserved paths and adding our own here would fail validation.
+/// `/health` returns 200 as soon as the HTTP server is up (independent of indexer sync),
+/// which is what Railway's healthcheck targets via `railway.json`.
+///
 /// Route handlers are intentionally thin: they translate Drizzle queries into the
 /// `ApiQueries` shape and defer to pure handler functions in `./handlers.ts`. That split
 /// keeps every translation step covered by vitest unit tests without requiring a running
