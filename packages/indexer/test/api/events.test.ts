@@ -409,6 +409,47 @@ describe("pipeline", () => {
     expect(r2.droppedByStage.dedupe).toBe(1);
   });
 
+  it("dedupe — bugbot regression: in-batch duplicates are dropped within a single tick", () => {
+    // Two LARGE_TRADE events for the same token arrive in the same tick. The first should
+    // emit, the second should be deduped — without in-batch tracking, both would pass
+    // because state.dedupeSeen isn't written until the post-loop commit step.
+    const state = makeState();
+    const cfg = testCfg();
+    const clock = fixedClock(1_000);
+    const r = runPipeline(
+      [
+        {type: "LARGE_TRADE", token: tk, data: {nearCutLine: false}},
+        {type: "LARGE_TRADE", token: tk, data: {nearCutLine: false}},
+      ],
+      state,
+      cfg,
+      clock,
+    );
+    expect(r.emitted).toHaveLength(1);
+    expect(r.droppedByStage.dedupe).toBe(1);
+  });
+
+  it("throttle — bugbot regression: in-batch additions count against the per-token cap", () => {
+    // 4 distinct event types for the same token, max=3 per window. Without in-batch
+    // tracking, all 4 pass because state.throttleCounts isn't written until post-loop.
+    const state = makeState();
+    const cfg = testCfg({throttlePerTokenMax: 3, dedupeWindowMs: 1});
+    const clock = fixedClock(1_000);
+    const r = runPipeline(
+      [
+        {type: "HP_SPIKE", token: tk, data: {hpDelta: 15}},
+        {type: "VOLUME_SPIKE", token: tk, data: {ratio: 3}},
+        {type: "RANK_CHANGED", token: tk, data: {fromRank: 5, toRank: 6}},
+        {type: "PHASE_ADVANCED", token: tk, data: {fromPhase: "Filter", toPhase: "Finals"}},
+      ],
+      state,
+      cfg,
+      clock,
+    );
+    expect(r.emitted).toHaveLength(3);
+    expect(r.droppedByStage.throttle).toBe(1);
+  });
+
   it("dedupe — same type fires again once the window has passed", () => {
     const state = makeState();
     const cfg = testCfg({dedupeWindowMs: 10_000});

@@ -61,6 +61,18 @@ export interface PipelineResult {
 /// Process a single tick's worth of detected events. Mutates `state` in place — caller
 /// keeps state across ticks. Returns the wire events to broadcast plus per-stage drop
 /// counts.
+///
+/// Three-stage layout, ordered so suppressed LOWs never burn dedupe/throttle slots and
+/// in-batch duplicates are caught even within a single `runPipeline` call:
+///
+///   1. **Filter-moment + priority assignment** — per-event check; FILTER_FIRED arms the
+///      window so subsequent non-HIGH events in the *same* batch get suppressed.
+///   2. **LOW suppression** — drop LOW events if the batch carries HIGH/MEDIUM. Done
+///      before dedupe/throttle so suppressed LOWs are pure no-ops.
+///   3. **Dedupe + throttle + commit** — checks see both pre-tick state AND in-batch
+///      survivors. Without this, multiple LARGE_TRADE events for the same token in one
+///      tick would all pass dedupe (because state.dedupeSeen wouldn't be updated until
+///      after the loop). Same fix prevents in-batch throttle bypass.
 export function runPipeline(
   detected: ReadonlyArray<DetectedEvent>,
   state: PipelineState,
@@ -73,29 +85,10 @@ export function runPipeline(
 
   const dropped = {dedupe: 0, throttle: 0, suppressLow: 0, filterMoment: 0};
 
-  // Stage 1 — dedupe + throttle + filter-moment. We keep events as `{event, priority}`
-  // pairs so stage 2 (low-suppress) can scan once.
-  const survivors: {d: DetectedEvent; priority: ReturnType<typeof priorityOf>}[] = [];
+  // Stage 1 — priority assignment + filter-moment suppression.
+  const stage1: {d: DetectedEvent; priority: ReturnType<typeof priorityOf>}[] = [];
   for (const d of detected) {
     const priority = priorityOf(d);
-    const tokenKey = d.token?.address.toLowerCase() ?? ""; // "" for system events
-    const dedupeKey = `${tokenKey}_${d.type}`;
-
-    // Dedupe.
-    const prevSeen = state.dedupeSeen.get(dedupeKey);
-    if (prevSeen !== undefined && nowMs - prevSeen < cfg.dedupeWindowMs) {
-      dropped.dedupe++;
-      continue;
-    }
-
-    // Throttle (token-scoped only — system events are exempt).
-    if (tokenKey !== "") {
-      const stamps = state.throttleCounts.get(tokenKey) ?? [];
-      if (stamps.length >= cfg.throttlePerTokenMax) {
-        dropped.throttle++;
-        continue;
-      }
-    }
 
     // Filter-moment suppression — drops only LOW/MEDIUM non-filter events. HIGH-priority
     // signals (e.g. a CUT_LINE_CROSSED that fires *during* the filter window) must always
@@ -111,37 +104,61 @@ export function runPipeline(
       continue;
     }
 
-    // FILTER_FIRED arms the filter-moment window.
+    // FILTER_FIRED arms the filter-moment window — subsequent non-HIGH events in this
+    // same loop iteration will be suppressed by the check above.
     if (d.type === "FILTER_FIRED") {
       state.filterMomentEndsAt = nowMs + cfg.filterMomentWindowMs;
     }
 
-    survivors.push({d, priority});
+    stage1.push({d, priority});
   }
 
   // Stage 2 — LOW suppression: if the surviving batch carries any HIGH or MEDIUM event,
-  // drop all LOWs. Per spec §36.1.4: LOW-priority events are dropped when HIGH or MEDIUM
-  // events are queued.
-  const hasHigherPriority = survivors.some(
+  // drop all LOWs. Per spec §36.1.4. Done before dedupe/throttle so suppressed LOWs
+  // never burn slots — a noisy LOW-only token can't exhaust its throttle quota during
+  // dramatic moments and then go silent once things calm down.
+  const hasHigherPriority = stage1.some(
     (s) => s.priority === "HIGH" || s.priority === "MEDIUM",
   );
-  const finalSurvivors = hasHigherPriority
-    ? survivors.filter((s) => {
+  const stage2 = hasHigherPriority
+    ? stage1.filter((s) => {
         if (s.priority === "LOW") {
           dropped.suppressLow++;
           return false;
         }
         return true;
       })
-    : survivors;
+    : stage1;
 
-  // Stage 3 — record state for survivors. Done after stage 2 so suppressed LOWs don't
-  // count against throttle or dedupe (otherwise a noisy LOW-only token could exhaust its
-  // throttle slots without ever reaching a client).
+  // Stage 3 — dedupe + throttle + commit, with per-event state writes. Committing to
+  // `state.dedupeSeen` / `state.throttleCounts` *during* the loop is what gives us
+  // in-batch enforcement: the second event with the same `(token, type)` in this tick
+  // sees the first one's commit via the same map, so it dedupes correctly. Same for
+  // throttle — the count grows as survivors accumulate.
   const emitted: TickerEvent[] = [];
-  for (const {d} of finalSurvivors) {
-    const tokenKey = d.token?.address.toLowerCase() ?? "";
+
+  for (const {d} of stage2) {
+    const tokenKey = d.token?.address.toLowerCase() ?? ""; // "" for system events
     const dedupeKey = `${tokenKey}_${d.type}`;
+
+    // Dedupe. Within this tick, prior survivors will have committed `nowMs` to the map,
+    // so an in-batch duplicate hits `nowMs - prevSeen === 0 < windowMs` and drops cleanly.
+    const prevSeen = state.dedupeSeen.get(dedupeKey);
+    if (prevSeen !== undefined && nowMs - prevSeen < cfg.dedupeWindowMs) {
+      dropped.dedupe++;
+      continue;
+    }
+
+    // Throttle (token-scoped only — system events are exempt).
+    if (tokenKey !== "") {
+      const stamps = state.throttleCounts.get(tokenKey) ?? [];
+      if (stamps.length >= cfg.throttlePerTokenMax) {
+        dropped.throttle++;
+        continue;
+      }
+    }
+
+    // Survives — commit immediately so subsequent events in the batch see the update.
     state.dedupeSeen.set(dedupeKey, nowMs);
     if (tokenKey !== "") {
       const stamps = state.throttleCounts.get(tokenKey) ?? [];
