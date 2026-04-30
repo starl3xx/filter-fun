@@ -137,6 +137,16 @@ npm --workspace @filter-fun/scoring test
 - **phase weights** — same cohort ranks differently under pre-filter vs finals; finals weights match spec §6.5 (30/15/25/20/10).
 - **§27.6 integration** — steady distributed buying improves HP across all components.
 
+## Backtest harness
+
+For driving the scoring engine across thousands of synthetic or historical seasons, see [`src/harness/`](./src/harness/README.md). Three canonical scenarios ship with the harness (wash-trade, whale-pump, dust-sybil), runnable from the CLI:
+
+```sh
+npm --workspace @filter-fun/scoring run harness -- wash-trade
+```
+
+Track B (attack sims) and Track E (HP empirical validation) both consume this harness; the engine is a pure function of `(events, config)` so historical adapters just need to project their corpus onto `HarnessEvent[]`.
+
 ## Outstanding
 
 - Cluster detection (group wallets funded by a common source) — placeholder; the dust floor + log flattening already handle simple sybil patterns. Add cluster heuristics when sybil signal is needed.
