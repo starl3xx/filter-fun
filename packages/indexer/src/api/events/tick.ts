@@ -9,7 +9,7 @@
 /// monotonic event id. There's exactly one engine per process; horizontally scaling the
 /// indexer would mean moving this state to redis pub/sub (out of scope for genesis).
 
-import {hpAsInt100} from "../builders.js";
+import {hpAsInt100, tickerWithDollar} from "../builders.js";
 import {scoreCohort} from "../hp.js";
 import {nextCutEpochSec, toApiPhase} from "../phase.js";
 
@@ -94,7 +94,7 @@ export class TickEngine {
       const rank = s?.rank ?? 0;
       return {
         address: t.address,
-        ticker: t.symbol.startsWith("$") ? t.symbol : `$${t.symbol}`,
+        ticker: tickerWithDollar(t.symbol),
         rank,
         hp: hpAsInt100(s?.hp ?? 0),
         isFinalist: t.isFinalist,

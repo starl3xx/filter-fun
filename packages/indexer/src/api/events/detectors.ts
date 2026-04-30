@@ -127,7 +127,7 @@ function detectVolumeSpike(
     const ratio =
       baseline === 0n ? Number.POSITIVE_INFINITY : Number(currentFee) / Number(baseline);
     if (ratio >= cfg.volumeSpikeRatio) {
-      const tok = tokensByAddr.get(addr as `0x${string}`);
+      const tok = lookupByAddr(tokensByAddr, addr as `0x${string}`);
       if (!tok) continue;
       out.push({
         type: "VOLUME_SPIKE",
