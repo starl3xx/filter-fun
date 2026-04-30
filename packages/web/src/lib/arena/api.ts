@@ -108,22 +108,37 @@ async function fetchJson<T>(url: string, opts: FetchOpts): Promise<T> {
   return (await res.json()) as T;
 }
 
-// ============================================================ Uniswap deep link
+// ============================================================ Trade deep link
 
-/// Build an Uniswap interface deep-link for `Trade $TICKER`. The custom V4
-/// routing through FilterHook is a follow-up PR (spec §19.8) — this opens the
-/// stock interface against the token address on the configured chain.
+/// Build a "Trade $TICKER" deep-link for the configured chain.
 ///
-/// `chain` matches the wagmi `NEXT_PUBLIC_CHAIN` env: `"base"` or
-/// `"base-sepolia"`. Uniswap's interface accepts the chain name in its
-/// `chain=` query param.
-export function uniswapTradeUrl(
+/// On Base mainnet we point at the Uniswap interface — path-based routing
+/// (`/swap?…`), which superseded the legacy hash-based `/#/swap?…` form
+/// in 2023 — with `chain=base` and `outputCurrency` for the token.
+///
+/// On Base Sepolia, the Uniswap interface doesn't support the testnet, so
+/// the link instead opens the token page on Sepolia Basescan. The detail
+/// panel surfaces the link with a footnote noting that real swaps land
+/// alongside the FilterHook-routed UI in a follow-up PR (spec §19.8).
+///
+/// Returns `{ url, label }` so the consumer can adjust the button copy
+/// without re-deriving the chain.
+export function tradeTokenUrl(
   tokenAddress: `0x${string}`,
   chain: "base" | "base-sepolia",
-): string {
+): {url: string; label: string} {
+  if (chain === "base-sepolia") {
+    return {
+      url: `https://sepolia.basescan.org/token/${tokenAddress}`,
+      label: "View on Basescan",
+    };
+  }
   const params = new URLSearchParams({
     outputCurrency: tokenAddress,
-    chain,
+    chain: "base",
   });
-  return `https://app.uniswap.org/#/swap?${params.toString()}`;
+  return {
+    url: `https://app.uniswap.org/swap?${params.toString()}`,
+    label: "Trade on Uniswap",
+  };
 }

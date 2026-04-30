@@ -38,18 +38,27 @@ export function useSeason(intervalMs: number = DEFAULT_INTERVAL_MS): UseSeasonRe
     const tick = async () => {
       abort?.abort();
       abort = new AbortController();
+      // If this tick is itself aborted (a sibling tick — typically spawned by
+      // visibilitychange — replaces our controller mid-fetch), the catch
+      // bails out and we MUST NOT re-schedule. Otherwise the aborted chain's
+      // `finally` would queue a second timer alongside the sibling's, and
+      // each hide/show cycle would compound another concurrent loop.
+      let aborted = false;
       try {
         const next = await fetchSeason({signal: abort.signal});
         if (!mounted.current) return;
         setData(next);
         setError(null);
       } catch (e) {
-        if ((e as {name?: string}).name === "AbortError") return;
+        if ((e as {name?: string}).name === "AbortError") {
+          aborted = true;
+          return;
+        }
         if (!mounted.current) return;
         setError(e instanceof Error ? e : new Error(String(e)));
       } finally {
-        if (mounted.current) setIsLoading(false);
-        if (mounted.current && document.visibilityState !== "hidden") {
+        if (mounted.current && !aborted) setIsLoading(false);
+        if (!aborted && mounted.current && document.visibilityState !== "hidden") {
           timer = setTimeout(tick, intervalMs);
         }
       }

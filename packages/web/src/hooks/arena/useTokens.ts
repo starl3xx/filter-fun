@@ -32,18 +32,25 @@ export function useTokens(intervalMs: number = DEFAULT_INTERVAL_MS): UseTokensRe
     const tick = async () => {
       abort?.abort();
       abort = new AbortController();
+      // See `useSeason` — `aborted` short-circuits the finally block so a
+      // sibling tick (spawned by visibilitychange) doesn't leave the previous
+      // chain rescheduling alongside it.
+      let aborted = false;
       try {
         const next = await fetchTokens({signal: abort.signal});
         if (!mounted.current) return;
         setData(next);
         setError(null);
       } catch (e) {
-        if ((e as {name?: string}).name === "AbortError") return;
+        if ((e as {name?: string}).name === "AbortError") {
+          aborted = true;
+          return;
+        }
         if (!mounted.current) return;
         setError(e instanceof Error ? e : new Error(String(e)));
       } finally {
-        if (mounted.current) setIsLoading(false);
-        if (mounted.current && document.visibilityState !== "hidden") {
+        if (mounted.current && !aborted) setIsLoading(false);
+        if (!aborted && mounted.current && document.visibilityState !== "hidden") {
           timer = setTimeout(tick, intervalMs);
         }
       }

@@ -16,7 +16,7 @@
 /// The custom V4 swap UI is explicitly deferred (see PR body / spec §19.8).
 
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
-import {uniswapTradeUrl} from "@/lib/arena/api";
+import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {HP_KEYS_IN_ORDER, HP_LABELS, type HpKey} from "@/lib/arena/hpLabels";
 import {fmtNum, fmtUSD, fmtPrice} from "@/lib/format";
@@ -86,31 +86,40 @@ function Detail({token, trend, season, chain}: {token: TokenResponse; trend: num
 
       <Stats hasLiquidity={hasLiquidity} liquidity={liquidityNum} holders={token.holders} volume24h={token.volume24h} season={season} />
 
-      <a
-        href={uniswapTradeUrl(token.token, chain)}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{
-          marginTop: "auto",
-          display: "block",
-          textAlign: "center",
-          padding: "10px 14px",
-          borderRadius: 10,
-          background: `linear-gradient(135deg, ${C.pink}, ${C.purple})`,
-          color: "#fff",
-          fontFamily: F.display,
-          fontWeight: 800,
-          fontSize: 14,
-          letterSpacing: "0.04em",
-          textDecoration: "none",
-          boxShadow: `0 4px 18px ${C.pink}44`,
-        }}
-      >
-        Trade {token.ticker} ↗
-      </a>
-      <span style={{fontSize: 9, fontFamily: F.mono, color: C.faint, textAlign: "center", letterSpacing: "0.08em"}}>
-        Opens Uniswap interface · routing through FilterHook V4 lands in a follow-up
-      </span>
+      {(() => {
+        const {url, label} = tradeTokenUrl(token.token, chain);
+        return (
+          <>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                marginTop: "auto",
+                display: "block",
+                textAlign: "center",
+                padding: "10px 14px",
+                borderRadius: 10,
+                background: `linear-gradient(135deg, ${C.pink}, ${C.purple})`,
+                color: "#fff",
+                fontFamily: F.display,
+                fontWeight: 800,
+                fontSize: 14,
+                letterSpacing: "0.04em",
+                textDecoration: "none",
+                boxShadow: `0 4px 18px ${C.pink}44`,
+              }}
+            >
+              {label} ↗
+            </a>
+            <span style={{fontSize: 9, fontFamily: F.mono, color: C.faint, textAlign: "center", letterSpacing: "0.08em"}}>
+              {chain === "base"
+                ? "Opens Uniswap interface · FilterHook V4 routing lands in a follow-up"
+                : "Sepolia testnet · Uniswap interface doesn't support testnets — Basescan token page until the FilterHook routing UI lands"}
+            </span>
+          </>
+        );
+      })()}
     </>
   );
 }
@@ -211,7 +220,7 @@ function HpBreakdown({components, hp}: {components: TokenResponse["components"];
           {hp}/100
         </span>
       </div>
-      <ArenaHpBar hp={hp} width={undefined as unknown as number} showValue={false} />
+      <ArenaHpBar hp={hp} showValue={false} />
       <div style={{display: "flex", flexDirection: "column", gap: 6, marginTop: 4}}>
         {HP_KEYS_IN_ORDER.map((key) => (
           <ComponentRow key={key} label={HP_LABELS[key]} score={components[key as HpKey] ?? 0} />
