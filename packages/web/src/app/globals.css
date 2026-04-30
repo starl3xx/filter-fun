@@ -173,3 +173,98 @@ code {
     max-width: 100%;
   }
 }
+
+/* Arena page layout (Epic 1.4). 3-column on wide; stacks below 1100px with the
+   leaderboard above the detail panel. Below 700px the right column is hidden
+   in-flow and re-rendered via the bottom-sheet on row tap. */
+.ff-arena-grid {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 340px;
+  gap: 14px;
+  padding: 14px 18px 24px;
+}
+
+@media (max-width: 1100px) {
+  .ff-arena-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Order: filter mechanic + pools first, leaderboard + activity feed second,
+     detail panel third. The page shells the layout in source order; the
+     responsive override pushes left-column secondary content above the main
+     leaderboard on tablet so the page reads top-to-bottom. */
+  .ff-arena-col-left { order: 1; }
+  .ff-arena-col-center { order: 2; }
+  .ff-arena-col-right { order: 3; }
+}
+
+@media (max-width: 700px) {
+  .ff-arena-grid {
+    padding: 10px 12px 18px;
+    gap: 10px;
+  }
+  /* Hide the right detail column inline — the bottom sheet replaces it. */
+  .ff-arena-col-right { display: none; }
+}
+
+/* Bottom-sheet for token detail on narrow viewports. */
+.ff-arena-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ff-arena-sheet {
+  position: relative;
+  width: 100%;
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--bg2);
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  padding: 16px;
+  animation: ff-sheet-up 0.22s ease-out;
+}
+
+@keyframes ff-sheet-up {
+  from { transform: translateY(20%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* Cut line — extends `ff-pulse` with a stronger glow that breathes between
+   high and ambient intensity. Provides the "impossible to miss" emphasis the
+   spec demands without committing to a high-frequency animation. */
+@keyframes ff-cutline-glow {
+  0%, 100% { box-shadow: 0 0 22px rgba(255, 45, 85, 0.55), inset 0 0 18px rgba(255, 45, 85, 0.18); }
+  50%      { box-shadow: 0 0 38px rgba(255, 45, 85, 0.95), inset 0 0 28px rgba(255, 45, 85, 0.36); }
+}
+.ff-arena-cutline {
+  animation: ff-cutline-glow 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ff-arena-cutline { animation: none !important; }
+}
+
+/* Subtle text-shadow ramp for the Champion Backing Pool when its value grows. */
+@keyframes ff-arena-glow {
+  0%   { text-shadow: 0 0 6px rgba(0, 240, 255, 0.4); }
+  50%  { text-shadow: 0 0 18px rgba(0, 240, 255, 0.95), 0 0 28px rgba(0, 240, 255, 0.4); }
+  100% { text-shadow: 0 0 6px rgba(0, 240, 255, 0.4); }
+}
+.ff-arena-glow {
+  animation: ff-arena-glow 1.8s ease-in-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ff-arena-glow { animation: none !important; }
+}
+
+/* Hover-pause for the ticker marquee — applies to any element the marquee
+   class is on, including the pre-filter near-cut strip. */
+.ff-ticker:hover .ff-ticker__track,
+.ff-ticker:focus-within .ff-ticker__track {
+  animation-play-state: paused;
+}

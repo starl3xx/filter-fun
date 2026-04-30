@@ -1,0 +1,2309 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phase 1`] = `
+<DocumentFragment>
+  <section
+    aria-label="Arena leaderboard"
+    style="display: flex; flex-direction: column; border-radius: 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); overflow: hidden; min-height: 0;"
+  >
+    <div
+      style="padding: 12px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.03);"
+    >
+      <h2
+        style="margin: 0px; font-weight: 800; font-size: 14px; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif;"
+      >
+        <span
+          aria-hidden="true"
+        >
+          🏟️
+        </span>
+         Arena leaderboard
+      </h2>
+      <span
+        style="font-size: 10px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.62); letter-spacing: 0.12em; font-weight: 700;"
+      >
+        12 TOKENS
+      </span>
+    </div>
+    <div
+      class="ff-scroll"
+      style="overflow: auto;"
+    >
+      <div
+        style="min-width: 760px;"
+      >
+        <div
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; padding: 8px 18px; font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; position: sticky; top: 0px; z-index: 1; background: rgb(21, 9, 31); border-bottom: 1px solid rgba(255, 255, 255, 0.04);"
+        >
+          <div>
+            #
+          </div>
+          <div />
+          <div>
+            Token
+          </div>
+          <div>
+            HP
+          </div>
+          <div>
+            Status
+          </div>
+          <div
+            style="text-align: right;"
+          >
+            Price
+          </div>
+          <div
+            style="text-align: right;"
+          >
+            24h
+          </div>
+          <div
+            style="text-align: right;"
+          >
+            Trend
+          </div>
+        </div>
+        <button
+          aria-label="$FILTER rank 1 status finalist HP 98"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 16px; font-weight: 800; color: rgb(255, 233, 51);"
+          >
+            🥇
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 233, 51); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ffe933aa;"
+          >
+            FI
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $FILTER
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 98 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="98"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              98
+            </span>
+          </div>
+          <span
+            data-status="FINALIST"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 233, 51, 0.1); border: 1px solid rgba(255, 233, 51, 0.333); color: rgb(255, 233, 51); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🏆
+            </span>
+            Finalist
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$BLOOD rank 2 status finalist HP 92"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 16px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            🥈
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 93, 140); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ff5d8caa;"
+          >
+            BL
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $BLOOD
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 92 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="92"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              92
+            </span>
+          </div>
+          <span
+            data-status="FINALIST"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 233, 51, 0.1); border: 1px solid rgba(255, 233, 51, 0.333); color: rgb(255, 233, 51); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🏆
+            </span>
+            Finalist
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$KING rank 3 status safe HP 88"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 16px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            🥉
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 176, 32); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            KI
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $KING
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 88 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="88"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              88
+            </span>
+          </div>
+          <span
+            data-status="SAFE"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            Safe
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$SURVIVE rank 4 status safe HP 80"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            #4
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(82, 255, 139); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            SU
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $SURVIVE
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 80 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="80"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              80
+            </span>
+          </div>
+          <span
+            data-status="SAFE"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            Safe
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$MOON rank 5 status safe HP 72"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            #5
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(167, 139, 250); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            MO
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $MOON
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 72 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="72"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              72
+            </span>
+          </div>
+          <span
+            data-status="SAFE"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            Safe
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$FINAL rank 6 status safe HP 64"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            #6
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(0, 240, 255); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            FI
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $FINAL
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 64 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="64"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              64
+            </span>
+          </div>
+          <span
+            data-status="SAFE"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            Safe
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$CUT rank 7 status at_risk HP 52"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #7
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 122, 76); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            CU
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $CUT
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 52 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="52"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              52
+            </span>
+          </div>
+          <span
+            data-status="AT_RISK"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              ⚠️
+            </span>
+            At risk
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$EDGE rank 8 status at_risk HP 44"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #8
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(253, 224, 71); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            ED
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $EDGE
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 44 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="44"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ffa940, #ffa940cc); box-shadow: 0 0 6px #ffa94066; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              44
+            </span>
+          </div>
+          <span
+            data-status="AT_RISK"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              ⚠️
+            </span>
+            At risk
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$SLICE rank 9 status at_risk HP 32"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #9
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(244, 114, 182); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            SL
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $SLICE
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 32 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="32"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ffa940, #ffa940cc); box-shadow: 0 0 6px #ffa94066; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              32
+            </span>
+          </div>
+          <span
+            data-status="AT_RISK"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              ⚠️
+            </span>
+            At risk
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$RUG rank 10 status filtered HP 22"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #10
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(156, 163, 175); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            RU
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $RUG
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 22 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="22"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              22
+            </span>
+          </div>
+          <span
+            data-status="FILTERED"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🔻
+            </span>
+            Filtered
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$DUST rank 11 status filtered HP 14"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #11
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(120, 113, 108); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            DU
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $DUST
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 14 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="14"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              14
+            </span>
+          </div>
+          <span
+            data-status="FILTERED"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🔻
+            </span>
+            Filtered
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$GHOST rank 12 status filtered HP 6"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #12
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(203, 213, 225); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            GH
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $GHOST
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 6 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="6"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              6
+            </span>
+          </div>
+          <span
+            data-status="FILTERED"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🔻
+            </span>
+            Filtered
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+      </div>
+    </div>
+  </section>
+</DocumentFragment>
+`;
+
+exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches snapshot 1`] = `
+<DocumentFragment>
+  <section
+    aria-label="Arena leaderboard"
+    style="display: flex; flex-direction: column; border-radius: 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); overflow: hidden; min-height: 0;"
+  >
+    <div
+      style="padding: 12px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.03);"
+    >
+      <h2
+        style="margin: 0px; font-weight: 800; font-size: 14px; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif;"
+      >
+        <span
+          aria-hidden="true"
+        >
+          🏟️
+        </span>
+         Arena leaderboard
+      </h2>
+      <span
+        style="font-size: 10px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.62); letter-spacing: 0.12em; font-weight: 700;"
+      >
+        12 TOKENS
+      </span>
+    </div>
+    <div
+      class="ff-scroll"
+      style="overflow: auto;"
+    >
+      <div
+        style="min-width: 760px;"
+      >
+        <div
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; padding: 8px 18px; font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; position: sticky; top: 0px; z-index: 1; background: rgb(21, 9, 31); border-bottom: 1px solid rgba(255, 255, 255, 0.04);"
+        >
+          <div>
+            #
+          </div>
+          <div />
+          <div>
+            Token
+          </div>
+          <div>
+            HP
+          </div>
+          <div>
+            Status
+          </div>
+          <div
+            style="text-align: right;"
+          >
+            Price
+          </div>
+          <div
+            style="text-align: right;"
+          >
+            24h
+          </div>
+          <div
+            style="text-align: right;"
+          >
+            Trend
+          </div>
+        </div>
+        <button
+          aria-label="$FILTER rank 1 status finalist HP 98"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 16px; font-weight: 800; color: rgb(255, 233, 51);"
+          >
+            🥇
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 233, 51); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ffe933aa;"
+          >
+            FI
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $FILTER
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 98 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="98"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              98
+            </span>
+          </div>
+          <span
+            data-status="FINALIST"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 233, 51, 0.1); border: 1px solid rgba(255, 233, 51, 0.333); color: rgb(255, 233, 51); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🏆
+            </span>
+            Finalist
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$BLOOD rank 2 status finalist HP 92"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 16px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            🥈
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 93, 140); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ff5d8caa;"
+          >
+            BL
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $BLOOD
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 92 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="92"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              92
+            </span>
+          </div>
+          <span
+            data-status="FINALIST"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 233, 51, 0.1); border: 1px solid rgba(255, 233, 51, 0.333); color: rgb(255, 233, 51); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🏆
+            </span>
+            Finalist
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$KING rank 3 status safe HP 88"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 16px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            🥉
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 176, 32); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            KI
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $KING
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 88 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="88"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              88
+            </span>
+          </div>
+          <span
+            data-status="SAFE"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            Safe
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$SURVIVE rank 4 status safe HP 80"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            #4
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(82, 255, 139); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            SU
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $SURVIVE
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 80 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="80"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              80
+            </span>
+          </div>
+          <span
+            data-status="SAFE"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            Safe
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$MOON rank 5 status safe HP 72"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            #5
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(167, 139, 250); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            MO
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $MOON
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 72 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="72"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              72
+            </span>
+          </div>
+          <span
+            data-status="SAFE"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            Safe
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$FINAL rank 6 status safe HP 64"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.62);"
+          >
+            #6
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(0, 240, 255); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            FI
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $FINAL
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+          >
+            <div
+              aria-label="HP 64 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="64"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              64
+            </span>
+          </div>
+          <span
+            data-status="SAFE"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            Safe
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <div
+          aria-label="Cut line — top 6 survive, bottom 6 get filtered"
+          class="ff-pulse ff-arena-cutline"
+          role="separator"
+          style="position: relative; height: 36px; background: repeating-linear-gradient(45deg, #ff2d5538 0 8px, #ff2d5514 8px 16px); border-top: 1.5px solid rgb(255, 45, 85); border-bottom: 1.5px solid rgb(255, 45, 85); display: flex; align-items: center; justify-content: center; padding: 0px 18px; box-shadow: 0 0 28px #ff2d5588, inset 0 0 22px #ff2d5533;"
+        >
+          <div
+            style="display: flex; align-items: center; gap: 10px; background: rgba(26, 1, 42, 0.933); padding: 5px 14px; border-radius: 99px; border: 1.5px solid rgb(255, 45, 85); box-shadow: 0 0 16px #ff2d55cc;"
+          >
+            <span
+              style="font-size: 13px;"
+            >
+              🔻
+            </span>
+            <span
+              style="font-size: 11px; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-weight: 900; letter-spacing: 0.18em; text-transform: uppercase; color: rgb(255, 45, 85);"
+            >
+              CUT LINE
+            </span>
+            <span
+              style="font-size: 10px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.62);"
+            >
+              everything below gets filtered
+            </span>
+          </div>
+        </div>
+        <button
+          aria-label="$CUT rank 7 status at_risk HP 52"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #7
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 122, 76); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            CU
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $CUT
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 52 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="52"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              52
+            </span>
+          </div>
+          <span
+            data-status="AT_RISK"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              ⚠️
+            </span>
+            At risk
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$EDGE rank 8 status at_risk HP 44"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #8
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(253, 224, 71); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            ED
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $EDGE
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 44 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="44"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ffa940, #ffa940cc); box-shadow: 0 0 6px #ffa94066; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              44
+            </span>
+          </div>
+          <span
+            data-status="AT_RISK"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              ⚠️
+            </span>
+            At risk
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$SLICE rank 9 status at_risk HP 32"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #9
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(244, 114, 182); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            SL
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $SLICE
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 32 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="32"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ffa940, #ffa940cc); box-shadow: 0 0 6px #ffa94066; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              32
+            </span>
+          </div>
+          <span
+            data-status="AT_RISK"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              ⚠️
+            </span>
+            At risk
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$RUG rank 10 status filtered HP 22"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #10
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(156, 163, 175); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            RU
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $RUG
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 22 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="22"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              22
+            </span>
+          </div>
+          <span
+            data-status="FILTERED"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🔻
+            </span>
+            Filtered
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$DUST rank 11 status filtered HP 14"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #11
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(120, 113, 108); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            DU
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $DUST
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 14 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="14"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              14
+            </span>
+          </div>
+          <span
+            data-status="FILTERED"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🔻
+            </span>
+            Filtered
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+        <button
+          aria-label="$GHOST rank 12 status filtered HP 6"
+          aria-pressed="false"
+          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-left: 2px solid transparent; color: inherit; cursor: pointer;"
+          type="button"
+        >
+          <div
+            style="font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 800; color: rgba(255, 235, 255, 0.32);"
+          >
+            #12
+          </div>
+          <div
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(203, 213, 225); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+          >
+            GH
+          </div>
+          <div
+            style="min-width: 0; display: flex; align-items: center; gap: 6px;"
+          >
+            <span
+              style="font-size: 13px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: -0.01em;"
+            >
+              $GHOST
+            </span>
+          </div>
+          <div
+            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+          >
+            <div
+              aria-label="HP 6 of 100"
+              aria-valuemax="100"
+              aria-valuemin="0"
+              aria-valuenow="6"
+              role="meter"
+              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+            >
+              <div
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+              />
+            </div>
+            <span
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+            >
+              6
+            </span>
+          </div>
+          <span
+            data-status="FILTERED"
+            style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+          >
+            <span
+              aria-hidden="true"
+            >
+              🔻
+            </span>
+            Filtered
+          </span>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(255, 235, 255, 0.32);"
+          >
+            —
+          </div>
+          <div
+            style="text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 800; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums;"
+          >
+            —
+          </div>
+          <div
+            style="display: flex; justify-content: flex-end;"
+          >
+            <svg
+              aria-hidden="true"
+              height="22"
+              width="70"
+            >
+              <line
+                stroke="rgba(255,235,255,0.32)"
+                stroke-dasharray="2 3"
+                stroke-width="1"
+                x1="2"
+                x2="68"
+                y1="11"
+                y2="11"
+              />
+            </svg>
+          </div>
+        </button>
+      </div>
+    </div>
+  </section>
+</DocumentFragment>
+`;
+
+exports[`Arena visual snapshots > ArenaTopBar matches snapshot 1`] = `
+<DocumentFragment>
+  <header
+    aria-label="Arena status"
+    class="ff-arena-topbar"
+    role="banner"
+    style="position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: rgba(20, 8, 40, 0.55); flex-wrap: wrap;"
+  >
+    <div
+      style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;"
+    >
+      <span
+        style="display: flex; align-items: center; gap: 6px;"
+      >
+        <span
+          aria-hidden="true"
+          style="font-size: 18px; filter: drop-shadow(0 0 6px #ff2d5588);"
+        >
+          🔻
+        </span>
+        <span
+          style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-weight: 800; font-size: 16px; letter-spacing: -0.01em;"
+        >
+          filter.fun
+        </span>
+      </span>
+      <span
+        style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.16em;"
+      >
+        <span
+          aria-hidden="true"
+          class="ff-pulse"
+          style="width: 6px; height: 6px; border-radius: 99px; background: rgb(82, 255, 139); box-shadow: 0 0 8px #52ff8b;"
+        />
+        LIVE
+      </span>
+      <span
+        style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.62); letter-spacing: 0.18em; font-weight: 800;"
+      >
+        Week 02
+      </span>
+    </div>
+    <div
+      style="display: flex; align-items: center; gap: 18px; flex-wrap: wrap;"
+    >
+      <div
+        style="display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1;"
+      >
+        <span
+          style="font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.16em; font-weight: 700; text-transform: uppercase;"
+        >
+          Next cut in
+        </span>
+        <span
+          style="font-size: 16px; font-weight: 800; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgb(254, 242, 255); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
+        >
+          26543d 12:00
+        </span>
+      </div>
+      <div
+        style="display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1;"
+        title="Spec §19.5: Winner takes everything."
+      >
+        <span
+          style="font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.16em; font-weight: 700; text-transform: uppercase;"
+        >
+          Champion Pool
+        </span>
+        <span
+          style="font-size: 16px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; color: rgb(255, 233, 51); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
+        >
+          Ξ14.82
+        </span>
+      </div>
+      <div
+        style="display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1;"
+        title="Spec §19.5: Protocol backing for the winner."
+      >
+        <span
+          style="font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.16em; font-weight: 700; text-transform: uppercase;"
+        >
+          Champion Backing
+        </span>
+        <span
+          style="font-size: 16px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; color: rgb(0, 240, 255); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
+        >
+          Ξ6.42
+        </span>
+      </div>
+    </div>
+  </header>
+</DocumentFragment>
+`;

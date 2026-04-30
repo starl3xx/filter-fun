@@ -69,5 +69,8 @@ jobs:
       - name: web (typecheck)
         run: npm --workspace @filter-fun/web run typecheck
 
+      - name: web (test)
+        run: npm --workspace @filter-fun/web run test
+
       - name: web (build)
         run: npm --workspace @filter-fun/web run build
