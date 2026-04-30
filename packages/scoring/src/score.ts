@@ -72,18 +72,20 @@ export function score(
 
     // Momentum compares this tick's base composite against the prior's. If
     // there's no prior (first tick), momentum is neutral 0.5 so a token can't
-    // be punished for not having history yet. The post-normalization value is
-    // clipped to `momentumCap` so operators can bound momentum's contribution
-    // tighter than the natural [0, weight] range produced by normalization.
+    // be punished for not having history yet — the cap is deliberately NOT
+    // applied to the neutral baseline (operators tightening `momentumCap`
+    // below 0.5 must not retroactively penalize tokens with zero history).
+    // For tokens with a prior, the post-normalization momentum is clipped to
+    // `momentumCap` so operators can bound momentum's contribution tighter
+    // than the natural [0, weight] range produced by normalization.
     let momentum: number;
     if (typeof r.priorBaseComposite === "number") {
       const delta = baseComposite - r.priorBaseComposite;
       const clipped = Math.max(-1, Math.min(1, delta / config.momentumScale));
-      momentum = (clipped + 1) / 2;
+      momentum = Math.min((clipped + 1) / 2, config.momentumCap);
     } else {
       momentum = 0.5;
     }
-    momentum = Math.min(momentum, config.momentumCap);
 
     const hp =
       weights.velocity * v +

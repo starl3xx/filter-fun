@@ -368,15 +368,26 @@ describe("score (v3)", () => {
   });
 
   it("phase weights change the ranking when components disagree", () => {
-    // tokenA leads on velocity + effective buyers (six fresh distributed buys
-    // but holders churned out — low retention). tokenB leads on sticky
-    // liquidity + retention (huge LP, sticky holders) but is sleepy on
-    // velocity. Pre-filter weights discovery → A wins. Finals weights
-    // conviction → B wins.
+    // 3-token cohort designed so V and E winners are different tokens — that
+    // way under finals (where V+E = S+R = 0.45 at the *group* level), neither
+    // a pure-discovery nor pure-conviction token sits at exactly 0.45 from
+    // its group; the within-group emphasis shift creates a deterministic
+    // rank flip rather than a floating-point tie.
+    //
+    //   tokenA: heavy per-wallet volume (wins velocity) but few buyers.
+    //   tokenC: many distributed buyers (wins effective-buyers) but lower
+    //           per-wallet volume → mid-pack velocity.
+    //   tokenB: tiny activity but huge LP + sticky holders (wins sticky-liq
+    //           and retention).
+    //
+    // Pre-filter (40/25/15/10/10) — discovery-heavy: A leads (top V + good E).
+    // Finals (30/15/25/20/10) — discovery and conviction at parity: A's V
+    // lead is halved (40→30) and C's E lead is similarly cut (25→15), so
+    // their HP drops below B's full S+R contribution.
     const aBuys = Array.from({length: 6}, (_, i) => ({
       wallet: wallet(i + 1),
       ts: NOW - 100n,
-      amountWeth: WETH,
+      amountWeth: 5n * WETH,
     }));
     const a = makeStats({
       token: tokenA,
@@ -384,7 +395,7 @@ describe("score (v3)", () => {
       buys: aBuys,
       liquidityDepthWeth: WETH,
       avgLiquidityDepthWeth: WETH,
-      // Buyers are present, but the original anchor cohort is gone — low retention.
+      // Buyers are the current holders; the retention anchor is gone — low retention.
       currentHolders: new Set(aBuys.map((b) => b.wallet)),
       holdersAtRetentionAnchor: new Set([wallet(900), wallet(901), wallet(902)]),
     });
@@ -399,16 +410,37 @@ describe("score (v3)", () => {
       currentHolders: stickyHolders,
       holdersAtRetentionAnchor: stickyHolders,
     });
+    const cBuys = Array.from({length: 30}, (_, i) => ({
+      wallet: wallet(200 + i),
+      ts: NOW - 100n,
+      amountWeth: WETH / 2n,
+    }));
+    const c = makeStats({
+      token: tokenC,
+      volumeByWallet: new Map(cBuys.map((bb) => [bb.wallet, bb.amountWeth])),
+      buys: cBuys,
+      liquidityDepthWeth: WETH,
+      avgLiquidityDepthWeth: WETH,
+      currentHolders: new Set(cBuys.map((bb) => bb.wallet)),
+      // Anchor cohort gone — low retention, like A.
+      holdersAtRetentionAnchor: new Set([wallet(800), wallet(801), wallet(802)]),
+    });
 
-    const preFilter = score([a, b], NOW, configWithPhase("preFilter"));
+    const preFilter = score([a, b, c], NOW, configWithPhase("preFilter"));
     expect(preFilter[0]?.token).toBe(tokenA);
 
-    const finals = score([a, b], NOW, configWithPhase("finals"));
+    const finals = score([a, b, c], NOW, configWithPhase("finals"));
     expect(finals[0]?.token).toBe(tokenB);
 
-    // Sanity: weights actually flowed through.
+    // Sanity: spec weights actually flow through. Finals does NOT make
+    // conviction outweigh discovery at the group level — both sit at 0.45.
+    // The phase test passes because A's V dominance and C's E dominance are
+    // each individually cut, while B's full S+R sweep stays intact.
     expect(preFilter[0]?.components.velocity.weight).toBe(PRE_FILTER_WEIGHTS.velocity);
     expect(finals[0]?.components.stickyLiquidity.weight).toBe(FINALS_WEIGHTS.stickyLiquidity);
+    expect(
+      FINALS_WEIGHTS.velocity + FINALS_WEIGHTS.effectiveBuyers,
+    ).toBeCloseTo(FINALS_WEIGHTS.stickyLiquidity + FINALS_WEIGHTS.retention, 6);
   });
 
   it("a high-HP small-mcap token outranks a whale-pumped fat one", () => {
@@ -668,6 +700,42 @@ describe("score (v3)", () => {
     // Coaster's momentum was already below 0.6 (delta ≤ 0 → ≤ 0.5), so the
     // cap is a no-op for it.
     expect(coasterCapped.components.momentum.score).toBeLessThanOrEqual(0.5);
+  });
+
+  it("momentumCap below 0.5 does NOT clip first-tick neutral baseline", () => {
+    // Regression: a tight cap (e.g. 0.3) must not retroactively penalize a
+    // token with no `priorBaseComposite`. The neutral 0.5 is preserved; the
+    // cap applies only to tokens with real momentum signal. Without this
+    // guarantee, an operator tightening the cap would silently demote every
+    // first-tick token in the cohort.
+    const buys = [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}];
+    const baseHolders = new Set([wallet(1)]);
+    const fresh = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys,
+      liquidityDepthWeth: WETH,
+      currentHolders: baseHolders,
+      holdersAtRetentionAnchor: baseHolders,
+      // No priorBaseComposite — first tick.
+    });
+    const surger = makeStats({
+      token: tokenB,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys,
+      liquidityDepthWeth: WETH,
+      currentHolders: baseHolders,
+      holdersAtRetentionAnchor: baseHolders,
+      priorBaseComposite: 0,
+    });
+
+    const tight = score([fresh, surger], NOW, {...DEFAULT_CONFIG, momentumCap: 0.3});
+    const freshRow = tight.find((r) => r.token === tokenA)!;
+    const surgerRow = tight.find((r) => r.token === tokenB)!;
+    // Neutral baseline preserved, despite cap < 0.5.
+    expect(freshRow.components.momentum.score).toBe(0.5);
+    // Surger's real momentum signal IS clipped to the tight cap.
+    expect(surgerRow.components.momentum.score).toBe(0.3);
   });
 
   it("sticky-liq α=1.0 default zeroes the score on a 100%-of-depth withdrawal", () => {

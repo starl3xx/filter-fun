@@ -98,7 +98,7 @@ All five components are normalized to `[0, 1]` across the cohort. Final HP is al
 | Retention         | 10%        | 20%    | 15%     |
 | Momentum          | 10%        | 10%    | 10%     |
 
-Pre-filter rewards discovery + breadth (velocity + buyers = 65%). Finals rewards conviction + commitment (sticky + retention = 45%) while keeping velocity above effective-buyers (30 > 15), so a finalist with sustained broad buying can still climb. Pass `config.phase` to switch; pass `config.weights` to override entirely (for experiments).
+Pre-filter rewards discovery + breadth (velocity + buyers = 65%, sticky + retention = 25%). Finals rebalances discovery and conviction to parity (45% / 45%) — discovery doesn't lose to conviction; both groups carry equal group weight, but the within-group preference shifts: velocity stays above effective-buyers (30 > 15) so sustained broad buying still climbs, and sticky liq edges retention (25 > 20) so LP commitment outranks holder count. Pass `config.phase` to switch; pass `config.weights` to override entirely (for experiments).
 
 ## Configuration
 

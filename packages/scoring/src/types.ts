@@ -78,13 +78,16 @@ export const PRE_FILTER_WEIGHTS: ScoringWeights = {
 } as const;
 
 /// Finals weights (spec §6.5): emphasize conviction — sticky liquidity and
-/// retention are higher; raw velocity matters less (the cohort is already
-/// small + filtered). Late surges still count via momentum, but coasting on
-/// staked liquidity + loyal holders is rewarded. Conviction (sticky + retention
-/// = 0.45) outweighs discovery (velocity + effective buyers = 0.45) when
-/// combined with the higher sticky-liq slice; the spec's 30/15/25/20/10 split
-/// keeps velocity above effective-buyers so a finalist with broad sustained
-/// buy pressure can still climb.
+/// retention rise sharply (15→25, 10→20) at the expense of velocity (40→30)
+/// and effective buyers (25→15). Late surges still count via momentum, but
+/// coasting on staked liquidity + loyal holders is rewarded. Discovery
+/// (velocity + effective buyers = 0.45) and conviction (sticky + retention
+/// = 0.45) sit at equal *group* weight — finals isn't a wholesale conviction
+/// override of pre-filter (65/25 discovery-favoring); it's a *rebalance* to
+/// parity. The within-group preference shifts too: velocity stays above
+/// effective buyers (30 > 15) so a finalist with broad sustained buy
+/// pressure still climbs, and sticky liq edges retention (25 > 20) so LP
+/// commitment outranks holder count.
 export const FINALS_WEIGHTS: ScoringWeights = {
   velocity: 0.30,
   effectiveBuyers: 0.15,
@@ -180,9 +183,11 @@ export interface ScoringConfig {
   /// Hard ceiling on the normalized momentum component (0..1). Default 1.0
   /// (no extra cap beyond normalization × weight). Operators can tighten
   /// this — e.g. 0.5 caps momentum's HP contribution to half its weight —
-  /// if empirical data shows momentum-driven rank flips. The momentum
-  /// floor remains 0 (a token never gets a momentum *penalty* below its
-  /// neutral baseline; momentum only rewards sustained acceleration).
+  /// if empirical data shows momentum-driven rank flips. The cap applies
+  /// only to tokens with a prior base composite (i.e. real momentum signal);
+  /// first-tick tokens with no history retain the 0.5 neutral baseline
+  /// regardless of `momentumCap`, so tightening the cap below 0.5 never
+  /// retroactively punishes a fresh token for lacking history.
   momentumCap: number;
 }
 
