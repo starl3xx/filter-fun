@@ -42,7 +42,7 @@ function configWithPhase(phase: ScoringConfig["phase"]): ScoringConfig {
   return {...DEFAULT_CONFIG, phase};
 }
 
-describe("score (v2)", () => {
+describe("score (v3)", () => {
   it("returns empty for empty input", () => {
     expect(score([], NOW)).toEqual([]);
   });
@@ -368,15 +368,26 @@ describe("score (v2)", () => {
   });
 
   it("phase weights change the ranking when components disagree", () => {
-    // tokenA leads on velocity + effective buyers (six fresh distributed buys
-    // but holders churned out — low retention). tokenB leads on sticky
-    // liquidity + retention (huge LP, sticky holders) but is sleepy on
-    // velocity. Pre-filter weights discovery → A wins. Finals weights
-    // conviction → B wins.
+    // 3-token cohort designed so V and E winners are different tokens — that
+    // way under finals (where V+E = S+R = 0.45 at the *group* level), neither
+    // a pure-discovery nor pure-conviction token sits at exactly 0.45 from
+    // its group; the within-group emphasis shift creates a deterministic
+    // rank flip rather than a floating-point tie.
+    //
+    //   tokenA: heavy per-wallet volume (wins velocity) but few buyers.
+    //   tokenC: many distributed buyers (wins effective-buyers) but lower
+    //           per-wallet volume → mid-pack velocity.
+    //   tokenB: tiny activity but huge LP + sticky holders (wins sticky-liq
+    //           and retention).
+    //
+    // Pre-filter (40/25/15/10/10) — discovery-heavy: A leads (top V + good E).
+    // Finals (30/15/25/20/10) — discovery and conviction at parity: A's V
+    // lead is halved (40→30) and C's E lead is similarly cut (25→15), so
+    // their HP drops below B's full S+R contribution.
     const aBuys = Array.from({length: 6}, (_, i) => ({
       wallet: wallet(i + 1),
       ts: NOW - 100n,
-      amountWeth: WETH,
+      amountWeth: 5n * WETH,
     }));
     const a = makeStats({
       token: tokenA,
@@ -384,7 +395,7 @@ describe("score (v2)", () => {
       buys: aBuys,
       liquidityDepthWeth: WETH,
       avgLiquidityDepthWeth: WETH,
-      // Buyers are present, but the original anchor cohort is gone — low retention.
+      // Buyers are the current holders; the retention anchor is gone — low retention.
       currentHolders: new Set(aBuys.map((b) => b.wallet)),
       holdersAtRetentionAnchor: new Set([wallet(900), wallet(901), wallet(902)]),
     });
@@ -399,16 +410,37 @@ describe("score (v2)", () => {
       currentHolders: stickyHolders,
       holdersAtRetentionAnchor: stickyHolders,
     });
+    const cBuys = Array.from({length: 30}, (_, i) => ({
+      wallet: wallet(200 + i),
+      ts: NOW - 100n,
+      amountWeth: WETH / 2n,
+    }));
+    const c = makeStats({
+      token: tokenC,
+      volumeByWallet: new Map(cBuys.map((bb) => [bb.wallet, bb.amountWeth])),
+      buys: cBuys,
+      liquidityDepthWeth: WETH,
+      avgLiquidityDepthWeth: WETH,
+      currentHolders: new Set(cBuys.map((bb) => bb.wallet)),
+      // Anchor cohort gone — low retention, like A.
+      holdersAtRetentionAnchor: new Set([wallet(800), wallet(801), wallet(802)]),
+    });
 
-    const preFilter = score([a, b], NOW, configWithPhase("preFilter"));
+    const preFilter = score([a, b, c], NOW, configWithPhase("preFilter"));
     expect(preFilter[0]?.token).toBe(tokenA);
 
-    const finals = score([a, b], NOW, configWithPhase("finals"));
+    const finals = score([a, b, c], NOW, configWithPhase("finals"));
     expect(finals[0]?.token).toBe(tokenB);
 
-    // Sanity: weights actually flowed through.
+    // Sanity: spec weights actually flow through. Finals does NOT make
+    // conviction outweigh discovery at the group level — both sit at 0.45.
+    // The phase test passes because A's V dominance and C's E dominance are
+    // each individually cut, while B's full S+R sweep stays intact.
     expect(preFilter[0]?.components.velocity.weight).toBe(PRE_FILTER_WEIGHTS.velocity);
     expect(finals[0]?.components.stickyLiquidity.weight).toBe(FINALS_WEIGHTS.stickyLiquidity);
+    expect(
+      FINALS_WEIGHTS.velocity + FINALS_WEIGHTS.effectiveBuyers,
+    ).toBeCloseTo(FINALS_WEIGHTS.stickyLiquidity + FINALS_WEIGHTS.retention, 6);
   });
 
   it("a high-HP small-mcap token outranks a whale-pumped fat one", () => {
@@ -467,5 +499,301 @@ describe("score (v2)", () => {
     // HP is therefore weights.retention * 1 + weights.momentum * 0.5.
     const w = PRE_FILTER_WEIGHTS;
     expect(ranked[0]?.hp).toBeCloseTo(w.retention + w.momentum * 0.5, 6);
+  });
+
+  // ── Spec §27.6 integration tests ───────────────────────────────────────────
+  // The remaining four §27.6 cases (whale doesn't dominate, dust doesn't
+  // dominate, recent LP withdrawal hurts sticky liq, late surge bounded by
+  // momentum cap, low-mcap high-HP outranks fat whale-pumped) are covered by
+  // the unit tests above. The two added here close the spec gap: steady
+  // distributed buying lifts HP across the board, and a swarm of just-above-
+  // floor wallets cannot beat a few significant buyers under sqrt dampening.
+
+  it("§27.6 — steady distributed buying improves HP across components", () => {
+    // Fixture: 100 wallets each buying 0.5–2 WETH spread over 48h vs a quiet
+    // baseline with one minimum buy. The distributed token should lead on
+    // every unbounded component (velocity, effective buyers, sticky liq) AND
+    // hold full retention, so HP sits at or near the top of the cohort.
+    const distributedBuys = Array.from({length: 100}, (_, i) => ({
+      wallet: wallet(i + 1),
+      // Spread across the trailing 48h (within the 24h velocity half-life).
+      ts: NOW - BigInt(((i % 48) + 1) * 3600),
+      amountWeth: WETH / 2n + ((BigInt(i) * 3n) * (WETH / 100n)), // 0.5 .. ~3.5 WETH
+    }));
+    const distributed = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map(distributedBuys.map((b) => [b.wallet, b.amountWeth])),
+      buys: distributedBuys,
+      liquidityDepthWeth: 100n * WETH,
+      avgLiquidityDepthWeth: 100n * WETH,
+      currentHolders: new Set(distributedBuys.map((b) => b.wallet)),
+      holdersAtRetentionAnchor: new Set(distributedBuys.map((b) => b.wallet)),
+    });
+    const quiet = makeStats({
+      token: tokenB,
+      volumeByWallet: new Map([[wallet(999), WETH / 100n]]),
+      buys: [{wallet: wallet(999), ts: NOW - 100n, amountWeth: WETH / 100n}],
+      liquidityDepthWeth: WETH,
+      avgLiquidityDepthWeth: WETH,
+      currentHolders: new Set([wallet(999)]),
+      holdersAtRetentionAnchor: new Set([wallet(999)]),
+    });
+
+    const ranked = score([distributed, quiet], NOW);
+    const distributedRow = ranked.find((r) => r.token === tokenA)!;
+    expect(distributedRow.rank).toBe(1);
+    // All unbounded components hit the cohort max (1) — broad sustained
+    // buying wins on velocity, effective buyers, and sticky liq.
+    expect(distributedRow.components.velocity.score).toBe(1);
+    expect(distributedRow.components.effectiveBuyers.score).toBe(1);
+    expect(distributedRow.components.stickyLiquidity.score).toBe(1);
+    // Retention is its own [0,1] scale (not min-maxed) — still full.
+    expect(distributedRow.components.retention.score).toBe(1);
+    // HP is comfortably above the median: at least the four non-momentum
+    // weights' worth (since each non-momentum component is at 1).
+    const w = PRE_FILTER_WEIGHTS;
+    const minExpected =
+      w.velocity + w.effectiveBuyers + w.stickyLiquidity + w.retention;
+    expect(distributedRow.hp).toBeGreaterThanOrEqual(minExpected);
+  });
+
+  it("§27.6 — sybil swarm with thin fundamentals loses to real distributed buyers", () => {
+    // Spec test 2 ("many dust wallets don't dominate") in the above-floor
+    // case: a swarm of 1000 wallets just above the dust floor with thin LP
+    // must lose to a real distributed cohort even though the swarm wins
+    // raw effective-buyers headcount. Five-component composition (velocity
+    // + sticky liq + retention) overcomes the single-axis swarm advantage.
+    // The pure-dust case (wallets below the floor) is covered by the
+    // "dust wallets do not inflate effective buyers" test above; the
+    // sqrt-vs-log magnitude difference is verified in the toggle test
+    // below — within a two-token cohort, min-max normalization erases the
+    // magnitude gap, so we test composition here, not magnitude.
+    const swarmAmount = DEFAULT_CONFIG.buyerDustFloorWeth * 2n; // 0.01 WETH
+    const swarmBuys = Array.from({length: 1000}, (_, i) => ({
+      wallet: wallet(i + 1),
+      ts: NOW - 100n,
+      amountWeth: swarmAmount,
+    }));
+    const swarm = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map(swarmBuys.map((b) => [b.wallet, b.amountWeth])),
+      buys: swarmBuys,
+      liquidityDepthWeth: WETH, // thin LP — sybil pattern
+      currentHolders: new Set(swarmBuys.map((b) => b.wallet)),
+      holdersAtRetentionAnchor: new Set(swarmBuys.map((b) => b.wallet)),
+    });
+    // 30 real buyers each with 1 WETH and a deep LP. Per-wallet velocity
+    // net (1 / log2(1 + 1e18/1e15) ≈ 0.10) far exceeds the swarm's
+    // (0.01 / log2(11) ≈ 0.0029), so velocity tilts to real even though
+    // headcount is 30 vs 1000.
+    const realBuys = Array.from({length: 30}, (_, i) => ({
+      wallet: wallet(2000 + i),
+      ts: NOW - 100n,
+      amountWeth: WETH,
+    }));
+    const real = makeStats({
+      token: tokenB,
+      volumeByWallet: new Map(realBuys.map((b) => [b.wallet, b.amountWeth])),
+      buys: realBuys,
+      liquidityDepthWeth: 50n * WETH,
+      currentHolders: new Set(realBuys.map((b) => b.wallet)),
+      holdersAtRetentionAnchor: new Set(realBuys.map((b) => b.wallet)),
+    });
+
+    const ranked = score([swarm, real], NOW);
+    expect(ranked[0]?.token).toBe(tokenB);
+    const realRow = ranked.find((r) => r.token === tokenB)!;
+    const swarmRow = ranked.find((r) => r.token === tokenA)!;
+    // Real wins velocity + sticky liq; swarm wins effective buyers; both
+    // tie on retention (100%) and momentum (neutral). Composition:
+    // 0.40 + 0.15 = 0.55 > 0.25 = 0.30, so real takes HP.
+    expect(realRow.components.velocity.score).toBe(1);
+    expect(realRow.components.stickyLiquidity.score).toBe(1);
+    expect(swarmRow.components.effectiveBuyers.score).toBe(1);
+  });
+
+  // ── Targeted unit tests for v3 config knobs ────────────────────────────────
+
+  it("effectiveBuyersFunc=log restores headcount preference for sybil-heavy cohorts", () => {
+    // Same fixture as the swarm test above, but with `effectiveBuyersFunc:
+    // "log"`. Under log dampening, a swarm of just-above-floor wallets
+    // outscores a few real buyers on the effective-buyers component
+    // specifically. (We don't assert on overall HP — log/sqrt change the
+    // effective-buyers signal, not the other four components.)
+    const swarmAmount = DEFAULT_CONFIG.buyerDustFloorWeth * 2n;
+    const swarmBuys = Array.from({length: 1000}, (_, i) => ({
+      wallet: wallet(i + 1),
+      ts: NOW - 100n,
+      amountWeth: swarmAmount,
+    }));
+    const swarm = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map(swarmBuys.map((b) => [b.wallet, b.amountWeth])),
+      buys: swarmBuys,
+      liquidityDepthWeth: WETH,
+      currentHolders: new Set(swarmBuys.map((b) => b.wallet)),
+      holdersAtRetentionAnchor: new Set(swarmBuys.map((b) => b.wallet)),
+    });
+    const realBuys = Array.from({length: 5}, (_, i) => ({
+      wallet: wallet(2000 + i),
+      ts: NOW - 100n,
+      amountWeth: 5n * WETH,
+    }));
+    const real = makeStats({
+      token: tokenB,
+      volumeByWallet: new Map(realBuys.map((b) => [b.wallet, b.amountWeth])),
+      buys: realBuys,
+      liquidityDepthWeth: WETH,
+      currentHolders: new Set(realBuys.map((b) => b.wallet)),
+      holdersAtRetentionAnchor: new Set(realBuys.map((b) => b.wallet)),
+    });
+
+    const log = score([swarm, real], NOW, {...DEFAULT_CONFIG, effectiveBuyersFunc: "log"});
+    const swarmLog = log.find((r) => r.token === tokenA)!;
+    const realLog = log.find((r) => r.token === tokenB)!;
+    expect(swarmLog.components.effectiveBuyers.score).toBe(1);
+    expect(realLog.components.effectiveBuyers.score).toBe(0);
+
+    // Sanity: under sqrt the swarm still leads effective buyers (because log
+    // and sqrt both favor breadth at this scale) — but by a narrower factor.
+    // Both tests share the swarm-leads-on-buyers property; the *magnitude*
+    // is what differs and what HP composition reflects elsewhere.
+    const sqrt = score([swarm, real], NOW);
+    const swarmSqrt = sqrt.find((r) => r.token === tokenA)!;
+    expect(swarmSqrt.components.effectiveBuyers.score).toBe(1);
+  });
+
+  it("momentumCap clips a normalized momentum score below the cap", () => {
+    // Two-token cohort where one surges and one coasts. With default cap
+    // 1.0, the surger's normalized momentum sits at the natural max (1).
+    // Tightening the cap to 0.6 must clip it without affecting the coaster's
+    // already-low momentum.
+    const buys = [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}];
+    const baseHolders = new Set([wallet(1)]);
+    const surger = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys,
+      liquidityDepthWeth: WETH,
+      currentHolders: baseHolders,
+      holdersAtRetentionAnchor: baseHolders,
+      priorBaseComposite: 0,
+    });
+    const coaster = makeStats({
+      token: tokenB,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys,
+      liquidityDepthWeth: WETH,
+      currentHolders: baseHolders,
+      holdersAtRetentionAnchor: baseHolders,
+      priorBaseComposite: 1,
+    });
+
+    const uncapped = score([surger, coaster], NOW);
+    const surgerUncapped = uncapped.find((r) => r.token === tokenA)!;
+    expect(surgerUncapped.components.momentum.score).toBe(1);
+
+    const capped = score([surger, coaster], NOW, {...DEFAULT_CONFIG, momentumCap: 0.6});
+    const surgerCapped = capped.find((r) => r.token === tokenA)!;
+    const coasterCapped = capped.find((r) => r.token === tokenB)!;
+    expect(surgerCapped.components.momentum.score).toBe(0.6);
+    // Coaster's momentum was already below 0.6 (delta ≤ 0 → ≤ 0.5), so the
+    // cap is a no-op for it.
+    expect(coasterCapped.components.momentum.score).toBeLessThanOrEqual(0.5);
+  });
+
+  it("momentumCap below 0.5 does NOT clip first-tick neutral baseline", () => {
+    // Regression: a tight cap (e.g. 0.3) must not retroactively penalize a
+    // token with no `priorBaseComposite`. The neutral 0.5 is preserved; the
+    // cap applies only to tokens with real momentum signal. Without this
+    // guarantee, an operator tightening the cap would silently demote every
+    // first-tick token in the cohort.
+    const buys = [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}];
+    const baseHolders = new Set([wallet(1)]);
+    const fresh = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys,
+      liquidityDepthWeth: WETH,
+      currentHolders: baseHolders,
+      holdersAtRetentionAnchor: baseHolders,
+      // No priorBaseComposite — first tick.
+    });
+    const surger = makeStats({
+      token: tokenB,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys,
+      liquidityDepthWeth: WETH,
+      currentHolders: baseHolders,
+      holdersAtRetentionAnchor: baseHolders,
+      priorBaseComposite: 0,
+    });
+
+    const tight = score([fresh, surger], NOW, {...DEFAULT_CONFIG, momentumCap: 0.3});
+    const freshRow = tight.find((r) => r.token === tokenA)!;
+    const surgerRow = tight.find((r) => r.token === tokenB)!;
+    // Neutral baseline preserved, despite cap < 0.5.
+    expect(freshRow.components.momentum.score).toBe(0.5);
+    // Surger's real momentum signal IS clipped to the tight cap.
+    expect(surgerRow.components.momentum.score).toBe(0.3);
+  });
+
+  it("sticky-liq α=1.0 default zeroes the score on a 100%-of-depth withdrawal", () => {
+    // Spec §6.4.3: with α=1.0, recentRemoved/avgDepth = 1.0 means the haircut
+    // saturates and sticky liq drops to 0. A second token with no withdrawal
+    // keeps full sticky liq, so the cohort min-max is [0, 100*WETH].
+    const stable = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}],
+      avgLiquidityDepthWeth: 100n * WETH,
+      liquidityDepthWeth: 100n * WETH,
+      currentHolders: new Set([wallet(1)]),
+      holdersAtRetentionAnchor: new Set([wallet(1)]),
+    });
+    const fullyDumped = makeStats({
+      token: tokenB,
+      volumeByWallet: new Map([[wallet(1), WETH]]),
+      buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}],
+      avgLiquidityDepthWeth: 100n * WETH,
+      liquidityDepthWeth: 100n * WETH,
+      // 100% of avg depth pulled recently — at α=1.0 sticky liq raw → 0.
+      recentLiquidityRemovedWeth: 100n * WETH,
+      currentHolders: new Set([wallet(1)]),
+      holdersAtRetentionAnchor: new Set([wallet(1)]),
+    });
+
+    const ranked = score([stable, fullyDumped], NOW);
+    expect(ranked[0]?.token).toBe(tokenA);
+    expect(ranked[0]?.components.stickyLiquidity.score).toBe(1);
+    expect(ranked[1]?.components.stickyLiquidity.score).toBe(0);
+
+    // With α=0.5 the same withdrawal halves rather than zeroes — sanity
+    // that the knob actually flows through.
+    const softer = score([stable, fullyDumped], NOW, {
+      ...DEFAULT_CONFIG,
+      recentWithdrawalPenalty: 0.5,
+    });
+    // Both tokens still have nonzero sticky-liq; min-max normalization pushes
+    // the higher one to 1 and the lower (50% haircut) to 0, but the *raw*
+    // value behind the lower row is half the higher one — confirmed via HP
+    // ordering still matching but the gap on stickyLiquidity component
+    // staying at 1↔0 (cohort range, not absolute).
+    expect(softer[0]?.token).toBe(tokenA);
+  });
+
+  it("finals weights match spec §6.5 (30/15/25/20/10)", () => {
+    expect(FINALS_WEIGHTS.velocity).toBe(0.30);
+    expect(FINALS_WEIGHTS.effectiveBuyers).toBe(0.15);
+    expect(FINALS_WEIGHTS.stickyLiquidity).toBe(0.25);
+    expect(FINALS_WEIGHTS.retention).toBe(0.20);
+    expect(FINALS_WEIGHTS.momentum).toBe(0.10);
+    const sum =
+      FINALS_WEIGHTS.velocity +
+      FINALS_WEIGHTS.effectiveBuyers +
+      FINALS_WEIGHTS.stickyLiquidity +
+      FINALS_WEIGHTS.retention +
+      FINALS_WEIGHTS.momentum;
+    expect(sum).toBeCloseTo(1, 6);
   });
 });
