@@ -41,10 +41,23 @@ Out of scope (next PRs):
 ```sh
 npm install
 cp packages/web/.env.example packages/web/.env.local
+# After a deploy: bake addresses into the build.
+npm --workspace @filter-fun/web run sync:deployment
 npm --workspace @filter-fun/web run dev
 ```
 
 Open `http://localhost:3000`. With MetaMask (or any injected wallet) installed, click **Connect Wallet** — the header should show the connected address and the resolved chain.
+
+### Deployment manifest
+
+Contract addresses come from `src/lib/deployment.json`, which is overwritten by
+`npm run sync:deployment` (it copies
+`packages/contracts/deployments/base-sepolia.json` — set `NETWORK=base` for mainnet
+or `MANIFEST=/abs/path` to override). The placeholder shipped in this repo has zero
+addresses; pre-deploy contract calls will fail at the wallet layer rather than
+silently no-op. See [`src/lib/addresses.ts`](./src/lib/addresses.ts) for the typed
+export and [`docs/runbook-sepolia-smoke.md`](../../docs/runbook-sepolia-smoke.md) for
+the end-to-end flow.
 
 ## Workspace packages used
 

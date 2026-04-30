@@ -5,15 +5,24 @@ import {FilterLauncherAbi} from "./abis/FilterLauncher";
 import {FilterLpLockerAbi} from "./abis/FilterLpLocker";
 import {SeasonVaultAbi} from "./abis/SeasonVault";
 import {BonusDistributorAbi} from "./abis/BonusDistributor";
+import {readDeployment} from "./src/deployment.js";
 
-const startBlock = Number(process.env.DEPLOY_BLOCK ?? 0);
-const launcherAddr = (process.env.FILTER_LAUNCHER_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
-const factoryAddr = (process.env.FILTER_FACTORY_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
-const bonusAddr = (process.env.BONUS_DISTRIBUTOR_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
+/// Pin to one network per indexer instance. Default to baseSepolia for testnet rehearsal —
+/// flip to "base" for mainnet via `PONDER_NETWORK=base`. The `readDeployment` helper picks
+/// up addresses from the deploy manifest (Epic 1.6) or falls through to env vars.
+const network = (process.env.PONDER_NETWORK ?? "baseSepolia") as "base" | "baseSepolia";
+const deployment = readDeployment(network);
 
-/// Pin to one network per indexer instance. Default to base mainnet so production deploys
-/// don't need extra env. Override to "baseSepolia" for testnet via `PONDER_NETWORK`.
-const network = (process.env.PONDER_NETWORK ?? "base") as "base" | "baseSepolia";
+const startBlock = deployment.deployBlockNumber;
+const launcherAddr = deployment.addresses.filterLauncher;
+const factoryAddr = deployment.addresses.filterFactory;
+const bonusAddr = deployment.addresses.bonusDistributor;
+
+console.log(
+  `[ponder] indexing ${network} from block ${startBlock} (commit ${deployment.deployCommitHash})`,
+);
+console.log(`[ponder]   launcher: ${launcherAddr}`);
+console.log(`[ponder]   factory:  ${factoryAddr}`);
 
 /// Indexes the canonical filter.fun deployment. `SeasonVault` and `FilterLpLocker` are deployed
 /// dynamically — Ponder's factory pattern picks them up via the parent contract's emit log.

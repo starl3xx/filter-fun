@@ -1,0 +1,34 @@
+{
+  "_comment": "Placeholder. Overwritten by `npm --workspace @filter-fun/web run sync:deployment`, which copies the latest packages/contracts/deployments/<network>.json. Pre-deploy this contains zero addresses; the wagmi config + UI tolerate that during dev but fail-safely (no contract calls succeed).",
+  "chainId": 84532,
+  "network": "base-sepolia",
+  "deployBlockNumber": 0,
+  "deployedAt": 0,
+  "deployerAddress": "0x0000000000000000000000000000000000000000",
+  "hookSalt": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "deployCommitHash": "unknown",
+  "filterToken": "",
+  "addresses": {
+    "treasuryTimelock": "0x0000000000000000000000000000000000000000",
+    "bonusDistributor": "0x0000000000000000000000000000000000000000",
+    "polVault": "0x0000000000000000000000000000000000000000",
+    "filterLauncher": "0x0000000000000000000000000000000000000000",
+    "polManager": "0x0000000000000000000000000000000000000000",
+    "filterHook": "0x0000000000000000000000000000000000000000",
+    "filterFactory": "0x0000000000000000000000000000000000000000",
+    "creatorRegistry": "0x0000000000000000000000000000000000000000",
+    "creatorFeeDistributor": "0x0000000000000000000000000000000000000000",
+    "tournamentRegistry": "0x0000000000000000000000000000000000000000",
+    "tournamentVault": "0x0000000000000000000000000000000000000000",
+    "v4PoolManager": "0x0000000000000000000000000000000000000000",
+    "weth": "0x4200000000000000000000000000000000000006"
+  },
+  "config": {
+    "treasuryOwner": "0x0000000000000000000000000000000000000000",
+    "schedulerOracle": "0x0000000000000000000000000000000000000000",
+    "mechanicsWallet": "0x0000000000000000000000000000000000000000",
+    "polVaultOwner": "0x0000000000000000000000000000000000000000",
+    "maxLaunchesPerWallet": 1,
+    "refundableStakeEnabled": true
+  }
+}
