@@ -194,11 +194,11 @@ function AdminConsole({token}: {token: Address}) {
         <div
           className="ff-col-right"
           style={{display: "flex", flexDirection: "column", gap: 0, minWidth: 0}}
-          ref={acceptAnchorRef}
         >
           <MetadataForm token={token} currentUri={info.metadataURI} canEdit={canEdit} />
           <RecipientForm token={token} currentRecipient={info.recipient} canEdit={canEdit} />
           <AdminTransferForms
+            ref={acceptAnchorRef}
             token={token}
             currentAdmin={info.admin}
             pendingAdmin={info.pendingAdmin}

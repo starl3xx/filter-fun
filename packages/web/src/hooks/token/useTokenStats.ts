@@ -4,6 +4,7 @@ import {useMemo} from "react";
 import type {Address} from "viem";
 
 import type {TokenResponse} from "@/lib/arena/api";
+import {SURVIVE_COUNT} from "@/lib/tokens";
 
 import {useTokens} from "../arena/useTokens";
 
@@ -33,8 +34,6 @@ export type TokenStats = {
   /// Pre-formatted display string: "SAFE by 4" / "AT RISK by 1" / "FILTERED".
   cutLineLabel: string;
 };
-
-const SURVIVE_COUNT = 6;
 
 export function useTokenStats(address: Address | null): {
   stats: TokenStats;
