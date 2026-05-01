@@ -6,6 +6,7 @@ Next.js (App Router) + wagmi v2 + viem. Live spectator surface + launch on-ramp 
 
 - **`/`** — main spectator surface (Epic 1.4 + 1.8 web). Live leaderboard with cut line between rank 6 / 7, SSE-powered ticker with five visual states (normal / high-activity / pre-filter / filter-moment / post-filter), top bar with countdown + Champion Pool + Champion Backing Pool, token detail panel with HP component breakdown using spec §6.6 labels, activity feed, and a Trade $TICKER deep-link to the Uniswap interface. Reads `/season`, `/tokens`, `/events` from the indexer (`NEXT_PUBLIC_INDEXER_URL`). Honors `?token=0x…` to pre-select a row (used by `/launch` after a successful launch).
 - **`/launch`** — public launch page (Epic 1.5). 12-card slot grid (filled vs `Claim now` vs `Almost gone` vs closed), launch form with name / ticker / description / image URL / optional socials, live cost panel (slot cost + refundable stake), creator-incentives module, and the locked acknowledgment checkbox. Reads `getLaunchSlots` / `getLaunchStatus` / `canLaunch` / `launchesByWallet` directly from `FilterLauncher` (deploy manifest provides the address) and merges with `/tokens` for ticker / HP / status. Submits via `FilterLauncher.launchToken(name, symbol, metadataURI)` with `value = launchCost + refundableStake`. Metadata is pinned via `/api/metadata` before the wallet is touched (see _Metadata pinning_ below).
+- **`/token/[address]/admin`** — Creator Admin Console (Epic 1.11). Per-token admin/dev page. Three columns: identity + claim creator fees (left), live HP / rank / cut-line / stake status / settlement preview (center), metadata + recipient + two-step admin transfer + bag-lock placeholder (right). Auth-gated: connected wallet must equal `adminOf(token)` to drive write actions. The pending nominee sees a "you've been nominated — accept" banner. Reads CreatorRegistry, CreatorFeeDistributor, FilterLauncher via wagmi. Spec §38.
 - **`/arena`** — 302 redirect to `/`. The arena IS the homepage; this redirect preserves external links and muscle memory. Query strings (e.g. `?token=…` from `/launch`) are forwarded by Next's redirect handling.
 - **`/claim/rollover`** — paste the oracle's per-user settlement entry (`{seasonId, vault, share, proof}`), submit `SeasonVault.claimRollover(share, proof)`.
 - **`/claim/bonus`** — paste the oracle's per-user bonus entry (`{seasonId, distributor, amount, proof}`), submit `BonusDistributor.claim(seasonId, amount, proof)`.
@@ -52,6 +53,27 @@ src/
                                         storage (Pinata + fs), format
 ```
 
+Component layout (admin console):
+
+```
+src/
+├── app/token/[address]/admin/page.tsx  client-rendered, 3-col with mobile collapse
+├── components/admin/                   AuthBanner (4 states), TokenHeader, HpPanel,
+│                                       RankPanel, PhaseCountdown, StakeStatusPanel,
+│                                       BountyEstimate, SettlementPreview,
+│                                       SurvivalActions, ClaimFeesPanel,
+│                                       MetadataForm, RecipientForm,
+│                                       AdminTransferForms, PlaceholderCards, Card
+├── hooks/token/                        useTokenAdmin (registry reads),
+│                                       useAdminAuth (4-state derivation),
+│                                       useTokenStats (rank/cut-line math),
+│                                       useStakeStatus (launchInfoOf + entryOf),
+│                                       useCreatorFees (pendingClaim + claim tx),
+│                                       useSeasonContext (currentSeasonId + phase)
+└── lib/token/                          abis (CreatorRegistry / CreatorFeeDistributor /
+                                        FilterLauncher fragments), format (Ξ/addr)
+```
+
 Out of scope (next PRs):
 
 1. Custom V4 swap UI inside the homepage detail panel — currently links out to the Uniswap interface (slippage / approval / FilterHook routing is its own scope).
@@ -59,6 +81,7 @@ Out of scope (next PRs):
 3. Profile + graveyard links from rows (Epic 3.1 / 3.2).
 4. Finals + season-history views.
 5. Auto-fetched claim entries (no paste required).
+6. Admin-console v2: HP-component drilldown with deltas + tx links (needs `/tokens/:address/history` endpoint that doesn't exist yet); holder cohort sankey; replay-link generator at settlement; bag-lock UI (Epic 1.13 contracts pending); mission opt-in (Epic 4.2); multi-recipient fee splits; pre-launch HP simulation (belongs in Epic 1.5 launch flow).
 
 ## Setup
 
