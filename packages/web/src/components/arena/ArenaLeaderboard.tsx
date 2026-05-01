@@ -239,14 +239,19 @@ function Row({
         textAlign: "left",
         padding: "10px 18px",
         alignItems: "center",
-        borderBottom: `1px solid ${C.lineSoft}`,
         opacity: below ? 0.62 : 1,
         background: isSelected
           ? `linear-gradient(90deg, ${C.cyan}1a, transparent 70%)`
           : finalist
             ? `linear-gradient(90deg, ${C.yellow}14, transparent 60%)`
             : "transparent",
-        border: "none",
+        // Neutralize the user-agent button border on top + right; keep the
+        // bottom row separator and the left selection accent. Order matters
+        // here — using `border: "none"` ahead of borderBottom/borderLeft
+        // would have wiped them as the shorthand resets all four sides.
+        borderTop: "none",
+        borderRight: "none",
+        borderBottom: `1px solid ${C.lineSoft}`,
         borderLeft: isSelected ? `2px solid ${C.cyan}` : "2px solid transparent",
         color: "inherit",
         cursor: "pointer",

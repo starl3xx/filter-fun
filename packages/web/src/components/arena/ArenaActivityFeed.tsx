@@ -55,12 +55,14 @@ export function ArenaActivityFeed({events, max = 16}: ArenaActivityFeedProps) {
               gap: 10,
               fontSize: 12,
               fontFamily: F.mono,
-              color: priorityColor(e.priority),
               letterSpacing: "0.02em",
             }}
           >
             <span style={{color: C.faint, fontSize: 9, minWidth: 36, fontVariantNumeric: "tabular-nums"}}>{shortTime(e.timestamp)}</span>
-            <span style={{flex: 1, color: C.text}}>{e.message}</span>
+            {/* Color the message itself, not the <li> — earlier the priority color
+                was set on the <li> but both child <span>s overrode it with their
+                own `color`, so HIGH/LOW priority lines were visually identical. */}
+            <span style={{flex: 1, color: priorityColor(e.priority)}}>{e.message}</span>
           </li>
         ))}
       </ul>
