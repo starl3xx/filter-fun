@@ -4,10 +4,16 @@ Next.js (App Router) + wagmi v2 + viem. Broadcast leaderboard + claim app for fi
 
 ## Pages
 
-- **`/arena`** — main spectator surface (Epic 1.4 + 1.8 web). Live leaderboard with cut line between rank 6 / 7, SSE-powered ticker with five visual states (normal / high-activity / pre-filter / filter-moment / post-filter), top bar with countdown + Champion Pool + Champion Backing Pool, token detail panel with HP component breakdown using spec §6.6 labels, activity feed, and a Trade $TICKER deep-link to the Uniswap interface. Reads `/season`, `/tokens`, `/events` from the indexer (`NEXT_PUBLIC_INDEXER_URL`).
+- **`/arena`** — main spectator surface (Epic 1.4 + 1.8 web). Live leaderboard with cut line between rank 6 / 7, SSE-powered ticker with five visual states (normal / high-activity / pre-filter / filter-moment / post-filter), top bar with countdown + Champion Pool + Champion Backing Pool, token detail panel with HP component breakdown using spec §6.6 labels, activity feed, and a Trade $TICKER deep-link to the Uniswap interface. Reads `/season`, `/tokens`, `/events` from the indexer (`NEXT_PUBLIC_INDEXER_URL`). Honors `?token=0x…` to pre-select a row (used by `/launch` after a successful launch).
+- **`/launch`** — public launch page (Epic 1.5). 12-card slot grid (filled vs `Claim now` vs `Almost gone` vs closed), launch form with name / ticker / description / image URL / optional socials, live cost panel (slot cost + refundable stake), creator-incentives module, and the locked acknowledgment checkbox. Reads `getLaunchSlots` / `getLaunchStatus` / `canLaunch` / `launchesByWallet` directly from `FilterLauncher` (deploy manifest provides the address) and merges with `/tokens` for ticker / HP / status. Submits via `FilterLauncher.launchToken(name, symbol, metadataURI)` with `value = launchCost + refundableStake`. Metadata is pinned via `/api/metadata` before the wallet is touched (see _Metadata pinning_ below).
 - **`/`** — broadcast home: live leaderboard, ticker tape, featured #1 token, finalist quests, filter line, countdown to next cut, activity feed. Uses local simulation data (`useLiveTokens` / `useCountdown` / `useActivityFeed`) for now; swaps to indexer-driven data when the GraphQL surface is wired.
 - **`/claim/rollover`** — paste the oracle's per-user settlement entry (`{seasonId, vault, share, proof}`), submit `SeasonVault.claimRollover(share, proof)`.
 - **`/claim/bonus`** — paste the oracle's per-user bonus entry (`{seasonId, distributor, amount, proof}`), submit `BonusDistributor.claim(seasonId, amount, proof)`.
+
+### API routes
+
+- **`POST /api/metadata`** — accepts `{name, ticker, description, imageUrl, website?, twitter?, farcaster?}`, validates server-side, builds the metadata document, pins it, and returns `{uri, backend}`. The URI is what the client passes to `FilterLauncher.launchToken(...)` as `metadataURI_`.
+- **`GET /api/metadata/:slug`** — serves a previously-pinned metadata JSON from the filesystem fallback. Only used when `PINATA_JWT` is unset.
 
 The oracle publishes per-user JSON entries cut from the full `buildSettlementPayload` / `buildBonusPayload` output. v0 claim input is paste-from-clipboard; auto-fetched profile views land once the indexer's HTTP API is live.
 
@@ -93,6 +99,11 @@ Both are workspace-linked and transpiled via Next's `transpilePackages`.
 | `NEXT_PUBLIC_BASE_RPC_URL`         | (chain default public)     | Override for production-grade RPC (Alchemy, Infura, your own).     |
 | `NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL` | (chain default public)     | Same, for testnet.                                                 |
 | `NEXT_PUBLIC_INDEXER_URL`          | `http://localhost:42069`   | Indexer HTTP base — `/season`, `/tokens`, `/events` for the arena. |
+| `PINATA_JWT`                       | (unset)                    | **Server-side.** Pinata JWT used by `/api/metadata` to pin token metadata to IPFS. Preferred backend for production. Never expose this to the client. |
+| `METADATA_STORE_DIR`               | (unset)                    | **Server-side.** Filesystem fallback when `PINATA_JWT` is not set — `/api/metadata` writes JSON files to this directory and returns a self-hosted URL. Intended for testnet / preview deploys, not production. |
+| `METADATA_PUBLIC_URL`              | request origin             | **Server-side.** Public origin used to compose the fallback URL (e.g. `https://filter.fun`). Defaults to the inbound request's host. Only relevant in fallback mode. |
+
+> **At least one of `PINATA_JWT` or `METADATA_STORE_DIR` must be set** in any deploy that exposes `/launch`. With neither configured, `POST /api/metadata` fails with HTTP 500 — preferred to letting a creator submit the form and discover the gap at the wallet step.
 
 ## Tests
 

@@ -54,12 +54,27 @@ export default function ArenaPage() {
   const [selected, setSelected] = useState<`0x${string}` | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  // /launch redirects here with `?token=0x…` after a successful launch so the
+  // creator lands on their freshly-minted token. Read the param via
+  // `window.location` (rather than `useSearchParams`) so the page can stay
+  // statically prerendered without a Suspense boundary.
+  const [tokenParam, setTokenParam] = useState<`0x${string}` | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const v = new URLSearchParams(window.location.search).get("token");
+    if (v && /^0x[0-9a-fA-F]{40}$/.test(v)) setTokenParam(v as `0x${string}`);
+  }, []);
+
   // Auto-select rank-1 (or first non-zero rank) so the panel is always populated.
   useEffect(() => {
     if (selected) return;
+    if (tokenParam && cohort.find((t) => t.token.toLowerCase() === tokenParam.toLowerCase())) {
+      setSelected(tokenParam);
+      return;
+    }
     const first = cohort.find((t) => t.rank > 0) ?? cohort[0];
     if (first) setSelected(first.token);
-  }, [cohort, selected]);
+  }, [cohort, selected, tokenParam]);
 
   // If the selected token is no longer in the cohort (filtered + dropped),
   // clear selection so the next render auto-picks rank-1.

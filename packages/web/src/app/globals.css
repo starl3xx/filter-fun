@@ -268,3 +268,57 @@ code {
 .ff-ticker:focus-within .ff-ticker__track {
   animation-play-state: paused;
 }
+
+/* /launch page (Epic 1.5). Hero + filter strip stack full-width; the slot
+   grid + claim form sit side-by-side on wide screens, stack below 1100px. */
+.ff-launch-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 18px 24px;
+}
+
+.ff-launch-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  gap: 14px;
+}
+
+@media (max-width: 1100px) {
+  .ff-launch-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ff-launch-hero {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .ff-launch-page {
+    padding: 10px 12px 18px;
+    gap: 10px;
+  }
+}
+
+.ff-launch-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .ff-launch-slot-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .ff-launch-slot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+}
+
+.ff-launch-claim-card:hover {
+  filter: brightness(1.06);
+}
