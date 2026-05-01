@@ -31,15 +31,42 @@ contract SettlementInvariantsTest is StdInvariant, Test {
         // Restrict the fuzzer to the handler's named entry points. Without this, foundry's
         // selector-discovery picks up every public function on the handler (including views,
         // ghost accessors, and constructor-chain helpers) and wastes runs on no-ops.
-        bytes4[] memory selectors = new bytes4[](7);
+        bytes4[] memory selectors = new bytes4[](8);
         selectors[0] = SettlementHandler.fuzz_processFilterEvent.selector;
         selectors[1] = SettlementHandler.fuzz_submitWinner.selector;
         selectors[2] = SettlementHandler.fuzz_claimRollover.selector;
         selectors[3] = SettlementHandler.fuzz_adversaryProcessFilterEvent.selector;
         selectors[4] = SettlementHandler.fuzz_adversarySubmitWinner.selector;
-        selectors[5] = SettlementHandler.fuzz_attemptResubmitWinner.selector;
-        selectors[6] = SettlementHandler.fuzz_reentrantClaim.selector;
+        selectors[5] = SettlementHandler.fuzz_adversaryPostBonusRoot.selector;
+        selectors[6] = SettlementHandler.fuzz_attemptResubmitWinner.selector;
+        selectors[7] = SettlementHandler.fuzz_reentrantClaim.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
+    }
+
+    // ============================================================ Deterministic reentrancy test
+    //
+    // Companion to `invariant_reentrancySafety` — proves the attack surface is wired and
+    // actually fires. Without this, an unintentional change that disables the malicious
+    // token's hook (or breaks the proof) would let the reentrancy invariant pass vacuously
+    // (no reentry attempted ⇒ trivially nothing succeeds). This deterministic test asserts
+    // the path was triggered AND blocked, giving the fuzz invariant teeth.
+    function test_reentrancySurface_fires_and_is_blocked() public {
+        // Drive a single filter event so the vault has rollover proceeds, submit the
+        // winner, then route a reentrant claim through the attacker.
+        handler.fuzz_processFilterEvent(0, 1 ether);
+        handler.fuzz_submitWinner();
+        require(handler.ghostWinnerSubmitted(), "setup: winner not submitted");
+
+        handler.fuzz_reentrantClaim();
+
+        // The hook fired (attempted re-entry) AND the inner re-call was blocked.
+        assertTrue(handler.attacker().reentryAttempted(), "reentry surface did not fire");
+        assertFalse(handler.attacker().reentrySucceeded(), "reentry was NOT blocked");
+        assertTrue(handler.ghostReentryAttemptedAtLeastOnce(), "handler did not record the attempt");
+        assertFalse(handler.ghostReentrancyBypass(), "handler recorded a bypass");
+
+        // The outer claim still completed — attacker holds the proportional winner-token cut.
+        assertTrue(handler.vault().claimed(address(handler.attacker())), "outer claim did not complete");
     }
 
     // ============================================================ Invariant 1 — conservation

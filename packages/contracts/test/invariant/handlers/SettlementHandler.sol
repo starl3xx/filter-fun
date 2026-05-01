@@ -16,6 +16,7 @@ import {BonusDistributor} from "../../../src/BonusDistributor.sol";
 
 import {MockWETH} from "../../mocks/MockWETH.sol";
 import {MintableERC20} from "../../mocks/MintableERC20.sol";
+import {MaliciousERC20} from "../MaliciousReceiver.sol";
 import {MockLpLocker} from "../../mocks/MockLpLocker.sol";
 import {MockLauncherView} from "../../mocks/MockLauncherView.sol";
 import {MockPOLManager} from "../../mocks/MockPOLManager.sol";
@@ -50,7 +51,11 @@ contract SettlementHandler is Test {
 
     uint256 public constant SEASON_ID = 1;
     uint256 public constant LOSER_COUNT = 5;
-    uint256 public constant HOLDER_COUNT = 5;
+    /// @dev Power of 2 — keeps the Merkle tree perfectly pairwise so `_buildRoot` /
+    ///      `_proofForHolder` never hit the odd-out edge case (where a leaf would be
+    ///      promoted unhashed but OZ's verifier always hashes pairs, producing
+    ///      `H(L,L) ≠ L` and silently failing every claim).
+    uint256 public constant HOLDER_COUNT = 4;
     /// @dev Mint rate used by both winner-locker and POLManager so all winner-token math
     ///      is deterministic across fuzz sequences. 100_000 winner tokens per 1 WETH (18d).
     uint256 internal constant MINT_RATE = 100_000e18;
@@ -143,6 +148,11 @@ contract SettlementHandler is Test {
     ///         returned success. Set by the reentrant-claim handler; the reentrancy-safety
     ///         invariant asserts this stays false.
     bool public ghostReentrancyBypass;
+    /// @notice True once the reentrant-claim handler has fired the malicious token's
+    ///         transfer hook at least once. Lets the invariant assert that the reentry
+    ///         path was actually exercised (vs. silently bypassed because of a broken
+    ///         proof or mis-wired token), giving the safety check teeth.
+    bool public ghostReentryAttemptedAtLeastOnce;
     /// @notice True once submitWinner has succeeded. Gates handlers that only make sense
     ///         post-finalize (claim*, etc).
     bool public ghostWinnerSubmitted;
@@ -182,9 +192,14 @@ contract SettlementHandler is Test {
         );
         launcher.setVault(SEASON_ID, address(vault));
 
-        // Tokens + lockers. Winner mints synthetic tokens; losers each carry a configurable
-        // liquidation proceeds value the fuzzer drives.
-        winnerToken = address(new MintableERC20("Winner", "WIN"));
+        // Tokens + lockers. Winner is a `MaliciousERC20` (transfer-hook-capable) so
+        // `claimRollover`'s `IERC20(winner).safeTransfer(...)` actually fires the hook
+        // configured by `fuzz_reentrantClaim`. The hook target stays `address(0)` until
+        // the attacker is constructed below — every other call path (mint during
+        // submitWinner, transfer during honest claims) sees `hookTarget == 0` and runs
+        // the standard ERC20 path with no callback.
+        MaliciousERC20 winner = new MaliciousERC20("Winner", "WIN");
+        winnerToken = address(winner);
         winnerLocker = new MockLpLocker(winnerToken, address(weth), address(vault));
         winnerLocker.setMintRate(MINT_RATE);
         launcher.setLocker(SEASON_ID, winnerToken, address(winnerLocker));
@@ -203,21 +218,24 @@ contract SettlementHandler is Test {
         }
 
         // Holders. Shares chosen so totalShares is non-trivial across the cohort and the
-        // Merkle root has a single distinct leaf per holder.
+        // Merkle root has a single distinct leaf per holder. HOLDER_COUNT=4 keeps the tree
+        // perfectly pairwise (no odd-out leaves).
         holderShares[0] = 100;
         holderShares[1] = 75;
         holderShares[2] = 50;
         holderShares[3] = 25;
-        holderShares[4] = 10;
         for (uint256 i = 0; i < HOLDER_COUNT; ++i) {
             holders[i] = makeAddr(string(abi.encodePacked("settlement.holder.", _toAscii(i))));
         }
 
         // Wire the attacker as the LAST holder so the rollover claim path naturally hands
-        // tokens to a contract address. The attacker's `react()` will attempt re-entry.
+        // tokens to a contract address. The malicious winner's transfer hook is set to fire
+        // into this attacker — armed only inside `fuzz_reentrantClaim`, so honest claims
+        // and the submitWinner mint paths see `armed == false` and run as no-ops.
         attacker = new MaliciousReceiver();
         attackerHolderIdx = HOLDER_COUNT - 1;
         holders[attackerHolderIdx] = address(attacker);
+        winner.setHook(address(attacker));
     }
 
     // ============================================================ Helpers
@@ -464,19 +482,35 @@ contract SettlementHandler is Test {
         } catch {}
     }
 
-    /// @notice Reentrant claim — arms the attacker, has it claim its rollover, expects
-    ///         ReentrancyGuard to revert the inner re-call. The attacker's
-    ///         `reentrySucceeded` flag is the canonical observation; this handler also
-    ///         flips a local ghost for the invariant to read.
+    /// @notice Reentrant claim — arms the attacker, has it claim its rollover, expects the
+    ///         malicious winner-token transfer hook to fire mid-claim and the inner
+    ///         reentrant `claimRollover` re-call to revert via `ReentrancyGuard`.
+    ///
+    ///         Wiring (constructor): the winner is a `MaliciousERC20` whose `_update` hook
+    ///         calls into `attacker.onTokenHook()` whenever `hookTarget != 0`. The hook is
+    ///         pre-wired to the attacker, but `armed == false` by default so non-attack
+    ///         transfers (mints during submitWinner, honest holder claims) are no-ops.
+    ///
+    ///         Attack flow:
+    ///           1. `arm()` flips `armed = true` and stages the inner callback
+    ///           2. attacker calls `claimRollover` (outer); the vault enters its
+    ///              `nonReentrant` lock and `safeTransfer`s winner tokens to the attacker
+    ///           3. `MaliciousERC20._update` fires the hook → `attacker._fire()` runs
+    ///              the staged inner call against the same vault
+    ///           4. Inner `claimRollover` hits the reentrancy guard → reverts → outer
+    ///              `target.call(...)` returns `success = false` → `attacker.reentrySucceeded`
+    ///              stays false (the contract is safe)
+    ///           5. Outer transfer completes; outer claim succeeds; attacker holds tokens
+    ///
+    ///         If a future regression drops the `nonReentrant` modifier, step 4's inner
+    ///         call would succeed → `attacker.reentrySucceeded` flips true → the invariant
+    ///         fires and the test fails loudly.
     function fuzz_reentrantClaim() external {
         if (!ghostWinnerSubmitted) return;
         if (vault.claimed(address(attacker))) return;
 
         bytes32[] memory proof = _proofForHolder(attackerHolderIdx);
 
-        // Arm the attacker to attempt a re-call into claimRollover with the same proof.
-        // Inside the malicious token's transfer hook, this call should hit
-        // ReentrancyGuardReentrantCall and bubble back as success=false.
         attacker.arm(
             address(vault),
             abi.encodeWithSelector(vault.claimRollover.selector, holderShares[attackerHolderIdx], proof)
@@ -485,12 +519,8 @@ contract SettlementHandler is Test {
         vm.prank(address(attacker));
         try vault.claimRollover(holderShares[attackerHolderIdx], proof) {} catch {}
 
-        // The vault's winner is the standard MintableERC20 — no transfer hook fires, so
-        // the reentry attempt isn't actually triggered through the token path. The flag
-        // surface still exists for higher-fidelity reentry harnesses (e.g. a malicious
-        // winner token wired in a dedicated test). For Pillar 1, the assertion is that
-        // ReentrancyGuard is in place and was not bypassed; if a future malicious-winner
-        // wiring lands, attacker.reentrySucceeded() exposes the result.
+        // Bubble the attacker's per-cycle outcome into ghosts the invariants observe.
+        if (attacker.reentryAttempted()) ghostReentryAttemptedAtLeastOnce = true;
         if (attacker.reentrySucceeded()) ghostReentrancyBypass = true;
 
         attacker.disarm();
