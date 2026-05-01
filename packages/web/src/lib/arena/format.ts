@@ -58,9 +58,16 @@ function pad(n: number): string {
 /// True iff the ISO target is within the spec'd "pre-filter" window —
 /// final 10 minutes before a cut event (§20.8). Used by the ticker to
 /// switch into pre-filter visual mode without waiting for an event.
+///
+/// Excludes both `launch` and `settled` phases: in `launch` no cut is
+/// imminent (everyone SAFE per the indexer status mapping; the leaderboard
+/// hides the cut line for the same reason), and in `settled` the next-cut
+/// timestamp is historical. Without the launch exclusion the ticker would
+/// urgently count down while the leaderboard simultaneously says "no cut" —
+/// a contradiction the spectator UI must avoid.
 export function isPreFilterWindow(season: SeasonResponse | null, now: Date = new Date()): boolean {
   if (!season) return false;
-  if (season.phase === "settled") return false;
+  if (season.phase === "launch" || season.phase === "settled") return false;
   const secs = secondsUntil(season.nextCutAt, now);
   return secs > 0 && secs <= 600;
 }

@@ -53,6 +53,13 @@ describe("deriveState", () => {
     const season = makeFixtureSeason({nextCutAt: isoDelta(2 * 60_000), phase: "settled"});
     expect(deriveState([], season, NOW)).toBe("normal");
   });
+
+  it("does not enter pre-filter during the launch phase", () => {
+    // No cut is imminent during launch (the leaderboard hides the cut line
+    // for the same reason); ticker must agree.
+    const season = makeFixtureSeason({nextCutAt: isoDelta(2 * 60_000), phase: "launch"});
+    expect(deriveState([], season, NOW)).toBe("normal");
+  });
 });
 
 describe("ArenaTicker rendering", () => {
