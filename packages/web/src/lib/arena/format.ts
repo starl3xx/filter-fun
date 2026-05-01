@@ -4,13 +4,13 @@
 
 import type {SeasonResponse} from "./api.js";
 
-/// "Ξ14.82" from the indexer's decimal-ether string. Two decimals, drop
-/// trailing zeros, never strip the leading integer.
+/// "Ξ14.82" from the indexer's decimal-ether string. Always two decimals
+/// — matches the spec §19.5 example format exactly. Empty / non-finite
+/// input renders as "Ξ0.00" so the layout doesn't shift between the
+/// pre-data state and the first response.
 export function fmtEth(decimalEther: string): string {
-  if (!decimalEther || decimalEther === "0") return "Ξ0";
-  const n = Number(decimalEther);
-  if (!Number.isFinite(n)) return "Ξ0";
-  // 2-decimal formatting; preserves the spec example "Ξ14.82".
+  const n = Number(decimalEther ?? "0");
+  if (!Number.isFinite(n)) return "Ξ0.00";
   return `Ξ${n.toFixed(2)}`;
 }
 

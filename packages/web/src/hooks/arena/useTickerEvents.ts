@@ -149,6 +149,13 @@ export function useTickerEvents(opts: UseTickerEventsOpts = {}): UseTickerEvents
     connect();
 
     return () => {
+      // Mark `closed` BEFORE flipping `mounted`. When the effect re-runs due
+      // to a dep change (rather than unmount), this puts the hook briefly
+      // into `closed` and the new effect run immediately drives it back to
+      // `connecting` — keeps the transition consistent with the open/error
+      // path. Every other setState in this hook is gated on `mounted`; this
+      // one runs while still mounted by ordering.
+      setStatus("closed");
       mounted = false;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (es) {
@@ -161,7 +168,6 @@ export function useTickerEvents(opts: UseTickerEventsOpts = {}): UseTickerEvents
           // ignore — teardown only.
         }
       }
-      setStatus("closed");
     };
   }, [url, maxEvents, initialBackoffMs, maxBackoffMs]);
 
