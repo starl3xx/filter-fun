@@ -17,7 +17,7 @@
 import {useEffect, useState} from "react";
 
 import type {SeasonResponse} from "@/lib/arena/api";
-import {fmtCutCountdown, fmtEth, secondsUntil, weekLabel} from "@/lib/arena/format";
+import {fmtCutCountdown, fmtEth, weekLabel} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
 
 import type {LaunchSlot} from "@/hooks/launch/useLaunchSlots";
@@ -387,5 +387,3 @@ function ChampionPanel({season}: {season: SeasonResponse | null}) {
   );
 }
 
-// `secondsUntil` is unused here directly but exported for tests' convenience.
-export {secondsUntil};

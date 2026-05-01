@@ -36,7 +36,7 @@ import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
 import {useReadContract} from "wagmi";
 import {contractAddresses, isDeployed} from "@/lib/addresses";
-import {FilterLauncherLaunchAbi} from "@/lib/launch/abi";
+import {FilterLauncherLaunchAbi, MAX_LAUNCHES} from "@/lib/launch/abi";
 import type {LaunchFormFields} from "@/lib/launch/validation";
 
 export default function LaunchPage() {
@@ -71,8 +71,12 @@ export default function LaunchPage() {
     formRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
   }, []);
 
-  // Slot the next launch will occupy.
-  const nextSlotIndex = status?.launchCount ?? slots.findIndex((s) => s.kind === "next");
+  // Slot the next launch will occupy. Clamp to [0, MAX_LAUNCHES-1] — when
+  // launchCount === MAX_LAUNCHES the eligibility branch already hides the
+  // form (window-closed), but the display path still renders briefly while
+  // the eligibility read settles. Without clamping, "Slot #13" can flash.
+  const rawNext = status?.launchCount ?? slots.findIndex((s) => s.kind === "next");
+  const nextSlotIndex = Math.min(Math.max(rawNext, 0), MAX_LAUNCHES - 1);
   const nextCostWei = status?.nextLaunchCostWei ?? 0n;
   const stakeWei = stakeOn ? nextCostWei : 0n;
 
@@ -135,7 +139,7 @@ export default function LaunchPage() {
               <PlaceholderCard message="Connecting to launcher…" />
             ) : (
               <LaunchForm
-                slotIndex={nextSlotIndex >= 0 ? nextSlotIndex : 0}
+                slotIndex={nextSlotIndex}
                 launchCostWei={nextCostWei}
                 stakeWei={stakeWei}
                 cohort={cohort}

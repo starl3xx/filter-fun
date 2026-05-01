@@ -1,14 +1,21 @@
+"use client";
+
 /// Brand ▼ glyph — pink → red gradient SVG (spec §32.4).
 ///
 /// Used everywhere the marketing surface previously used 🔻. The launch
 /// page is the first surface to commit to the SVG mark; over time the
 /// arena page can migrate from the emoji form too.
 
+import {useId} from "react";
+
 export function Triangle({size = 16, inline = false}: {size?: number; inline?: boolean}) {
   // U+25BC BLACK DOWN-POINTING TRIANGLE — visually closer to the brand
-  // glyph than the heavy emoji 🔻. Inline gradient is keyed off the size
-  // so multi-instance pages don't collide on a global gradient id.
-  const id = `ff-tri-${size}`;
+  // glyph than the heavy emoji 🔻. Each instance gets a unique gradient
+  // id via React's `useId()` so multiple Triangles on one page (the
+  // launch page renders a few — hero, filter strip, claim form, ack
+  // checkbox) don't share a DOM id and steal each other's fill on
+  // unmount.
+  const id = `ff-tri-${useId()}`;
   return (
     <svg
       role="img"
