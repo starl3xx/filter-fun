@@ -10,6 +10,7 @@ WORKDIR /repo
 COPY package.json package-lock.json ./
 
 # 2. All workspace package manifests so npm sees the full graph.
+COPY packages/cadence/package.json packages/cadence/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/indexer/package.json packages/indexer/
 COPY packages/oracle/package.json packages/oracle/
@@ -21,9 +22,11 @@ COPY packages/web/package.json packages/web/
 #    (`ponder start` is a runtime command).
 RUN npm ci --omit=dev
 
-# 4. Source. The indexer imports `@filter-fun/scoring` for HP composition in its API
-#    handlers, so copy that workspace package too. Other workspace siblings (oracle,
-#    scheduler, contracts, web) are not imported at runtime.
+# 4. Source. The indexer imports `@filter-fun/scoring` for HP composition and
+#    `@filter-fun/cadence` for phase/cut anchors in its API handlers, so copy those
+#    workspace packages too. Other workspace siblings (oracle, scheduler, contracts,
+#    web) are not imported at runtime.
+COPY packages/cadence ./packages/cadence
 COPY packages/scoring ./packages/scoring
 COPY packages/indexer ./packages/indexer
 
