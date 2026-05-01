@@ -222,7 +222,7 @@ function PoolDelta({delta, now, placeholder}: {delta: string; now?: string; plac
         </span>
         {!placeholder && (
           <span className="ff-filter-moment-pool-delta" style={{fontSize: 16, color: C.green}}>
-            +{fmtEth(delta).replace("Ξ", "Ξ")}
+            +{fmtEth(delta)}
           </span>
         )}
       </div>

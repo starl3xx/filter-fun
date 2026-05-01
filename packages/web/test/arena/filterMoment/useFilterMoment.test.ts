@@ -149,6 +149,29 @@ describe("useFilterMoment", () => {
     expect(result2.current.stage).toBe("firing");
   });
 
+  it("simulation auto-fade reaches idle (regression: bugbot — does not lock at done)", () => {
+    // Reported by bugbot on PR #49. In simulation mode, the auto-fade timer
+    // would land on "done" but the done-latch effect only had a real-data
+    // path (advance acknowledgedFilterId). With no filterFiredBatch, no
+    // state changed and the next render's stage useMemo still returned
+    // "done" — the overlay locked there forever instead of returning to
+    // idle. Fix mirrors dismiss(): clear simStartRef + simulateActive.
+    const season = makeFixtureSeason({nextCutAt: isoDelta(8 * 3600_000)});
+    const {result, rerender} = renderHook(
+      ({now}: {now: number}) =>
+        useFilterMoment({season, events: [], now: fakeNow(now), tickIntervalMs: 0, simulate: true}),
+      {initialProps: {now: 1_000}},
+    );
+    rerender({now: 5_000});
+    expect(result.current.stage).toBe("countdown");
+    rerender({now: 45_000});
+    // Auto-fade ran past the 40s sim window. The done-latch effect must
+    // have cleared simulation state so the next render reads idle.
+    expect(result.current.stage).toBe("idle");
+    rerender({now: 60_000});
+    expect(result.current.stage).toBe("idle");
+  });
+
   it("simulation mode walks countdown → firing → recap → done synthetically", () => {
     const season = makeFixtureSeason({nextCutAt: isoDelta(8 * 3600_000)});
     const {result, rerender} = renderHook(
@@ -170,8 +193,11 @@ describe("useFilterMoment", () => {
     rerender({now: 18_000});
     expect(result.current.stage).toBe("recap");
 
+    // Auto-fade past the 40s sim window. The done-latch effect clears
+    // simulation state so the user-visible stage is idle (the "done" stage
+    // is an internal transient — see the regression test above).
     rerender({now: 45_000});
-    expect(result.current.stage).toBe("done");
+    expect(result.current.stage).toBe("idle");
   });
 
   it("does not enter countdown during launch or settled phases", () => {

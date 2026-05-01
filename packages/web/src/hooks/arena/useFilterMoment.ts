@@ -252,13 +252,26 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
   // When stage falls to "done" via the auto-fade path, latch acknowledgement
   // automatically so the next render reads "idle" instead of re-entering the
   // recap timer. Without this, the recap could oscillate at the boundary.
+  //
+  // Two paths land here: (1) real-data — `filterFiredBatch` is set, advance
+  // `acknowledgedFilterId` to its max so the batch is filtered out next
+  // render. (2) Simulation — there is no `filterFiredBatch`, so the latch
+  // must instead clear `simStartRef` and `simulateActive` (mirroring
+  // `dismiss()`); otherwise stage useMemo keeps returning "done" forever
+  // because the simulation branch's `elapsed > 40_000` condition is still
+  // satisfied. Bugbot caught this — without the simulation cleanup the
+  // overlay locks at done after the auto-fade and never returns to idle.
   useEffect(() => {
     if (stage !== "done") return;
     if (filterFiredBatch && (acknowledgedFilterId === null || filterFiredBatch.maxId > acknowledgedFilterId)) {
       setAcknowledgedFilterId(filterFiredBatch.maxId);
     }
     setFiringStartedAtMs(null);
-  }, [stage, filterFiredBatch, acknowledgedFilterId]);
+    if (simulateActive) {
+      simStartRef.current = null;
+      setSimulateActive(false);
+    }
+  }, [stage, filterFiredBatch, acknowledgedFilterId, simulateActive]);
 
   // ============================================================ Public API
 
