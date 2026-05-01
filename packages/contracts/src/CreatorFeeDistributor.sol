@@ -155,17 +155,23 @@ contract CreatorFeeDistributor {
     /// @notice Creator pulls accrued WETH for a token they own. `accrued - claimed` is the
     ///         pending balance; transferring it bumps `claimed` to match so the next call
     ///         only pays out new accruals.
+    ///
+    ///         Caller must be the registered creator; payout flows to the configured recipient
+    ///         (defaults to the creator). This is the integration point for the Epic 1.12
+    ///         `setCreatorRecipient` admin function — the creator triggers the claim, but
+    ///         WETH lands at whatever address the admin most recently routed to.
     function claim(address token) external returns (uint256 amount) {
         TokenInfo storage info = _info[token];
         if (!registered[token]) revert UnknownToken();
         address creator = registry.creatorOf(token);
         if (msg.sender != creator) revert NotCreator();
+        address recipient = registry.recipientOf(token);
         amount = info.accrued - info.claimed;
         if (amount > 0) {
             info.claimed = info.accrued;
             lastSeenBalance -= amount;
-            IERC20(weth).safeTransfer(creator, amount);
-            emit CreatorFeeClaimed(token, creator, amount);
+            IERC20(weth).safeTransfer(recipient, amount);
+            emit CreatorFeeClaimed(token, recipient, amount);
         }
     }
 }

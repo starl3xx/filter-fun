@@ -238,6 +238,25 @@ contract CreatorFeeDistributorTest is Test {
         distributor.claim(tokenA);
     }
 
+    /// @notice Epic 1.12 integration — when the admin redirects the recipient via the
+    ///         registry, claim() pays the new recipient. The creator still triggers the
+    ///         claim (auth unchanged), but WETH lands at the configured recipient.
+    function test_Claim_PaysRecipientWhenAdminHasRedirected() public {
+        _registerToken(tokenA, creatorA);
+        _notifyFee(tokenA, 1 ether);
+
+        address newRecipient = makeAddr("newRecipient");
+        // creator (= default admin) redirects the recipient.
+        vm.prank(creatorA);
+        registry.setCreatorRecipient(tokenA, newRecipient);
+
+        vm.prank(creatorA);
+        uint256 paid = distributor.claim(tokenA);
+        assertEq(paid, 1 ether);
+        assertEq(weth.balanceOf(newRecipient), 1 ether, "fee lands at redirected address");
+        assertEq(weth.balanceOf(creatorA), 0, "creator no longer receives the fee");
+    }
+
     // ============================================================ Eligibility view
 
     function test_Eligible_FalseBeforeRegister() public view {
