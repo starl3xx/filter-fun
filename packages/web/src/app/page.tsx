@@ -142,7 +142,16 @@ export default function HomePage() {
       if (seasonAtFiringRef.current === null && season) {
         seasonAtFiringRef.current = season;
       }
-    } else if (filterMoment.stage === "idle") {
+    } else {
+      // Clear snapshots whenever we're outside firing/recap — including
+      // `done` and `countdown` (the next week's pre-roll). The hook can
+      // transition done → countdown directly without passing through
+      // idle if the next cut is already inside the 10-minute window;
+      // bugbot caught the original idle-only branch leaving the stale
+      // pre-firing snapshot in place, which would have been re-used by
+      // the next cycle's firing stage. The next firing event re-latches
+      // a fresh snapshot from the live cohort/season anyway, but only
+      // because the refs are null at that point.
       cohortAtFiringRef.current = null;
       seasonAtFiringRef.current = null;
     }
