@@ -149,6 +149,46 @@ describe("useFilterMoment", () => {
     expect(result2.current.stage).toBe("firing");
   });
 
+  it("countdown re-arms after a previous filter cycle is acknowledged (regression: bugbot — latch blocked subsequent countdowns)", () => {
+    // Reported by bugbot on PR #49 round 4. The stage useMemo had an
+    // early-return `if (acknowledgedFilterId !== null && !filterFiredBatch)
+    // return idle;` that blocked the next week's countdown — once a user
+    // dismissed the recap (latching acknowledgedFilterId), the wall-clock
+    // and FILTER_COUNTDOWN-event paths were both unreachable until a new
+    // FILTER_FIRED arrived. The fix removes the early-return; the latch
+    // is still enforced by filterFiredBatch filtering acknowledged ids.
+    const firedAddr = "0x000000000000000000000000000000000000abcd" as `0x${string}`;
+    // Week 1 firing — already in the past; user dismissed and we're now
+    // 7 days later inside the next week's countdown window.
+    const events = [
+      makeFixtureEvent({
+        id: 700,
+        type: "FILTER_FIRED",
+        address: firedAddr,
+        data: {address: firedAddr},
+        timestamp: isoDelta(-7 * 86_400_000),
+      }),
+    ];
+    const seasonInCountdown = makeFixtureSeason({nextCutAt: isoDelta(5 * 60_000)});
+
+    const {result} = renderHook(() =>
+      useFilterMoment({
+        season: seasonInCountdown,
+        events,
+        now: fakeNow(0),
+        tickIntervalMs: 0,
+        simulate: false,
+      }),
+    );
+    // First render: stage processes the firing batch (week-old event,
+    // unacknowledged). Then recap auto-fade triggers the done-latch which
+    // sets acknowledgedFilterId and clears firingStartedAtMs. With the
+    // early-idle removed, the next render's stage useMemo falls through
+    // to the wall-clock countdown check and returns "countdown".
+    expect(result.current.stage).toBe("countdown");
+    expect(result.current.acknowledgedFilterId).toBe(700);
+  });
+
   it("simulation synthesizes secondsUntilCut + filteredAddresses (regression: bugbot — empty firing visuals)", () => {
     // Reported by bugbot on PR #49 round 2. The simulation walked through
     // stages but didn't synthesize the visual payloads — secondsUntilCut

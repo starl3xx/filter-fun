@@ -142,9 +142,10 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
   // ============================================================ Simulation
 
   // Simulation uses a synthetic "started at" timestamp; the real-data path
-  // stays untouched.
-  const [simStartedAtMs] = useState<number | null>(() => null);
-  const simStartRef = useRef<number | null>(simStartedAtMs);
+  // stays untouched. Stored as a ref directly — there's nothing for React
+  // to schedule a render on (the periodic tick handles that for us), and
+  // the previous `useState` wrapper was dead code (bugbot caught this).
+  const simStartRef = useRef<number | null>(null);
   useEffect(() => {
     if (!simulateActive) {
       simStartRef.current = null;
@@ -245,11 +246,16 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
       return "done";
     }
 
-    // Done latches until a *newer* firing arrives. The batch already
-    // filters out acknowledged events, so any non-null batch here is fresh.
-    if (acknowledgedFilterId !== null && !filterFiredBatch) {
-      return "idle";
-    }
+    // The acknowledged-id latch is enforced by `filterFiredBatch` itself
+    // — its useMemo filters out events with id ≤ acknowledgedFilterId, so
+    // a stale dismissed firing leaves `filterFiredBatch === null` even
+    // though `acknowledgedFilterId` is set. We previously bailed out to
+    // `idle` here when both held, but that early-return permanently
+    // blocked the *next week's* countdown (wall-clock + FILTER_COUNTDOWN
+    // event paths) after the first dismissal — bugbot caught this.
+    // Falling through to the regular checks is correct: with no fresh
+    // batch and no firingStartedAtMs, the firing/recap branches no-op
+    // and the countdown / idle branches handle the rest naturally.
 
     if (firingStartedAtMs !== null) {
       const elapsed = nowMs - firingStartedAtMs;
@@ -272,7 +278,6 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
   }, [
     simulateActive,
     nowMs,
-    acknowledgedFilterId,
     filterFiredBatch,
     firingStartedAtMs,
     secondsUntilCut,
