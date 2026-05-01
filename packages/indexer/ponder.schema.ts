@@ -32,6 +32,12 @@ export const token = onchainTable("token", (t) => ({
 }));
 
 /// Per-token, per-fee-collection event. Used by scoring (volume velocity).
+///
+/// Mirrors the four-way fee split emitted by `FilterLpLocker.FeesCollected`:
+/// `toVault` / `toTreasury` / `toMechanics` / `toCreator`. The creator slice was
+/// added when the fee model split off a creator-direct rebate; dropping it from
+/// the schema understates `toVault + toTreasury + toMechanics + toCreator`-based
+/// gross-fee aggregations and any future per-creator analytics.
 export const feeAccrual = onchainTable("fee_accrual", (t) => ({
   id: t.text().primaryKey(), // `${tx}:${logIndex}`
   token: t.hex().notNull(),
@@ -39,6 +45,7 @@ export const feeAccrual = onchainTable("fee_accrual", (t) => ({
   toVault: t.bigint().notNull(),
   toTreasury: t.bigint().notNull(),
   toMechanics: t.bigint().notNull(),
+  toCreator: t.bigint().notNull(),
   blockNumber: t.bigint().notNull(),
   blockTimestamp: t.bigint().notNull(),
 }));

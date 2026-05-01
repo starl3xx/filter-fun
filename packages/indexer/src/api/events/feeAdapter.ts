@@ -20,6 +20,7 @@ export interface FeeAccrualDbRow {
   toVault: bigint;
   toTreasury: bigint;
   toMechanics: bigint;
+  toCreator: bigint;
   blockTimestamp: bigint;
 }
 
@@ -55,7 +56,7 @@ export function translateFeeRows(
     if (!tokenAddr) continue;
     out.push({
       tokenAddress: tokenAddr,
-      totalFeeWei: r.toVault + r.toTreasury + r.toMechanics,
+      totalFeeWei: r.toVault + r.toTreasury + r.toMechanics + r.toCreator,
       blockTimestampSec: r.blockTimestamp,
     });
   }
@@ -73,7 +74,7 @@ export function aggregateFeesByToken(
   for (const r of rows) {
     const tokenAddr = lockerToToken.get(r.token.toLowerCase());
     if (!tokenAddr) continue;
-    const sum = r.toVault + r.toTreasury + r.toMechanics;
+    const sum = r.toVault + r.toTreasury + r.toMechanics + r.toCreator;
     acc.set(tokenAddr, (acc.get(tokenAddr) ?? 0n) + sum);
   }
   return acc;

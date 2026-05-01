@@ -11,6 +11,7 @@ ponder.on("FilterLpLocker:FeesCollected", async ({event, context}) => {
     toVault: event.args.toVault,
     toTreasury: event.args.toTreasury,
     toMechanics: event.args.toMechanics,
+    toCreator: event.args.toCreator,
     blockNumber: event.block.number,
     blockTimestamp: event.block.timestamp,
   });
