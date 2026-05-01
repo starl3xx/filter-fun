@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@filter-fun/cadence": "*",
     "@filter-fun/scoring": "*",
     "@ponder/core": "^0.7.0",
     "hono": "^4.5.0",

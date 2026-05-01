@@ -83,10 +83,30 @@ Or use the lower-level builders: `postBonusRootCall`, `claimBonusCall`.
 - Liquidations run **sequentially**. Trivial nonce management; if you want parallelism, use `liquidateCall` directly and manage nonces yourself.
 - `finalize` waits for every liquidation receipt — running it before they mine reverts on `Phase != Aggregating`.
 
+## Cadence
+
+The scheduler library doesn't fire timers — it's a transaction driver — so the harness invoking it (k8s cron / Railway / manual ops) decides *when* to call each phase advance. The hour anchors live in `@filter-fun/cadence` and are re-exported from this package as a single entrypoint:
+
+```ts
+import {DEFAULT_CADENCE, loadCadence, hoursToSec, advancePhase, Phase} from "@filter-fun/scheduler";
+
+// Read from env (validated at startup); falls back to DEFAULT_CADENCE.
+const cadence = loadCadence();
+
+// Schedule advances at season.startedAt + N hours:
+//   launchEndHour (48)  — close launch
+//   hardCutHour   (96)  — 12 → 6 hard cut
+//   settlementHour(168) — final settlement
+const dueAtSec = startedAtSec + hoursToSec(cadence.hardCutHour);
+```
+
+Override via env (`SEASON_HARD_CUT_HOUR=…`, etc.) — see [`packages/cadence/README.md`](../cadence/README.md). Bad values fail loudly at startup. **No Day 5 soft filter** — `softFilterEnabled` defaults to `false` (spec §33.6 resolved off); kept for forward compatibility.
+
 ## Out of scope (next iteration)
 
 - Retry / replacement-tx logic for stuck transactions.
 - Multi-signer Safe payload bundling.
+- A timer harness — when filter.fun adopts a specific scheduler runtime (k8s cron, Railway, etc.), wire it to read from `loadCadence()` and call `advancePhase()` at the anchors above.
 
 ## Tests
 

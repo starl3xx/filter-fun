@@ -34,3 +34,8 @@ export {
   type RunPhaseArcResult,
 } from "./phase.js";
 export {claimBonus, postBonusRoot} from "./bonus.js";
+/// Cadence anchors (launch end / hard cut / settlement). Re-exported from
+/// `@filter-fun/cadence` so external harnesses (k8s cron / Railway / manual ops) that drive
+/// the phase-advance calls below have a single import surface — they read the hour anchors
+/// here, then call `advancePhase()` / `runPhaseArc()` at those moments.
+export {DEFAULT_CADENCE, hoursToSec, loadCadence, type Cadence} from "@filter-fun/cadence";

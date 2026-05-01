@@ -1,9 +1,9 @@
 {
-  "name": "@filter-fun/scheduler",
+  "name": "@filter-fun/cadence",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "filter.fun scheduler. Consumes oracle settlement payloads and drives the on-chain settlement loop (submitSettlement → liquidate(loser) → finalize) via viem.",
+  "description": "filter.fun season cadence — single source of truth for hour-anchors (launch end / hard cut / settlement) read by scheduler + indexer. No transitive deps so it's safe to import from anywhere.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -13,11 +13,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@filter-fun/cadence": "*",
-    "@filter-fun/oracle": "*",
-    "viem": "^2.21.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
