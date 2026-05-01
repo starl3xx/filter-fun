@@ -10,14 +10,14 @@ import {MetadataStorageError, readFsMetadata} from "@/lib/launch/storage";
 
 export const dynamic = "force-dynamic";
 
-// Next 14 (this project, pinned to 14.2.35) passes `params` synchronously.
-// Next 15 changed the signature to `Promise<Params>`; if/when we upgrade,
-// the type below changes to `{params: Promise<{slug: string}>}` and the
-// access becomes `(await ctx.params).slug`. The contract test suite + the
-// upgrade-time typecheck will surface the change.
-export async function GET(_req: Request, ctx: {params: {slug: string}}) {
+// Forward-compat across Next 14 / 15. Next 14 (pinned at 14.2.35) gives
+// `params` synchronously; Next 15 wraps it in a Promise. `await` is a no-op
+// on the sync form and unwraps on the Promise form, so this single shape
+// works on both. When we upgrade, the type narrows naturally.
+export async function GET(_req: Request, ctx: {params: {slug: string} | Promise<{slug: string}>}) {
   try {
-    const json = await readFsMetadata(ctx.params.slug);
+    const {slug} = await ctx.params;
+    const json = await readFsMetadata(slug);
     return new NextResponse(json, {
       headers: {
         "Content-Type": "application/json",

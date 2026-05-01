@@ -108,6 +108,15 @@ export default function LaunchPage() {
         setPinning(false);
         // Read the latest cost AT submit time — see costRef commentary above.
         const {nextCostWei: liveCost, stakeWei: liveStake} = costRef.current;
+        // Belt-and-suspenders for a narrow loading window: `useEligibility`
+        // and `getLaunchStatus` are separate wagmi reads, so eligibility can
+        // resolve to "eligible" (form rendered) one beat before status loads
+        // and `nextCostWei` is still the `0n` default. A 0-value tx would
+        // revert with `InsufficientPayment`; surface a clear message instead.
+        if (liveCost === 0n) {
+          setPinError("Launch cost is still loading from the contract. Try again in a moment.");
+          return;
+        }
         // Belt-and-suspenders: the form already canonicalizes the ticker
         // before calling onSubmit, but re-canonicalize here so the contract
         // can never receive a non-canonical symbol regardless of how this
