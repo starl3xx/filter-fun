@@ -67,6 +67,15 @@ export function useTickerEvents(opts: UseTickerEventsOpts = {}): UseTickerEvents
   // every id we've ever seen, just enough to absorb retries / replay).
   const seenIds = useRef<Set<number>>(new Set());
 
+  // Stash `factory` in a ref so an inline arrow at the call site doesn't
+  // re-arm the effect on every render — the SSE connection would otherwise
+  // tear down + reconnect each time the parent re-rendered. Same pattern as
+  // `usePoll`'s fetcherRef. The effect's deps therefore cover only the
+  // values that should genuinely retrigger a connect (url, backoff knobs,
+  // max events).
+  const factoryRef = useRef(factory);
+  factoryRef.current = factory;
+
   useEffect(() => {
     let mounted = true;
     let es: EventSourceLike | null = null;
@@ -126,7 +135,7 @@ export function useTickerEvents(opts: UseTickerEventsOpts = {}): UseTickerEvents
       if (!mounted) return;
       setStatus(attempts === 0 ? "connecting" : "reconnecting");
       try {
-        es = factory(url);
+        es = factoryRef.current(url);
       } catch (e) {
         // Constructor itself failed (rare — e.g. invalid URL). Treat as an error.
         onError();
@@ -154,7 +163,7 @@ export function useTickerEvents(opts: UseTickerEventsOpts = {}): UseTickerEvents
       }
       setStatus("closed");
     };
-  }, [url, maxEvents, initialBackoffMs, maxBackoffMs, factory]);
+  }, [url, maxEvents, initialBackoffMs, maxBackoffMs]);
 
   return {events, status};
 }
