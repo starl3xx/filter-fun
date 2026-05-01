@@ -52,10 +52,7 @@ contract CreatorCommitments is ReentrancyGuard {
     ///         held before this call (zero on first commit) so indexers don't need a separate
     ///         read to render lock-extension diffs.
     event Committed(
-        address indexed creator,
-        address indexed token,
-        uint256 lockUntil,
-        uint256 previousUnlock
+        address indexed creator, address indexed token, uint256 lockUntil, uint256 previousUnlock
     );
 
     error TokenNotRegistered();

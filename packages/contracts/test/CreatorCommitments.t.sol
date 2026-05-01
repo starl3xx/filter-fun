@@ -205,7 +205,7 @@ contract CreatorCommitmentsTest is Test {
         FilterToken token = _deployToken("alpha", "ALPHA", creator);
         // Move some tokens to the creator (factory holds the supply at construction; in the
         // real flow the locker pulls them out for LP — here we just transfer directly).
-        token.transfer(creator, 1_000 ether);
+        token.transfer(creator, 1000 ether);
 
         vm.prank(creator);
         commitments.commit(address(token), block.timestamp + 30 days);
@@ -217,7 +217,7 @@ contract CreatorCommitmentsTest is Test {
 
     function test_TransferGate_LockBlocksTransferFrom() public {
         FilterToken token = _deployToken("alpha", "ALPHA", creator);
-        token.transfer(creator, 1_000 ether);
+        token.transfer(creator, 1000 ether);
 
         vm.prank(creator);
         token.approve(stranger, type(uint256).max);
@@ -234,7 +234,7 @@ contract CreatorCommitmentsTest is Test {
         // other addresses' transfers. If the gate accidentally referenced `to` or `msg.sender`
         // this test would fail.
         FilterToken token = _deployToken("alpha", "ALPHA", creator);
-        token.transfer(stranger, 1_000 ether);
+        token.transfer(stranger, 1000 ether);
 
         vm.prank(creator);
         commitments.commit(address(token), block.timestamp + 30 days);
@@ -251,7 +251,7 @@ contract CreatorCommitmentsTest is Test {
         // wallet B BEFORE committing. After commit, wallet B can still freely transfer because
         // the gate is keyed off (creator, token), not the entire supply.
         FilterToken token = _deployToken("alpha", "ALPHA", creator);
-        token.transfer(creator, 1_000 ether);
+        token.transfer(creator, 1000 ether);
 
         address walletB = makeAddr("walletB");
         vm.prank(creator);
@@ -274,7 +274,7 @@ contract CreatorCommitmentsTest is Test {
 
     function test_TransferGate_UnlocksAfterExpiry() public {
         FilterToken token = _deployToken("alpha", "ALPHA", creator);
-        token.transfer(creator, 1_000 ether);
+        token.transfer(creator, 1000 ether);
 
         uint256 lockUntil = block.timestamp + 30 days;
         vm.prank(creator);
@@ -290,7 +290,7 @@ contract CreatorCommitmentsTest is Test {
         // Lock applies to FROM only — incoming transfers (TO the locked address) must still
         // succeed. Otherwise creators couldn't accept fee revenue / tips while locked.
         FilterToken token = _deployToken("alpha", "ALPHA", creator);
-        token.transfer(stranger, 1_000 ether);
+        token.transfer(stranger, 1000 ether);
 
         vm.prank(creator);
         commitments.commit(address(token), block.timestamp + 30 days);
