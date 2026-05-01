@@ -284,18 +284,21 @@ describe("useFilterMoment", () => {
     expect(result.current.stage).toBe("idle");
   });
 
-  it("does not enter countdown during launch or settled phases", () => {
-    const launchSeason = makeFixtureSeason({phase: "launch", nextCutAt: isoDelta(2 * 60_000)});
-    const {result: r1} = renderHook(() =>
-      useFilterMoment({season: launchSeason, events: [], now: fakeNow(0), tickIntervalMs: 0, simulate: false}),
-    );
-    expect(r1.current.stage).toBe("idle");
-
-    const settledSeason = makeFixtureSeason({phase: "settled", nextCutAt: isoDelta(2 * 60_000)});
-    const {result: r2} = renderHook(() =>
-      useFilterMoment({season: settledSeason, events: [], now: fakeNow(0), tickIntervalMs: 0, simulate: false}),
-    );
-    expect(r2.current.stage).toBe("idle");
+  it("does not enter countdown outside the competition phase (regression: bugbot — finals also excluded)", () => {
+    // Only `competition` has an imminent cut. Launch (no cut yet),
+    // finals (6 survivors, settlement next — not a cut), and settled
+    // (post-week) all suppress the countdown. Bugbot round 5 caught
+    // that the original implementation only blocked launch + settled —
+    // during finals the countdown overlay could falsely trigger if the
+    // indexer pointed nextCutAt at the settlement anchor.
+    for (const phase of ["launch", "finals", "settled"] as const) {
+      const season = makeFixtureSeason({phase, nextCutAt: isoDelta(2 * 60_000)});
+      const {result} = renderHook(() =>
+        useFilterMoment({season, events: [], now: fakeNow(0), tickIntervalMs: 0, simulate: false}),
+      );
+      expect(result.current.stage, `phase=${phase}`).toBe("idle");
+      expect(result.current.secondsUntilCut, `phase=${phase}`).toBeNull();
+    }
   });
 
   it("collapses multiple FILTER_FIRED events in a single tick into one stage", () => {

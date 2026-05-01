@@ -217,7 +217,15 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
       return 0;
     }
     if (!season) return null;
-    if (season.phase === "settled" || season.phase === "launch") return null;
+    // Only `competition` has an imminent cut (the spec §21 ceremony).
+    // `launch` is the open-mint window — no cut yet. `finals` follows
+    // the cut (6 survivors, settlement is next, NOT a cut). `settled`
+    // is post-week. Bugbot caught the missing `finals` exclusion: if
+    // the indexer pointed `nextCutAt` at the settlement anchor during
+    // finals, the countdown overlay would activate with the
+    // "Top 6 survive. Bottom 6 get cut." copy — wrong, because no cut
+    // is coming. Allowlist the only valid phase rather than blacklisting.
+    if (season.phase !== "competition") return null;
     const target = new Date(season.nextCutAt).getTime();
     if (!Number.isFinite(target)) return null;
     return Math.floor((target - nowMs) / 1000);
