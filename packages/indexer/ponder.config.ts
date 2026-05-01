@@ -90,7 +90,17 @@ export default createConfig({
       abi: SeasonVaultAbi,
       factory: {
         address: launcherAddr,
-        event: parseAbiItem("event SeasonStarted(uint256 indexed seasonId, address vault)"),
+        // Topic0 is keccak256 of the full event signature including ALL parameters, even
+        // unindexed ones. The launcher emits 4 args here (seasonId/vault/launchStartTime/
+        // launchEndTime). A 2-arg parseAbiItem hashes to a different topic0 — Ponder's
+        // factory pattern would never match new logs, no SeasonVault child contracts
+        // would be discovered, and every vault-side handler (WinnerSubmitted / Liquidated
+        // / Finalized / RolloverClaimed) would silently never fire. (Bugbot caught this
+        // when sync-abis pulled in the new contract signature without the matching
+        // ponder.config.ts update.)
+        event: parseAbiItem(
+          "event SeasonStarted(uint256 indexed seasonId, address vault, uint256 launchStartTime, uint256 launchEndTime)",
+        ),
         parameter: "vault",
       },
       startBlock,
