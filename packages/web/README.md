@@ -5,6 +5,7 @@ Next.js (App Router) + wagmi v2 + viem. Broadcast leaderboard + claim app for fi
 ## Pages
 
 - **`/arena`** — main spectator surface (Epic 1.4 + 1.8 web). Live leaderboard with cut line between rank 6 / 7, SSE-powered ticker with five visual states (normal / high-activity / pre-filter / filter-moment / post-filter), top bar with countdown + Champion Pool + Champion Backing Pool, token detail panel with HP component breakdown using spec §6.6 labels, activity feed, and a Trade $TICKER deep-link to the Uniswap interface. Reads `/season`, `/tokens`, `/events` from the indexer (`NEXT_PUBLIC_INDEXER_URL`).
+- **`/token/[address]/admin`** — Creator Admin Console (Epic 1.11). Per-token admin/dev page. Three columns: identity + claim creator fees (left), live HP / rank / cut-line / stake status / settlement preview (center), metadata + recipient + two-step admin transfer + bag-lock placeholder (right). Auth-gated: connected wallet must equal `adminOf(token)` to drive write actions. The pending nominee sees a "you've been nominated — accept" banner. Reads CreatorRegistry, CreatorFeeDistributor, FilterLauncher via wagmi; layout reuses `ff-grid`. Spec §38.
 - **`/`** — broadcast home: live leaderboard, ticker tape, featured #1 token, finalist quests, filter line, countdown to next cut, activity feed. Uses local simulation data (`useLiveTokens` / `useCountdown` / `useActivityFeed`) for now; swaps to indexer-driven data when the GraphQL surface is wired.
 - **`/claim/rollover`** — paste the oracle's per-user settlement entry (`{seasonId, vault, share, proof}`), submit `SeasonVault.claimRollover(share, proof)`.
 - **`/claim/bonus`** — paste the oracle's per-user bonus entry (`{seasonId, distributor, amount, proof}`), submit `BonusDistributor.claim(seasonId, amount, proof)`.
@@ -46,6 +47,27 @@ src/
                                         format (Ξ/% helpers), hpLabels (§6.6)
 ```
 
+Component layout (admin console):
+
+```
+src/
+├── app/token/[address]/admin/page.tsx  client-rendered, 3-col with mobile collapse
+├── components/admin/                   AuthBanner (4 states), TokenHeader, HpPanel,
+│                                       RankPanel, PhaseCountdown, StakeStatusPanel,
+│                                       BountyEstimate, SettlementPreview,
+│                                       SurvivalActions, ClaimFeesPanel,
+│                                       MetadataForm, RecipientForm,
+│                                       AdminTransferForms, PlaceholderCards, Card
+├── hooks/token/                        useTokenAdmin (registry reads),
+│                                       useAdminAuth (4-state derivation),
+│                                       useTokenStats (rank/cut-line math),
+│                                       useStakeStatus (launchInfoOf + entryOf),
+│                                       useCreatorFees (pendingClaim + claim tx),
+│                                       useSeasonContext (currentSeasonId + phase)
+└── lib/token/                          abis (CreatorRegistry / CreatorFeeDistributor /
+                                        FilterLauncher fragments), format (Ξ/addr)
+```
+
 Out of scope (next PRs):
 
 1. Wire the broadcast home (`/`) to live indexer data (replace the three simulation hooks).
@@ -54,6 +76,7 @@ Out of scope (next PRs):
 4. Profile + graveyard links from rows (Epic 3.1 / 3.2).
 5. Finals + season-history views.
 6. Auto-fetched claim entries (no paste required).
+7. Admin-console v2: HP-component drilldown with deltas + tx links (needs `/tokens/:address/history` endpoint that doesn't exist yet); holder cohort sankey; replay-link generator at settlement; bag-lock UI (Epic 1.13 contracts pending); mission opt-in (Epic 4.2); multi-recipient fee splits; pre-launch HP simulation (belongs in Epic 1.5 launch flow).
 
 ## Setup
 
