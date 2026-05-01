@@ -83,6 +83,11 @@ export default function LaunchPage() {
   const rawNext = status?.launchCount ?? (findNextIdx >= 0 ? findNextIdx : MAX_LAUNCHES - 1);
   const nextSlotIndex = Math.min(Math.max(rawNext, 0), MAX_LAUNCHES - 1);
   const nextCostWei = status?.nextLaunchCostWei ?? 0n;
+  // `stakeOn` is `boolean | undefined`; `undefined` means the
+  // `refundableStakeEnabled` read hasn't resolved yet. We capture both the
+  // resolved stake value AND the loaded-or-not signal in costRef so onSubmit
+  // can refuse to send an under-payment during the loading window.
+  const stakeReady = stakeOn !== undefined;
   const stakeWei = stakeOn ? nextCostWei : 0n;
 
   // Keep the live cost in a ref so the async `onSubmit` reads the LATEST
@@ -92,8 +97,8 @@ export default function LaunchPage() {
   // sending a stale `nextCostWei`, which the contract rejects with
   // `InsufficientPayment`. Refs update synchronously on every render so the
   // closure's read is the freshest value the page has seen.
-  const costRef = useRef({nextCostWei, stakeWei});
-  costRef.current = {nextCostWei, stakeWei};
+  const costRef = useRef({nextCostWei, stakeWei, stakeReady});
+  costRef.current = {nextCostWei, stakeWei, stakeReady};
 
   const onSubmit = useCallback(
     async (fields: LaunchFormFields) => {
@@ -117,14 +122,16 @@ export default function LaunchPage() {
         }
         setPinning(false);
         // Read the latest cost AT submit time — see costRef commentary above.
-        const {nextCostWei: liveCost, stakeWei: liveStake} = costRef.current;
-        // Belt-and-suspenders for a narrow loading window: `useEligibility`
-        // and `getLaunchStatus` are separate wagmi reads, so eligibility can
-        // resolve to "eligible" (form rendered) one beat before status loads
-        // and `nextCostWei` is still the `0n` default. A 0-value tx would
-        // revert with `InsufficientPayment`; surface a clear message instead.
-        if (liveCost === 0n) {
-          setPinError("Launch cost is still loading from the contract. Try again in a moment.");
+        const {nextCostWei: liveCost, stakeWei: liveStake, stakeReady: liveStakeReady} = costRef.current;
+        // Belt-and-suspenders for a narrow loading window: `useEligibility`,
+        // `getLaunchStatus`, and `refundableStakeEnabled` are separate wagmi
+        // reads. Eligibility can resolve to "eligible" (form rendered) one
+        // beat before the cost or stake-mode reads land. A submit in that
+        // window would send `liveCost + 0n` instead of `liveCost + liveCost`
+        // (when stake is enabled) — under-payment, contract reverts with
+        // `InsufficientPayment`. Refuse upfront with a clear message.
+        if (liveCost === 0n || !liveStakeReady) {
+          setPinError("Launch settings are still loading from the contract. Try again in a moment.");
           return;
         }
         // Belt-and-suspenders: the form already canonicalizes the ticker

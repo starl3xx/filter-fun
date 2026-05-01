@@ -35,8 +35,10 @@ export type LaunchFormProps = {
   phase: LaunchPhase;
   /// Server-side error from pin or chain reverts.
   error: string | null;
-  /// Submit handler called only when all client checks pass.
-  onSubmit: (fields: LaunchFormFields) => void;
+  /// Submit handler called only when all client checks pass. May be async
+  /// (the page's handler awaits a metadata pin before the launch tx); the
+  /// form fires-and-forgets and lets the parent surface errors via `error`.
+  onSubmit: (fields: LaunchFormFields) => void | Promise<void>;
 };
 
 export function LaunchForm({
@@ -85,7 +87,11 @@ export function LaunchForm({
     e.preventDefault();
     setSubmitted(true);
     if (submitDisabled) return;
-    onSubmit({...fields, ticker: canonicalSymbol(fields.ticker)});
+    // Fire-and-forget: the parent's handler is async (pin → launch) and owns
+    // its error surface via the `error` prop. `void` marks the intentional
+    // discard so any rejection that escapes the parent's try/catch becomes a
+    // proper unhandled-rejection rather than silently dropping.
+    void Promise.resolve(onSubmit({...fields, ticker: canonicalSymbol(fields.ticker)}));
   }
 
   const showError = (key: keyof LaunchFormFields): string | undefined => {
