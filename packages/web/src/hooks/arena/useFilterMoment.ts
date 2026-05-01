@@ -41,7 +41,7 @@
 /// All wall-clock state lives on a 250ms tick so the countdown stays
 /// responsive while transitions remain cheap.
 
-import {useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 
 import type {SeasonResponse, TickerEvent, TokenResponse} from "@/lib/arena/api";
 
@@ -374,7 +374,13 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
     return filterFiredBatch?.addresses ?? new Set();
   }, [stage, filterFiredBatch, simulateActive, args.cohort]);
 
-  const dismiss = (): void => {
+  // Memoize the dismiss callback so consumers can use it as a stable
+  // useEffect dep (e.g. the overlay's Escape-key listener) without
+  // tearing down + re-arming on every render. Without useCallback, the
+  // 250ms tick interval would force ~4 re-creations per second, and any
+  // consumer keying an effect off `dismiss` would cycle the listener
+  // ~120 times during the 30s recap window. Bugbot caught this.
+  const dismiss = useCallback((): void => {
     if (filterFiredBatch) {
       setAcknowledgedFilterId(filterFiredBatch.maxId);
     }
@@ -383,7 +389,7 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
       simStartRef.current = null;
       setSimulateActive(false);
     }
-  };
+  }, [filterFiredBatch, simulateActive]);
 
   return {
     stage,
