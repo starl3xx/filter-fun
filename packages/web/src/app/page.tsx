@@ -28,7 +28,8 @@
 /// That layout is gone; the arena IS the homepage. `/arena` redirects here
 /// (see `next.config.mjs`) so external links and muscle-memory still resolve.
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
+import {useAccount} from "wagmi";
 
 import {ArenaActivityFeed} from "@/components/arena/ArenaActivityFeed";
 import {ArenaFilterMechanic} from "@/components/arena/ArenaFilterMechanic";
@@ -36,11 +37,14 @@ import {ArenaLeaderboard} from "@/components/arena/ArenaLeaderboard";
 import {ArenaTicker} from "@/components/arena/ArenaTicker";
 import {ArenaTokenDetail} from "@/components/arena/ArenaTokenDetail";
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
+import {FilterMomentOverlay} from "@/components/arena/filterMoment/FilterMomentOverlay";
 import {Stars} from "@/components/Stars";
+import {useFilterMoment} from "@/hooks/arena/useFilterMoment";
 import {useSeason} from "@/hooks/arena/useSeason";
 import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
 import {useTrendBuffers} from "@/hooks/arena/useTrendBuffers";
+import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {fmtEth} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
 
@@ -115,6 +119,70 @@ export default function HomePage() {
     }
   };
 
+  // ============================================================ Filter-moment
+
+  const filterMoment = useFilterMoment({season: season ?? null, events});
+
+  // Snapshots for the recap. The cohort + season can mutate after the
+  // FILTER_FIRED event lands (the indexer drops filtered tokens from
+  // /tokens, the championPool ticks up). The recap card needs the
+  // *pre-firing* values to render survivors and a meaningful pool delta.
+  // Latch a snapshot the first time the firing stage activates and clear
+  // it once the overlay returns to idle.
+  const cohortAtFiringRef = useRef<TokenResponse[] | null>(null);
+  const seasonAtFiringRef = useRef<SeasonResponse | null>(null);
+  useEffect(() => {
+    if (filterMoment.stage === "firing" || filterMoment.stage === "recap") {
+      if (cohortAtFiringRef.current === null && cohort.length > 0) {
+        cohortAtFiringRef.current = cohort;
+      }
+      if (seasonAtFiringRef.current === null && season) {
+        seasonAtFiringRef.current = season;
+      }
+    } else if (filterMoment.stage === "idle") {
+      cohortAtFiringRef.current = null;
+      seasonAtFiringRef.current = null;
+    }
+  }, [filterMoment.stage, cohort, season]);
+
+  const cohortSnapshot = cohortAtFiringRef.current ?? cohort;
+  const seasonSnapshot = seasonAtFiringRef.current ?? season ?? null;
+  const championPoolDelta = useMemo(() => {
+    if (!season || !seasonSnapshot) return "0";
+    const before = Number(seasonSnapshot.championPool ?? "0");
+    const now = Number(season.championPool ?? "0");
+    if (!Number.isFinite(before) || !Number.isFinite(now)) return "0";
+    return Math.max(0, now - before).toFixed(2);
+  }, [season, seasonSnapshot]);
+
+  // Connected wallet → tickers it held that just got filtered. Until the
+  // indexer ships the wallet × filtered-tokens projection endpoint, we can
+  // surface the *tickers* (we know which tokens were filtered, but not
+  // whether the wallet held them). The rollover-card is therefore best-
+  // effort: when wagmi reports no connection, it stays hidden; when it
+  // reports a connection but we lack holdings data, we render the card
+  // with placeholder entitlement and a bookmark for follow-up indexer
+  // work. See the indexer follow-up file in the PR description.
+  const {address: walletAddress, isConnected} = useAccount();
+  const walletFilteredTickers: string[] = useMemo(() => {
+    if (!isConnected || !walletAddress) return [];
+    if (filterMoment.filteredAddresses.size === 0) return [];
+    // TODO(indexer follow-up): replace with `/wallets/{address}/holdings`
+    // once it ships. Today we have no per-wallet holdings on the indexer's
+    // public surface, so the card stays neutral — the parent treats an
+    // empty list as "no rollover sub-card to show". Keeping the wiring in
+    // place means the indexer work is a one-line swap.
+    return [];
+  }, [isConnected, walletAddress, filterMoment.filteredAddresses]);
+
+  // Pre-filter-window flag drives the leaderboard's urgent cut line + AT
+  // RISK chip. Both the hook's `countdown` stage and the broader
+  // `isOverlayActive` flag during firing keep the visuals coherent. We
+  // intentionally do NOT carry the urgent treatment into recap — by then
+  // the cut has fired and the dramatic emphasis sits on the recap card.
+  const urgentCutline = filterMoment.stage === "countdown";
+  const firingMode = filterMoment.stage === "firing" || filterMoment.stage === "recap";
+
   return (
     <div style={{position: "relative", minHeight: "100vh", overflow: "hidden"}}>
       <Stars />
@@ -129,12 +197,15 @@ export default function HomePage() {
 
         <div className="ff-arena-col-center" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>
           <ArenaLeaderboard
-            tokens={cohort}
+            tokens={firingMode ? cohortSnapshot : cohort}
             trendBuffers={trendBuffers}
             selectedAddress={selected}
             onSelect={onSelect}
             hideCutLine={hideCutLine}
             isLoading={tokensLoading}
+            urgentCutline={urgentCutline}
+            firingMode={firingMode}
+            recentlyFilteredAddresses={filterMoment.filteredAddresses}
           />
           <ArenaActivityFeed events={events} />
         </div>
@@ -143,6 +214,22 @@ export default function HomePage() {
           <ArenaTokenDetail token={selectedToken} trend={selectedTrend} season={season} chain={chain} />
         </div>
       </main>
+
+      {/* Filter-moment overlay (Epic 1.9). Stays out of the DOM in `idle` /
+          `done`; otherwise composes the countdown / firing / recap stages on
+          top of the live arena. */}
+      <FilterMomentOverlay
+        stage={filterMoment.stage}
+        cohortSnapshot={cohortSnapshot}
+        filteredAddresses={filterMoment.filteredAddresses}
+        walletFilteredTickers={walletFilteredTickers}
+        walletEntitlementEth={null}
+        championPoolDelta={championPoolDelta}
+        championPoolNow={season?.championPool ?? "0"}
+        secondsUntilCut={filterMoment.secondsUntilCut}
+        season={seasonSnapshot}
+        onDismiss={filterMoment.dismiss}
+      />
 
       {/* Mobile bottom-sheet for token detail. Only renders below 700px via the
           parent's media-query gate; on wider viewports the right column is shown

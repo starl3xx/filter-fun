@@ -304,3 +304,172 @@ code {
 .ff-launch-claim-card:hover {
   filter: brightness(1.06);
 }
+
+/* ----- Filter-moment overlay (Epic 1.9 / spec §21) ------------------------ */
+
+/* The overlay container fades in over 0.4s on each stage transition (the
+   inline `transition` on `background` covers the backdrop colour itself; the
+   keyframe ramp covers the initial mount). */
+@keyframes ff-filter-moment-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.ff-filter-moment-overlay {
+  animation: ff-filter-moment-overlay-in 0.4s ease-out;
+}
+
+/* Countdown clock — the locked motion spec is 2.4s ease-in-out, ±4% scale.
+   We hold to that for the calm pre-filter state. The final-10-second urgent
+   variant tightens to ~0.6s and adds a small scale flutter for the "almost"
+   moment. */
+@keyframes ff-filter-moment-clock-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.78; transform: scale(0.98); }
+}
+.ff-filter-moment-clock-pulse {
+  animation: ff-filter-moment-clock-pulse 2.4s ease-in-out infinite;
+}
+@keyframes ff-filter-moment-clock-urgent {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.94); }
+}
+.ff-filter-moment-clock-urgent {
+  animation: ff-filter-moment-clock-urgent 0.6s ease-in-out infinite;
+}
+
+/* Stage 2 broadcast strip — drops in from above and breathes once. */
+@keyframes ff-filter-moment-strip-in {
+  0%   { transform: translateY(-22px); opacity: 0; }
+  60%  { transform: translateY(2px);   opacity: 1; }
+  100% { transform: translateY(0);     opacity: 1; }
+}
+.ff-filter-moment-strip {
+  animation: ff-filter-moment-strip-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Recap card — scales up from the centre. */
+@keyframes ff-filter-moment-recap-in {
+  0%   { transform: scale(0.94); opacity: 0; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+.ff-filter-moment-recap {
+  animation: ff-filter-moment-recap-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Survivor row in the recap card — staggered "drop" so the row reads
+   left-to-right rather than landing as a single block. */
+.ff-filter-moment-survivors > * {
+  animation: ff-drop 0.4s ease-out both;
+}
+.ff-filter-moment-survivors > *:nth-child(1) { animation-delay: 0.08s; }
+.ff-filter-moment-survivors > *:nth-child(2) { animation-delay: 0.14s; }
+.ff-filter-moment-survivors > *:nth-child(3) { animation-delay: 0.20s; }
+.ff-filter-moment-survivors > *:nth-child(4) { animation-delay: 0.26s; }
+.ff-filter-moment-survivors > *:nth-child(5) { animation-delay: 0.32s; }
+.ff-filter-moment-survivors > *:nth-child(6) { animation-delay: 0.38s; }
+
+/* Pool delta — green count-up flash on the recap card. */
+@keyframes ff-filter-moment-pool-delta {
+  0%   { opacity: 0; transform: translateY(8px); }
+  60%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.ff-filter-moment-pool-delta {
+  animation: ff-filter-moment-pool-delta 0.6s ease-out 0.5s both;
+}
+
+/* Personal rollover entitlement — subtle continuous pulse of the ▼ next to
+   the amount, signalling "value is parked here for you". */
+@keyframes ff-filter-moment-rollover-pulse {
+  0%, 100% { text-shadow: 0 0 6px rgba(0, 240, 255, 0.4); }
+  50%      { text-shadow: 0 0 18px rgba(0, 240, 255, 0.95); }
+}
+.ff-filter-moment-rollover-pulse {
+  animation: ff-filter-moment-rollover-pulse 2.4s ease-in-out infinite;
+}
+
+/* Urgent cut-line variant — overrides the default `ff-arena-cutline` 1.6s
+   cadence with a faster ~1.2s "imminent" pulse. Adds a small scale pump to
+   carry a body of motion the dim backdrop can't otherwise convey. */
+@keyframes ff-arena-cutline-urgent {
+  0%, 100% {
+    box-shadow: 0 0 28px rgba(255, 45, 85, 0.7), inset 0 0 22px rgba(255, 45, 85, 0.28);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 50px rgba(255, 45, 85, 1), inset 0 0 36px rgba(255, 45, 85, 0.5);
+    transform: scale(1.02);
+  }
+}
+.ff-arena-cutline--urgent {
+  animation: ff-arena-cutline-urgent 1.2s ease-in-out infinite;
+}
+
+/* Pre-filter AT RISK chip — pulse to draw the eye to ranks 5–8. */
+@keyframes ff-arena-at-risk-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+.ff-arena-row-at-risk-chip {
+  animation: ff-arena-at-risk-pulse 1.4s ease-in-out infinite;
+}
+
+/* Firing-mode row treatments. The leaderboard inline-style transition on
+   `opacity` handles the fade; these keyframes layer the stamp + halo on
+   top so the sequence reads as a deliberate ceremony. */
+@keyframes ff-arena-row-filter-stamp-in {
+  0%   { transform: translate(8px, -50%) rotate(-8deg); opacity: 0; }
+  100% { transform: translate(0, -50%)   rotate(0deg);  opacity: 1; }
+}
+.ff-arena-row-filter-stamp {
+  animation: ff-arena-row-filter-stamp-in 0.5s ease-out both;
+}
+
+@keyframes ff-arena-row-survivor-halo {
+  0%   { box-shadow: inset 0 0 0 rgba(255, 233, 51, 0); }
+  30%  { box-shadow: inset 0 0 28px rgba(255, 233, 51, 0.42); }
+  100% { box-shadow: inset 0 0 0 rgba(255, 233, 51, 0); }
+}
+.ff-arena-row-survivor {
+  animation: ff-arena-row-survivor-halo 1.6s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ff-filter-moment-overlay,
+  .ff-filter-moment-clock-pulse,
+  .ff-filter-moment-clock-urgent,
+  .ff-filter-moment-strip,
+  .ff-filter-moment-recap,
+  .ff-filter-moment-survivors > *,
+  .ff-filter-moment-pool-delta,
+  .ff-filter-moment-rollover-pulse,
+  .ff-arena-cutline--urgent,
+  .ff-arena-row-at-risk-chip,
+  .ff-arena-row-filter-stamp,
+  .ff-arena-row-survivor {
+    animation: none !important;
+  }
+}
+
+/* Mobile recap layout — collapse to a bottom sheet rather than a dead-centre
+   modal. Layout idiom matches the existing token-detail bottom-sheet so the
+   app reads as one product. */
+@media (max-width: 700px) {
+  .ff-filter-moment-overlay--recap {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  .ff-filter-moment-recap {
+    width: 100% !important;
+    max-height: 88vh !important;
+    border-radius: 16px 16px 0 0 !important;
+    box-shadow: 0 -16px 64px rgba(0, 0, 0, 0.7) !important;
+  }
+  /* On narrow viewports, motion can read as overwhelming. Tone the entry
+     animations down a notch — the keyframes still fire for affordance,
+     but with less visual mass. */
+  .ff-filter-moment-clock-urgent {
+    animation-duration: 0.9s;
+  }
+}
+
