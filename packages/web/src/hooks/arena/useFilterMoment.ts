@@ -294,9 +294,14 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
 
     return "idle";
   }, [
+    // `filterFiredBatch` is intentionally NOT listed: the round-4 refactor
+    // removed the early-idle-return that read it; the firing/recap stages
+    // are now driven entirely by `firingStartedAtMs`, which the anchoring
+    // effect updates from the batch when needed. Including the batch as
+    // a dep would re-run the memo on every batch identity change without
+    // affecting the result. Bugbot caught the stale dep.
     simulateActive,
     nowMs,
-    filterFiredBatch,
     firingStartedAtMs,
     secondsUntilCut,
     recentCountdownEvent,
