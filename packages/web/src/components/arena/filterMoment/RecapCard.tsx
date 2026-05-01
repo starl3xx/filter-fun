@@ -20,7 +20,7 @@ import type {ReactNode} from "react";
 import {Triangle} from "@/components/Triangle";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {fmtEth} from "@/lib/arena/format";
-import {C, F, tickerColor} from "@/lib/tokens";
+import {C, F, stripDollar, tickerColor} from "@/lib/tokens";
 
 import {RolloverCard} from "./RolloverCard";
 
@@ -257,6 +257,3 @@ function DismissButton({onClick}: {onClick: () => void}): ReactNode {
   );
 }
 
-function stripDollar(t: string): string {
-  return t.startsWith("$") ? t.slice(1) : t;
-}

@@ -17,7 +17,7 @@ import type {TokenResponse} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {fmtPrice} from "@/lib/format";
 import {sparkPath} from "@/lib/sparkline";
-import {C, F, tickerColor} from "@/lib/tokens";
+import {C, F, stripDollar, tickerColor} from "@/lib/tokens";
 
 import {ArenaHpBar} from "./HpBar";
 import {StatusBadge} from "./StatusBadge";
@@ -469,10 +469,6 @@ function colorForChange(change: number, hp: number): string {
 /// row index when rank is 0 (unscored tokens still get a stable position).
 function displayRank(rank: number, indexInList: number): number {
   return rank > 0 ? rank : indexInList + 1;
-}
-
-function stripDollar(ticker: string): string {
-  return ticker.startsWith("$") ? ticker.slice(1) : ticker;
 }
 
 // Re-export for tests + consumers — keeps the cut-index contract explicit.

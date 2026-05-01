@@ -178,8 +178,19 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
     return {maxId, anchorTimestampMs: maxTs, addresses};
   }, [events, acknowledgedFilterId]);
 
+  // Pick the *newest* FILTER_COUNTDOWN event in the buffer. The
+  // useTickerEvents hook documents the buffer as newest-first, so a
+  // bare `.find` would happen to return the newest in production, but
+  // depending on caller ordering would silently break tests + future
+  // refactors. Score by id (monotonic per indexer process) so we pick
+  // deterministically regardless of array order. Bugbot caught this.
   const filterCountdownEvent = useMemo(() => {
-    return events.find((e) => e.type === "FILTER_COUNTDOWN") ?? null;
+    let latest: TickerEvent | null = null;
+    for (const e of events) {
+      if (e.type !== "FILTER_COUNTDOWN") continue;
+      if (latest === null || e.id > latest.id) latest = e;
+    }
+    return latest;
   }, [events]);
 
   // Anchor the firing-stage start once a fresh FILTER_FIRED batch arrives.
