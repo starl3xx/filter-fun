@@ -43,7 +43,7 @@
 
 import {useEffect, useMemo, useRef, useState} from "react";
 
-import type {SeasonResponse, TickerEvent} from "@/lib/arena/api";
+import type {SeasonResponse, TickerEvent, TokenResponse} from "@/lib/arena/api";
 
 export type FilterMomentStage = "idle" | "countdown" | "firing" | "recap" | "done";
 
@@ -57,6 +57,15 @@ export type UseFilterMomentArgs = {
   tickIntervalMs?: number;
   /// Test seam: pre-set the simulate flag without going through `window`.
   simulate?: boolean;
+  /// Cohort the `?simulate=filter` dev override uses to synthesize
+  /// realistic visuals — the bottom 6 tokens become the synthetic
+  /// filtered set during firing/recap so the recap card has survivors,
+  /// the leaderboard gets stamps + halos, and the pool delta has a
+  /// believable shape. Production reads from the real `/events` stream
+  /// and ignores this argument. Bugbot caught the original simulation
+  /// shipping with empty `filteredAddresses` and a real-wallclock
+  /// `secondsUntilCut` that displayed hours instead of a 10-min countdown.
+  cohort?: TokenResponse[];
 };
 
 export type UseFilterMomentResult = {
@@ -183,12 +192,24 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
   // ============================================================ Countdown derivation
 
   const secondsUntilCut = useMemo<number | null>(() => {
+    // Simulation override — map the 10s sim countdown window onto a
+    // compressed 10:00 → 00:00 display so the dev sees the full clock
+    // ramp (including the final-10s urgent ramp) without waiting for
+    // the real cut. Outside the countdown window in sim mode, return
+    // 0 so the firing/recap stages don't accidentally re-show "10:00".
+    if (simulateActive && simStartRef.current !== null) {
+      const elapsed = nowMs - simStartRef.current;
+      if (elapsed < 10_000) {
+        return Math.max(0, Math.round(((10_000 - elapsed) / 10_000) * 600));
+      }
+      return 0;
+    }
     if (!season) return null;
     if (season.phase === "settled" || season.phase === "launch") return null;
     const target = new Date(season.nextCutAt).getTime();
     if (!Number.isFinite(target)) return null;
     return Math.floor((target - nowMs) / 1000);
-  }, [season, nowMs]);
+  }, [simulateActive, nowMs, season]);
 
   const recentCountdownEvent = useMemo(() => {
     if (!filterCountdownEvent) return false;
@@ -276,11 +297,28 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
   // ============================================================ Public API
 
   const filteredAddresses = useMemo<Set<`0x${string}`>>(() => {
-    if (stage === "firing" || stage === "recap") {
-      return filterFiredBatch?.addresses ?? new Set();
+    if (stage !== "firing" && stage !== "recap") return new Set();
+    // Simulation: synthesize the bottom 6 of the cohort as the filtered
+    // set so the visuals (red ▼ stamps, gold halos, recap survivors,
+    // pool delta) all have plausible content. Without this the recap
+    // shows every cohort token as a survivor and the leaderboard runs
+    // the firing-mode CSS against an empty filtered set.
+    if (simulateActive && simStartRef.current !== null) {
+      const cohort = args.cohort ?? [];
+      // Sort by descending rank so the bottom 6 (highest rank numbers /
+      // unscored) come first. Mirrors the real-world cut: the lowest
+      // ranks survive, the highest are filtered.
+      const byDescRank = [...cohort].sort((a, b) => {
+        if (a.rank === 0 && b.rank === 0) return a.token.localeCompare(b.token);
+        if (a.rank === 0) return -1;
+        if (b.rank === 0) return 1;
+        return b.rank - a.rank;
+      });
+      const bottomSix = byDescRank.slice(0, 6);
+      return new Set(bottomSix.map((t) => t.token.toLowerCase() as `0x${string}`));
     }
-    return new Set();
-  }, [stage, filterFiredBatch]);
+    return filterFiredBatch?.addresses ?? new Set();
+  }, [stage, filterFiredBatch, simulateActive, args.cohort]);
 
   const dismiss = (): void => {
     if (filterFiredBatch) {

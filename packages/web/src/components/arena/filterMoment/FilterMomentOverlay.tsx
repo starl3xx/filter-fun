@@ -21,6 +21,7 @@
 
 import {useEffect} from "react";
 
+import {sortByRank} from "@/components/arena/ArenaLeaderboard";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 
 import {CountdownClock} from "./CountdownClock";
@@ -146,14 +147,10 @@ function backdropStyleFor(stage: FilterMomentStage): string {
 /// Survivors = cohort minus the filtered set, sorted by ascending rank.
 /// Address comparison is lower-case to match the indexer's canonical form
 /// — `filteredAddresses` is normalized in the hook so this is defensive.
+/// Reuses `sortByRank` from `ArenaLeaderboard` so the rank-0 fallback
+/// stays in lock-step with the leaderboard's ordering — bugbot caught
+/// the previous duplicated comparator drift risk.
 function pickSurvivors(cohort: TokenResponse[], filtered: Set<`0x${string}`>): TokenResponse[] {
   const f = new Set(Array.from(filtered).map((a) => a.toLowerCase()));
-  return cohort
-    .filter((t) => !f.has(t.token.toLowerCase()))
-    .sort((a, b) => {
-      if (a.rank === 0 && b.rank === 0) return a.token.localeCompare(b.token);
-      if (a.rank === 0) return 1;
-      if (b.rank === 0) return -1;
-      return a.rank - b.rank;
-    });
+  return sortByRank(cohort.filter((t) => !f.has(t.token.toLowerCase())));
 }

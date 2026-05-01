@@ -121,7 +121,10 @@ export default function HomePage() {
 
   // ============================================================ Filter-moment
 
-  const filterMoment = useFilterMoment({season: season ?? null, events});
+  // Pass `cohort` so `?simulate=filter` can synthesize a believable
+  // filtered set (bottom 6) during dev — production reads /events for
+  // real FILTER_FIRED data and ignores the cohort arg.
+  const filterMoment = useFilterMoment({season: season ?? null, events, cohort});
 
   // Snapshots for the recap. The cohort + season can mutate after the
   // FILTER_FIRED event lands (the indexer drops filtered tokens from

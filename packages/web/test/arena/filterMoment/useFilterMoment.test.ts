@@ -12,7 +12,7 @@ import {act, renderHook} from "@testing-library/react";
 import {describe, expect, it} from "vitest";
 
 import {useFilterMoment} from "@/hooks/arena/useFilterMoment";
-import {makeFixtureEvent, makeFixtureSeason} from "../fixtures";
+import {makeFixtureCohort, makeFixtureEvent, makeFixtureSeason} from "../fixtures";
 
 const NOW_BASE = new Date("2026-04-30T12:00:00Z");
 
@@ -147,6 +147,50 @@ describe("useFilterMoment", () => {
     );
     // A fresh hook instance with the newer events fires again.
     expect(result2.current.stage).toBe("firing");
+  });
+
+  it("simulation synthesizes secondsUntilCut + filteredAddresses (regression: bugbot — empty firing visuals)", () => {
+    // Reported by bugbot on PR #49 round 2. The simulation walked through
+    // stages but didn't synthesize the visual payloads — secondsUntilCut
+    // returned the real wall-clock distance (potentially hours), and
+    // filteredAddresses stayed empty across firing/recap so the recap
+    // showed every cohort token as a survivor.
+    const cohort = makeFixtureCohort();
+    const season = makeFixtureSeason({nextCutAt: isoDelta(8 * 3600_000)});
+    const {result, rerender} = renderHook(
+      ({now}: {now: number}) =>
+        useFilterMoment({season, events: [], cohort, now: fakeNow(now), tickIntervalMs: 0, simulate: true}),
+      {initialProps: {now: 1_000}},
+    );
+    // Countdown: secondsUntilCut compresses 600 → 0 across the 10s sim
+    // window. The first useEffect-set of simStartRef happens after the
+    // initial render, so rerender once to commit; then check at elapsed
+    // ≈ 1s — should see ~540s (≈9:00) since simStart is now=1000 and we
+    // re-render at now=2000.
+    rerender({now: 2_000});
+    expect(result.current.stage).toBe("countdown");
+    expect(result.current.secondsUntilCut).toBeGreaterThanOrEqual(500);
+    expect(result.current.secondsUntilCut).toBeLessThanOrEqual(600);
+    // At sim elapsed≈5s (now=6000, simStart=1000) we should be roughly
+    // halfway through the 10:00 → 00:00 sweep.
+    rerender({now: 6_000});
+    expect(result.current.secondsUntilCut).toBeGreaterThanOrEqual(250);
+    expect(result.current.secondsUntilCut).toBeLessThanOrEqual(350);
+
+    // Firing: filteredAddresses populated with the bottom 6 of the cohort
+    // (ranks 7..12 in the fixture).
+    rerender({now: 12_000});
+    expect(result.current.stage).toBe("firing");
+    expect(result.current.filteredAddresses.size).toBe(6);
+    const expectedFiltered = new Set(cohort.slice(6).map((t) => t.token.toLowerCase()));
+    for (const addr of result.current.filteredAddresses) {
+      expect(expectedFiltered.has(addr)).toBe(true);
+    }
+
+    // Recap: same set carries through.
+    rerender({now: 18_000});
+    expect(result.current.stage).toBe("recap");
+    expect(result.current.filteredAddresses.size).toBe(6);
   });
 
   it("simulation auto-fade reaches idle (regression: bugbot — does not lock at done)", () => {
