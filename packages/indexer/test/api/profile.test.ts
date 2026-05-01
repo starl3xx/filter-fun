@@ -307,7 +307,7 @@ describe("/profile — tournament-tier badges (issue #35)", () => {
 });
 
 describe("/profile — tournament status overrides WEEKLY_WINNER on createdTokens", () => {
-  it("QUARTERLY_CHAMPION outranks the season-winner WEEKLY_WINNER label", async () => {
+  it("QUARTERLY_CHAMPION outranks the season-winner WEEKLY_WINNER label on the displayed status", async () => {
     const tok = addr(0xa1);
     const r = await getProfileHandler(
       fixtureQueries({
@@ -319,7 +319,7 @@ describe("/profile — tournament status overrides WEEKLY_WINNER on createdToken
             liquidated: false,
             isFinalist: true,
             createdAt: 1_700_000_000n,
-            seasonWinner: tok, // would be WEEKLY_WINNER on its own
+            seasonWinner: tok, // is the season's winner
             rank: 1,
             tournamentStatus: "QUARTERLY_CHAMPION",
           },
@@ -330,9 +330,13 @@ describe("/profile — tournament status overrides WEEKLY_WINNER on createdToken
     );
     const body = r.body as ProfileResponse;
     expect(body.createdTokens[0]?.status).toBe("QUARTERLY_CHAMPION");
-    // `wins` counts WEEKLY_WINNER labels — so a token promoted to QUARTERLY_CHAMPION
-    // is NOT a "win" in the weekly sense. CHAMPION_CREATOR therefore won't fire here.
-    expect(body.stats.wins).toBe(0);
+    // Bugbot regression: `wins` and CHAMPION_CREATOR derive from the underlying
+    // season-winner signal, NOT the surfaced status string. A token that won its
+    // week and then got promoted to QUARTERLY_CHAMPION still counts as one weekly
+    // win — otherwise tournament progression silently strips both the wins counter
+    // and the CHAMPION_CREATOR badge, which is the opposite of the intended reward.
+    expect(body.stats.wins).toBe(1);
+    expect(body.badges).toContain("CHAMPION_CREATOR");
   });
 
   it("FILTERED still wins over tournament status (a liquidated token can't be a champion)", async () => {

@@ -166,7 +166,13 @@ export async function getProfileHandler(
     launchedAt: new Date(Number(r.createdAt) * 1000).toISOString(),
   }));
 
-  const wins = createdTokens.filter((t) => t.status === "WEEKLY_WINNER").length;
+  // `wins` + the CHAMPION_CREATOR badge derive from the underlying season-winner
+  // signal, not the surfaced `status` string. Once a winner token is promoted by
+  // the tournament registry (QUARTERLY_FINALIST → QUARTERLY_CHAMPION → ANNUAL_*),
+  // `createdTokenStatus()` returns the promoted tier — so a status-string filter
+  // would silently drop the win on every successful promotion (the opposite of
+  // what creators expect from progressing in the tournament). Bugbot caught this.
+  const wins = countWeeklyWins(created);
 
   return {
     status: 200,
@@ -181,10 +187,21 @@ export async function getProfileHandler(
         lifetimeTradeVolumeWei: swapAgg.lifetimeTradeVolumeWei.toString(),
         tokensTraded: swapAgg.tokensTraded,
       },
-      badges: deriveBadges(createdTokens, holderFlags, tournamentFlags),
+      badges: deriveBadges(wins > 0, holderFlags, tournamentFlags),
       computedAt: now().toISOString(),
     },
   };
+}
+
+/// Count weekly wins by looking at the underlying `seasonWinner` signal rather
+/// than the (possibly tournament-promoted) display status. A token that won its
+/// week and then advanced to QUARTERLY_FINALIST still counts as one weekly win.
+function countWeeklyWins(rows: ReadonlyArray<CreatedTokenRow>): number {
+  let n = 0;
+  for (const r of rows) {
+    if (r.seasonWinner && r.seasonWinner.toLowerCase() === r.id.toLowerCase()) n++;
+  }
+  return n;
 }
 
 function createdTokenStatus(r: CreatedTokenRow): CreatedTokenStatus {
@@ -205,12 +222,12 @@ function createdTokenStatus(r: CreatedTokenRow): CreatedTokenStatus {
 }
 
 function deriveBadges(
-  createdTokens: ReadonlyArray<{status: CreatedTokenStatus}>,
+  hasWeeklyWin: boolean,
   holder: HolderBadgeFlags,
   tourney: TournamentBadgeFlags,
 ): ProfileBadge[] {
   const badges = new Set<ProfileBadge>();
-  if (createdTokens.some((t) => t.status === "WEEKLY_WINNER")) {
+  if (hasWeeklyWin) {
     badges.add("CHAMPION_CREATOR");
   }
   if (holder.weekWinner) badges.add("WEEK_WINNER");
