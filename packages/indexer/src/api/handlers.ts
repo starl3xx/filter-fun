@@ -24,6 +24,15 @@ export interface TokenDetailRow extends TokenRow {
   isProtocolLaunched: boolean;
 }
 
+/// Bag-lock fact for a single token, joined onto the /tokens response. The shape
+/// matches the indexer's `creator_lock` row (`unlockTimestamp` + `creator`); the
+/// builder adds `isLocked` (a wall-clock comparison) at response time.
+export interface BagLockRow {
+  token: `0x${string}`;
+  creator: `0x${string}`;
+  unlockTimestamp: bigint;
+}
+
 export interface ApiQueries {
   /// Latest season the indexer has seen (highest seasonId), or null if none.
   latestSeason: () => Promise<SeasonRow | null>;
@@ -33,6 +42,11 @@ export interface ApiQueries {
   tokensInSeason: (seasonId: bigint) => Promise<TokenRow[]>;
   /// Find a token by address (lowercased), or null if absent.
   tokenByAddress: (addr: `0x${string}`) => Promise<TokenDetailRow | null>;
+  /// Bag-lock rows for the supplied tokens. Tokens absent from the result map have no
+  /// recorded commitment (legacy or non-locking creators).
+  bagLocksForTokens: (
+    tokens: ReadonlyArray<`0x${string}`>,
+  ) => Promise<BagLockRow[]>;
 }
 
 export interface ApiResult<T> {
@@ -80,7 +94,18 @@ export async function getTokensHandler(
     apiPhase,
     nowSec,
   );
-  return ok(buildTokensResponse(tokenRows, scored, apiPhase));
+  // Bag-lock surface: one bulk fetch keyed by all token ids in the cohort, mapped down
+  // to the lowercased-token-address index the builder consumes. We pass the request
+  // wall-clock through so a freshly-expired lock immediately surfaces as unlocked.
+  const lockRows = await q.bagLocksForTokens(tokenRows.map((r) => r.id));
+  const bagLockByToken = new Map<string, {creator: `0x${string}`; unlockTimestamp: bigint}>();
+  for (const lr of lockRows) {
+    bagLockByToken.set(lr.token.toLowerCase(), {
+      creator: lr.creator,
+      unlockTimestamp: lr.unlockTimestamp,
+    });
+  }
+  return ok(buildTokensResponse(tokenRows, scored, apiPhase, bagLockByToken, nowSec));
 }
 
 // ============================================================ /token/:address

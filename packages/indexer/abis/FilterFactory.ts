@@ -22,6 +22,21 @@ export const FilterFactoryAbi = [
         "name": "weth_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "creatorFeeDistributor_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "polManager_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "creatorCommitments_",
+        "type": "address",
+        "internalType": "contract CreatorCommitments"
       }
     ],
     "stateMutability": "nonpayable"
@@ -171,6 +186,32 @@ export const FilterFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "creatorCommitments",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract CreatorCommitments"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "creatorFeeDistributor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "deployToken",
     "inputs": [
       {
@@ -278,6 +319,19 @@ export const FilterFactoryAbi = [
   {
     "type": "function",
     "name": "launcher",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "polManager",
     "inputs": [],
     "outputs": [
       {

@@ -34,9 +34,9 @@ export const SeasonVaultAbi = [
         "internalType": "address"
       },
       {
-        "name": "polRecipient_",
+        "name": "polManager_",
         "type": "address",
-        "internalType": "address"
+        "internalType": "contract IPOLManager"
       },
       {
         "name": "bonusDistributor_",
@@ -47,6 +47,21 @@ export const SeasonVaultAbi = [
         "name": "bonusUnlockDelay_",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "creatorRegistry_",
+        "type": "address",
+        "internalType": "contract ICreatorRegistry"
+      },
+      {
+        "name": "creatorFeeDistributor_",
+        "type": "address",
+        "internalType": "contract ICreatorFeeDistributor"
+      },
+      {
+        "name": "tournamentRegistry_",
+        "type": "address",
+        "internalType": "contract ITournamentRegistry"
       }
     ],
     "stateMutability": "nonpayable"
@@ -54,6 +69,19 @@ export const SeasonVaultAbi = [
   {
     "type": "function",
     "name": "BONUS_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "BOUNTY_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -131,6 +159,19 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
+    "name": "bonusFunded",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "bonusReserve",
     "inputs": [],
     "outputs": [
@@ -145,6 +186,45 @@ export const SeasonVaultAbi = [
   {
     "type": "function",
     "name": "bonusUnlockDelay",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "bountyPaid",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "bountyRecipient",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "bountyReserve",
     "inputs": [],
     "outputs": [
       {
@@ -207,44 +287,39 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
-    "name": "finalize",
-    "inputs": [
-      {
-        "name": "minWinnerTokensRollover",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "minWinnerTokensPol",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "forceClose",
+    "name": "creatorFeeDistributor",
     "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "isLoser",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
     "outputs": [
       {
         "name": "",
-        "type": "bool",
-        "internalType": "bool"
+        "type": "address",
+        "internalType": "contract ICreatorFeeDistributor"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "creatorRegistry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ICreatorRegistry"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "filterEventCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -264,24 +339,6 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
-    "name": "liquidate",
-    "inputs": [
-      {
-        "name": "loserToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "minOutOverride",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "liquidated",
     "inputs": [
       {
@@ -295,32 +352,6 @@ export const SeasonVaultAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "liquidatedCount",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "liquidationDeadline",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -366,25 +397,6 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
-    "name": "minOutFor",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "oracle",
     "inputs": [],
     "outputs": [
@@ -411,13 +423,109 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
-    "name": "polRecipient",
+    "name": "polDeployedLiquidity",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "polDeployedTokens",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "polDeployedWeth",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "polManager",
     "inputs": [],
     "outputs": [
       {
         "name": "",
         "type": "address",
-        "internalType": "address"
+        "internalType": "contract IPOLManager"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "polReserve",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract SeasonPOLReserve"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "polReserveBalance",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "processFilterEvent",
+    "inputs": [
+      {
+        "name": "losers_",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "minOuts_",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rolloverReserve",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -463,22 +571,12 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
-    "name": "submitSettlement",
+    "name": "submitWinner",
     "inputs": [
       {
         "name": "winner_",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "losers_",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "minOuts_",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
       },
       {
         "name": "rolloverRoot_",
@@ -491,7 +589,12 @@ export const SeasonVaultAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "liquidationDeadline_",
+        "name": "minWinnerTokensRollover",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minWinnerTokensPol",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -501,7 +604,46 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
-    "name": "totalPot",
+    "name": "totalBountyAccumulated",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "totalLiquidationProceeds",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "totalMechanicsPaid",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "totalPolAccumulated",
     "inputs": [],
     "outputs": [
       {
@@ -521,6 +663,32 @@ export const SeasonVaultAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "totalTreasuryPaid",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "tournamentRegistry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ITournamentRegistry"
       }
     ],
     "stateMutability": "view"
@@ -566,10 +734,115 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "event",
+    "name": "ChampionBountyPaid",
+    "inputs": [
+      {
+        "name": "winner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ChampionBountyRedirected",
+    "inputs": [
+      {
+        "name": "winner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FilterEventProcessed",
+    "inputs": [
+      {
+        "name": "eventIndex",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "loserCount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "proceedsWeth",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "bountySlice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "rolloverSlice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "bonusSlice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "mechanicsSlice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "polSlice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "treasurySlice",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Finalized",
     "inputs": [
       {
-        "name": "totalPot",
+        "name": "rolloverWethConsumed",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -581,23 +854,28 @@ export const SeasonVaultAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "bonusReserve",
+        "name": "bonusFunded",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ForceClosed",
-    "inputs": [
+      },
       {
-        "name": "by",
-        "type": "address",
+        "name": "polDeployedWeth",
+        "type": "uint256",
         "indexed": false,
-        "internalType": "address"
+        "internalType": "uint256"
+      },
+      {
+        "name": "polDeployedTokens",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tradingFeeSweptToTreasury",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -648,19 +926,13 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "event",
-    "name": "SettlementSubmitted",
+    "name": "WinnerSubmitted",
     "inputs": [
       {
         "name": "winner",
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      },
-      {
-        "name": "loserCount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       },
       {
         "name": "rolloverRoot",
@@ -670,12 +942,6 @@ export const SeasonVaultAbi = [
       },
       {
         "name": "totalRolloverShares",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "liquidationDeadline",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -695,22 +961,17 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "error",
+    "name": "BadLoser",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BadWinner",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "DeadlineNotPassed",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "DeadlineTooClose",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "DuplicateLoser",
+    "name": "EmptyEvent",
     "inputs": []
   },
   {
@@ -726,11 +987,6 @@ export const SeasonVaultAbi = [
   {
     "type": "error",
     "name": "NoRollover",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NotLauncher",
     "inputs": []
   },
   {
@@ -756,7 +1012,7 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "error",
-    "name": "UnknownLoser",
+    "name": "WinnerWasFiltered",
     "inputs": []
   },
   {

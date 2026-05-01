@@ -179,5 +179,28 @@ describe("loadCacheConfigFromEnv", () => {
   });
 });
 
+describe("historyCacheKey", () => {
+  it("includes from/to/interval — different windows are distinct cache entries", async () => {
+    const {historyCacheKey} = await import("../../src/api/middleware.js");
+    const a = addr(0xa);
+    expect(historyCacheKey(a, {from: "1", to: "2", interval: "300"})).not.toBe(
+      historyCacheKey(a, {from: "1", to: "2", interval: "60"}),
+    );
+    expect(historyCacheKey(a, {from: "1", to: "2", interval: "300"})).not.toBe(
+      historyCacheKey(a, {from: "1", to: "3", interval: "300"})  ,
+    );
+  });
+
+  it("collapses missing params to a stable sentinel — two omit-all calls share the cache", async () => {
+    const {historyCacheKey} = await import("../../src/api/middleware.js");
+    const a = addr(0xb);
+    expect(historyCacheKey(a, {})).toBe(historyCacheKey(a, {}));
+  });
+});
+
+function addr(n: number): `0x${string}` {
+  return `0x${n.toString(16).padStart(40, "0")}` as `0x${string}`;
+}
+
 // Silence the vi import warning when no spies are used in the file.
 vi.fn();

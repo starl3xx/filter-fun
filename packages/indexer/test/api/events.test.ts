@@ -800,6 +800,7 @@ describe("feeAdapter — locker→token translation", () => {
       toVault: 10n,
       toTreasury: 5n,
       toMechanics: 5n,
+      toCreator: 0n,
       blockTimestamp: 100n,
     },
     {
@@ -807,6 +808,7 @@ describe("feeAdapter — locker→token translation", () => {
       toVault: 1n,
       toTreasury: 1n,
       toMechanics: 1n,
+      toCreator: 0n,
       blockTimestamp: 110n,
     },
     {
@@ -814,6 +816,7 @@ describe("feeAdapter — locker→token translation", () => {
       toVault: 1n,
       toTreasury: 1n,
       toMechanics: 1n,
+      toCreator: 0n,
       blockTimestamp: 120n,
     },
   ];
@@ -849,14 +852,35 @@ describe("feeAdapter — locker→token translation", () => {
     expect(out[0]!.tokenAddress).toBe(tokenAddr);
   });
 
+  it("translateFeeRows — bugbot regression: toCreator slice is included in totalFeeWei", () => {
+    // FeesCollected emits a 4-way split (toVault/toTreasury/toMechanics/toCreator).
+    // Pre-fix the schema dropped toCreator silently → totalFeeWei understated by the
+    // creator slice → volume-spike + large-trade detectors fired late on tokens with
+    // a high creator-rebate share.
+    const m = lockerToTokenMap(tokenRows);
+    const withCreator: FeeAccrualDbRow[] = [
+      {
+        token: lockerAddr,
+        toVault: 10n,
+        toTreasury: 5n,
+        toMechanics: 5n,
+        toCreator: 7n,
+        blockTimestamp: 100n,
+      },
+    ];
+    const out = translateFeeRows(withCreator, m);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.totalFeeWei).toBe(27n); // 10 + 5 + 5 + 7
+  });
+
   it("aggregateFeesByToken — sums fee rows and groups by resolved token contract address", () => {
     const m = lockerToTokenMap(tokenRows);
     // Two fee rows for the same locker — should sum.
     const rows: FeeAccrualDbRow[] = [
-      {token: lockerAddr, toVault: 10n, toTreasury: 0n, toMechanics: 0n, blockTimestamp: 1n},
-      {token: lockerAddr, toVault: 0n, toTreasury: 5n, toMechanics: 5n, blockTimestamp: 2n},
-      {token: otherLocker, toVault: 100n, toTreasury: 0n, toMechanics: 0n, blockTimestamp: 3n},
-      {token: orphanLocker, toVault: 999n, toTreasury: 0n, toMechanics: 0n, blockTimestamp: 4n},
+      {token: lockerAddr, toVault: 10n, toTreasury: 0n, toMechanics: 0n, toCreator: 0n, blockTimestamp: 1n},
+      {token: lockerAddr, toVault: 0n, toTreasury: 5n, toMechanics: 5n, toCreator: 0n, blockTimestamp: 2n},
+      {token: otherLocker, toVault: 100n, toTreasury: 0n, toMechanics: 0n, toCreator: 0n, blockTimestamp: 3n},
+      {token: orphanLocker, toVault: 999n, toTreasury: 0n, toMechanics: 0n, toCreator: 0n, blockTimestamp: 4n},
     ];
     const acc = aggregateFeesByToken(rows, m);
     expect(acc.get(tokenAddr)).toBe(20n);
