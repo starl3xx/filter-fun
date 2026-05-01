@@ -75,5 +75,11 @@ export function computeTips(token: TokenResponse): Tip[] {
       copy: "Trade volume slipping vs the cohort. Renewed attention typically lifts this within hours.",
     });
   }
+  if (token.components.momentum < THRESHOLD) {
+    tips.push({
+      label: "Momentum is fading",
+      copy: "Trend score is below the cohort. Momentum tends to feed itself in either direction — rebuilding it usually means a fresh community signal.",
+    });
+  }
   return tips;
 }

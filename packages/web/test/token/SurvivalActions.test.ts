@@ -57,6 +57,11 @@ describe("computeTips", () => {
     expect(tips[0].label).toContain("Buying activity");
   });
 
+  it("low momentum → 'Momentum is fading'", () => {
+    const tips = computeTips(token({momentum: 0.2}));
+    expect(tips[0].label).toContain("Momentum");
+  });
+
   it("two low components → two tips", () => {
     const tips = computeTips(token({retention: 0.2, velocity: 0.1}));
     expect(tips).toHaveLength(2);

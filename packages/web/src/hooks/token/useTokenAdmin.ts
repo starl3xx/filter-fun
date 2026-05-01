@@ -82,11 +82,17 @@ export function useTokenAdmin(token: Address | null): UseTokenAdminResult {
   const isLoading = enabled && reads.some((r) => r.isLoading);
   const errorRead = reads.find((r) => r.error);
 
+  // Normalize the zero address to `null` for every address field. The contract
+  // returns `address(0)` to signal "unset" (pendingAdmin defaults to zero when
+  // no transfer is pending, override mappings start at zero, etc.) — passing
+  // that string through as truthy leaks into UIs that branch on `pendingAdmin
+  // && (...)` and falsely renders "Pending admin: 0x0000…0000". Normalizing
+  // here so every consumer gets the right shape with no per-call zero-check.
   const info: TokenAdminInfo = {
-    creator: (creator.data as Address | undefined) ?? null,
-    admin: (admin.data as Address | undefined) ?? null,
-    recipient: (recipient.data as Address | undefined) ?? null,
-    pendingAdmin: (pendingAdmin.data as Address | undefined) ?? null,
+    creator: nullIfZero(creator.data as Address | undefined),
+    admin: nullIfZero(admin.data as Address | undefined),
+    recipient: nullIfZero(recipient.data as Address | undefined),
+    pendingAdmin: nullIfZero(pendingAdmin.data as Address | undefined),
     metadataURI: (metadataURI.data as string | undefined) ?? "",
   };
 
@@ -98,4 +104,9 @@ export function useTokenAdmin(token: Address | null): UseTokenAdminResult {
       await Promise.all(reads.map((r) => r.refetch()));
     },
   };
+}
+
+function nullIfZero(addr: Address | undefined): Address | null {
+  if (!addr) return null;
+  return addr === zeroAddress ? null : addr;
 }

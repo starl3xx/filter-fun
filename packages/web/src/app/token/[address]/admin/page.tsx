@@ -47,7 +47,6 @@ import {TopBar} from "@/components/broadcast/TopBar";
 import {useSeason} from "@/hooks/arena/useSeason";
 import {useTokens} from "@/hooks/arena/useTokens";
 import {useAdminAuth} from "@/hooks/token/useAdminAuth";
-import {useCreatorFees} from "@/hooks/token/useCreatorFees";
 import {useSeasonContext} from "@/hooks/token/useSeasonContext";
 import {useStakeStatus} from "@/hooks/token/useStakeStatus";
 import {useTokenAdmin} from "@/hooks/token/useTokenAdmin";
@@ -72,7 +71,6 @@ function AdminConsole({token}: {token: Address}) {
   const {context} = useSeasonContext();
   const {stats} = useTokenStats(token);
   const {status: stakeStatus} = useStakeStatus(token, context.seasonId);
-  const fees = useCreatorFees(token);
   const {connect, connectors} = useConnect();
 
   const acceptAnchorRef = useRef<HTMLDivElement | null>(null);
