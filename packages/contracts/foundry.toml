@@ -13,6 +13,23 @@ fs_permissions = [
     { access = "read", path = "./" },
     { access = "read-write", path = "./deployments" },
 ]
+# NOTE on these two fields: forge stable 1.5.1 silently ignores them in `[profile.default]`
+# for `forge test` invocations. They're kept here for documentation + future-compat; the
+# *actual* enforcement is via the matching `--isolate --threads 1` flags in
+# `package.json`'s `test` script and the `contracts-ci.yml` workflow. If a future forge
+# version starts respecting them, the CLI flags become redundant rather than wrong.
+#
+# `isolate = true` — `Deploy.t.sol` runs `DeploySepolia` in-process; each `deployer.run()`
+# CREATE2-deploys `FilterHook` at a deterministic address. Without isolation the hook from
+# a prior test persists and the next deploy reverts on the CREATE2 collision before
+# reaching the manifest-guard check.
+#
+# `threads = 1` — `Deploy.t.sol` uses `vm.setEnv` + `vm.writeJson` against the on-disk
+# manifest. With concurrent test files, forge's cheatcode state (env vars, JSON writers)
+# races nondeterministically and produces "manifest exists" / "vm.writeJson: failed to
+# open file" flakes.
+isolate = true
+threads = 1
 
 [lint]
 exclude_lints = ["unsafe-typecast"]

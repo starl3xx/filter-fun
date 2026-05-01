@@ -80,34 +80,59 @@ contract SeedFilter is Script {
         _appendFilterToken(manifestPath, token, locker, metadataUri);
     }
 
-    /// Persist `filterToken` (and locker / metadata) into the manifest. We rebuild the JSON via
-    /// Foundry's serializer rather than string-splicing — `vm.writeJson(value, path, key)` lets
-    /// us overwrite a single key without re-serializing the whole document, but only for scalar
-    /// keys. Since we want both `filterToken` (object) and to keep all prior keys, the cleanest
-    /// path is `vm.writeJson(serialized, path, ".filterToken")`.
+    /// Persist `filterToken` (and locker / metadata) into the manifest. We hand-build the JSON
+    /// rather than using `vm.serializeXxx` because the serializer caches builder state on a
+    /// process-global, cheatcode-handler-level keyed map. Even with per-invocation unique keys,
+    /// across parallel forge test files (forge runs different test contracts on different
+    /// threads in the same process) the serializer racily emits `DuplicateSymbol()` or builds
+    /// inconsistent JSON. Hand-building dodges that entirely — the output is plain
+    /// `string.concat`, identical to `DeploySepolia`'s manifest emission.
     function _appendFilterToken(
         string memory manifestPath,
         address token,
         address locker,
         string memory metadataUri
     ) internal {
-        // Foundry's JSON serializer caches state per-id at the cheatcode-handler level —
-        // across multiple `run()` invocations in the same forge process (e.g. test runs)
-        // a fixed id like "filterToken" accumulates fields from prior calls. Discriminating
-        // by `address(this)` (the SeedFilter contract — fresh every `new SeedFilter()`) +
-        // the token address gives a unique id every invocation, so stale builder entries
-        // from a prior call can't bleed into this one.
-        string memory key = string.concat("ft_", vm.toString(address(this)), "_", vm.toString(token));
-        vm.serializeAddress(key, "address", token);
-        vm.serializeAddress(key, "locker", locker);
-        vm.serializeString(key, "name", "filter");
-        vm.serializeString(key, "symbol", "FILTER");
-        vm.serializeUint(key, "seededAt", block.timestamp);
-        string memory value = vm.serializeString(key, "metadataURI", metadataUri);
+        string memory value = string.concat(
+            "{",
+            "\"address\":\"",
+            _addrToString(token),
+            "\",",
+            "\"locker\":\"",
+            _addrToString(locker),
+            "\",",
+            "\"name\":\"filter\",",
+            "\"symbol\":\"FILTER\",",
+            "\"seededAt\":",
+            vm.toString(block.timestamp),
+            ",",
+            "\"metadataURI\":\"",
+            metadataUri,
+            "\"",
+            "}"
+        );
 
         // Targeted write: replaces only the `filterToken` key in the manifest, leaving every
         // other key untouched. Avoids any chance of dropping addresses we wrote earlier.
         vm.writeJson(value, manifestPath, ".filterToken");
+    }
+
+    /// Lowercase hex address with `0x` prefix — matches `DeploySepolia._addrToString` so the
+    /// manifest is consistent across the two writers. (`vm.toString(address)` emits EIP-55
+    /// mixed-case which is fine but inconsistent across runs; we normalize to lowercase so
+    /// the manifest output is deterministic for diffs and downstream parsing.)
+    function _addrToString(address a) private pure returns (string memory) {
+        bytes memory hexChars = "0123456789abcdef";
+        bytes memory out = new bytes(42);
+        out[0] = "0";
+        out[1] = "x";
+        uint160 value = uint160(a);
+        for (uint256 i = 0; i < 20; ++i) {
+            uint8 b = uint8(value >> (8 * (19 - i)));
+            out[2 + i * 2] = hexChars[b >> 4];
+            out[2 + i * 2 + 1] = hexChars[b & 0x0f];
+        }
+        return string(out);
     }
 
     /// Manifest path with optional env override — keeps tests from clobbering the real

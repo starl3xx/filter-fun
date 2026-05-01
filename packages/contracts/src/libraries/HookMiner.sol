@@ -21,8 +21,25 @@ library HookMiner {
         pure
         returns (address hookAddress, bytes32 salt)
     {
+        return findFrom(deployer, flags, creationCode, 0);
+    }
+
+    /// @notice Same as `find`, but starts the search at `startNonce` instead of zero.
+    ///
+    ///         Used by `RedeployFactory` to mine a salt strictly above the cached one when
+    ///         rotating the factory on a live chain — the prior `FilterHook` already occupies
+    ///         the lowest-nonce flag-matching address, so a fresh deployment with the same
+    ///         creationCode would CREATE2-collide. Bumping the search start past the prior
+    ///         salt sidesteps the collision without changing the hook's source.
+    /// @param startNonce Inclusive search start. Pass `priorSalt + 1` to guarantee the result
+    ///        differs from `priorSalt`.
+    function findFrom(address deployer, uint160 flags, bytes memory creationCode, uint256 startNonce)
+        internal
+        pure
+        returns (address hookAddress, bytes32 salt)
+    {
         bytes32 codeHash = keccak256(creationCode);
-        for (uint256 i = 0; i < 200_000; ++i) {
+        for (uint256 i = startNonce; i < startNonce + 200_000; ++i) {
             salt = bytes32(i);
             hookAddress = _computeAddress(deployer, salt, codeHash);
             if ((uint160(hookAddress) & FLAG_MASK) == flags) {

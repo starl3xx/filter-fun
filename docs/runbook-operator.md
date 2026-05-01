@@ -680,6 +680,133 @@ matters more than the artifact — running through it surfaces process gaps.
 
 ---
 
+## 8. Full season smoke test (Sepolia, end-to-end)
+
+Run before every mainnet deploy. Validates the entire week-long lifecycle on Base Sepolia
+in a fast-forwarded form: deploy → seed → start season → fake launches → cut → settle →
+verify. Catches wiring regressions, manifest schema drift, and anything that depends on
+real V4 PoolManager behavior (which mock tests miss).
+
+The smoke test is destructive — it leaves the Sepolia deploy in `Settled` phase and
+exhausts the launcher's max-launches-per-wallet budget. Spin up a fresh deploy first, or
+plan to redeploy via §8.6 after.
+
+### 8.0 Prerequisites
+
+- A Base Sepolia RPC URL with sufficient rate limit (Alchemy/Infura free tier works).
+  Set `BASE_SEPOLIA_RPC_URL`.
+- A funded deployer wallet (testnet ETH from a faucet — ~0.5 ETH is plenty).
+  Set `DEPLOYER_PRIVATE_KEY`.
+- A Basescan API key for verification (optional but recommended).
+  Set `BASESCAN_API_KEY`.
+- The other `.env.sepolia.example` knobs filled in (`TREASURY_OWNER`,
+  `SCHEDULER_ORACLE_ADDRESS`, etc.). The defaults in the example file are safe placeholders
+  only — operator-controlled wallets should replace them.
+
+### 8.1 Deploy
+
+```sh
+cd packages/contracts
+./script/deploy-sepolia.sh
+```
+
+Manifest lands at `./deployments/base-sepolia.json`. Confirm:
+
+- `addresses.filterLauncher` is non-zero.
+- `addresses.creatorCommitments` is non-zero (regression check for PR #43).
+- `config.maxLaunchesPerWallet == 1` (spec §4.6 lock).
+
+### 8.2 Verify wiring (pre-seed)
+
+```sh
+SKIP_FILTER_TOKEN_CHECK=1 forge script script/VerifySepolia.s.sol \
+  --rpc-url "$BASE_SEPOLIA_RPC_URL"
+```
+
+Expect a `VerifySepoliaOK` event in the trace with `filterTokenChecked=false` and
+`tokensChecked=0`. Any `AssertionFailed_<n>` revert means the deploy is misconfigured —
+do NOT proceed; fix the wiring first.
+
+### 8.3 Open season + seed $FILTER
+
+```sh
+# Oracle starts season 1 (must be the wallet matching SCHEDULER_ORACLE_ADDRESS).
+cast send "$FILTER_LAUNCHER" 'startSeason()' \
+  --rpc-url "$BASE_SEPOLIA_RPC_URL" \
+  --private-key "$ORACLE_PRIVATE_KEY"
+
+# Deployer seeds $FILTER (writes filterToken into the manifest).
+forge script script/SeedFilter.s.sol \
+  --rpc-url "$BASE_SEPOLIA_RPC_URL" \
+  --broadcast
+```
+
+Confirm: `manifest.filterToken.address` is now non-zero.
+
+### 8.4 Verify wiring (post-seed)
+
+```sh
+forge script script/VerifySepolia.s.sol --rpc-url "$BASE_SEPOLIA_RPC_URL"
+```
+
+Expect `VerifySepoliaOK` with `filterTokenChecked=true`, `tokensChecked=1`. The on-chain
+`creatorOf($FILTER)` should be the deployer EOA.
+
+### 8.5 Public launch + lifecycle (optional, manual)
+
+The remaining steps (launchToken, advancePhase to Filter, applySoftFilter, advancePhase
+to Settle, submitWinner, claim flows) are manual on testnet. The §1–§4 SOPs cover each.
+For a fast smoke test focused on contract wiring, §8.4 is the bar; for a full lifecycle
+rehearsal, walk through §1.4 → §3 → §4 against the testnet deploy with the season hours
+mocked via `cast rpc anvil_setNextBlockTimestamp` (Sepolia doesn't support this — use a
+local fork-mode anvil for time travel).
+
+### 8.6 Factory rotation (post-PR-#43 fix)
+
+If the live Sepolia deploy predates PR #43 (CreatorCommitments wiring), the factory
+constructor doesn't accept a CreatorCommitments arg and newly-launched tokens won't
+record their bag-locks. Rotate via:
+
+```sh
+# Pre-flight check — refuses if the current season has any public launches:
+forge script script/RedeployFactory.s.sol --rpc-url "$BASE_SEPOLIA_RPC_URL"
+
+# If active launches exist and you accept they'll be orphaned:
+ACTIVE_LAUNCH_OK=1 forge script script/RedeployFactory.s.sol \
+  --rpc-url "$BASE_SEPOLIA_RPC_URL" --broadcast
+```
+
+The script archives the prior manifest under `./deployments/archive/` with a unix-ts
+suffix, mines a fresh `HOOK_SALT` strictly above the cached one (so the new FilterHook
+lands at an unoccupied CREATE2 address), and writes the new addresses into
+`./deployments/base-sepolia.json`. Trace contains a `FactoryRedeployed` event.
+
+After rotation:
+
+1. Update `INDEXER_RPC_URL` and `INDEXER_FILTER_LAUNCHER` (and the equivalent web/
+   scheduler envs) to the new launcher address.
+2. Re-run §8.3 (open season + seed $FILTER) on the new system — the prior $FILTER token
+   is on the OLD launcher and is orphaned.
+3. Re-run §8.4 to confirm wiring.
+4. If any creators on the OLD CreatorRegistry need their admin rotated to a different
+   wallet on the NEW CreatorRegistry, run nominateAdmin/acceptAdmin against the new
+   registry. The old registry remains on chain but is no longer referenced by the
+   launcher.
+
+### 8.7 Pre-mainnet checklist
+
+Before promoting `deployments/base-sepolia.json` patterns to `deployments/base.json`:
+
+- [ ] §8.4 verifier passes against Sepolia
+- [ ] Indexer reads new manifest cleanly (`/season/1` returns the seeded $FILTER)
+- [ ] Web app loads with new addresses (no console errors, leaderboard renders)
+- [ ] `MAX_LAUNCHES_PER_WALLET=1` is set in mainnet env (spec §4.6 lock)
+- [ ] `BASE_RPC_URL` points to a paid-tier endpoint (rate limits matter for indexer)
+- [ ] Treasury owner + oracle wallets are operator-controlled (not deployer EOA)
+- [ ] One operator has dry-run §3 (Filter SOP) and §4 (Settlement SOP) on Sepolia
+
+---
+
 ## Appendix A — Known gotchas (lessons from prior incidents)
 
 These are real failure modes caught in code review, post-mortems, or testing. Memorize.

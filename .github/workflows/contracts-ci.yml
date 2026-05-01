@@ -45,14 +45,23 @@ jobs:
       - name: Build
         run: forge build --sizes
 
-      # `--test-threads 1` keeps tests serialized within a contract. Several scripts
-      # (`DeploySepolia.s.sol`, `SeedFilter.s.sol`) read/write a shared manifest file
-      # under `deployments/` plus several `vm.setEnv`-controlled knobs; those are
-      # process-wide state, so concurrent tests would race and silently produce wrong
-      # paths or stale manifests. Cost: a small fraction of a second on the test step;
-      # benefit: reliable CI.
+      # `--threads 1` serializes test files. Several scripts (`DeploySepolia.s.sol`,
+      # `SeedFilter.s.sol`, `VerifySepolia.s.sol`) read/write a shared manifest under
+      # `deployments/` plus several `vm.setEnv`-controlled knobs; those are process-wide
+      # state, so concurrent tests would race and silently produce wrong paths or stale
+      # manifests.
+      #
+      # `--isolate` snapshots EVM state after `setUp()` and reverts to it before every
+      # test. Required because `Deploy.t.sol` runs the actual deploy script in-process and
+      # CREATE2-deploys `FilterHook` at a deterministic address; without isolation the
+      # hook from a prior test persists, and the next `deployer.run()` reverts on the
+      # CREATE2 collision before reaching the manifest-guard check.
+      #
+      # Both flags are also wired into `package.json`'s `test` script so `pnpm test` from
+      # the contracts package matches CI; matching `foundry.toml` fields (`threads`,
+      # `isolate`) are silently ignored by `forge test` in stable 1.5.1.
       - name: Test
-        run: forge test -vv --threads 1
+        run: forge test -vv --isolate --threads 1
 
       - name: Format check
         run: forge fmt --check
