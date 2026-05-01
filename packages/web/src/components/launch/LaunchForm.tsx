@@ -16,7 +16,7 @@ import {useEffect, useMemo, useState} from "react";
 import {useAccount} from "wagmi";
 
 import type {TokenResponse} from "@/lib/arena/api";
-import {C, F} from "@/lib/tokens";
+import {C, F, stripDollar} from "@/lib/tokens";
 import {canonicalSymbol, validateLaunchFields, type FieldErrors, type LaunchFormFields} from "@/lib/launch/validation";
 
 import {Triangle} from "@/components/Triangle";
@@ -419,6 +419,3 @@ function useTickerCollision(rawTicker: string, cohort: TokenResponse[]): string 
   return collision;
 }
 
-function stripDollar(s: string): string {
-  return s.startsWith("$") ? s.slice(1) : s;
-}

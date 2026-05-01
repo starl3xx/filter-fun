@@ -179,20 +179,30 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
     return {maxId, anchorTimestampMs: maxTs, addresses};
   }, [events, acknowledgedFilterId]);
 
-  // Pick the *newest* FILTER_COUNTDOWN event in the buffer. The
-  // useTickerEvents hook documents the buffer as newest-first, so a
-  // bare `.find` would happen to return the newest in production, but
-  // depending on caller ordering would silently break tests + future
-  // refactors. Score by id (monotonic per indexer process) so we pick
-  // deterministically regardless of array order. Bugbot caught this.
+  // Pick the *newest* FILTER_COUNTDOWN event in the buffer that the hook
+  // hasn't already acknowledged. Score by id (monotonic per indexer
+  // process) so the lookup is order-independent — useTickerEvents
+  // documents events as newest-first but tests + future refactors
+  // shouldn't depend on caller ordering.
+  //
+  // The acknowledged-id filter is what stops a stale countdown from
+  // re-triggering the overlay after the recap auto-fade: indexer ids
+  // are monotonic, so the FILTER_COUNTDOWN that preceded a given
+  // FILTER_FIRED has a *lower* id; once that firing is acknowledged,
+  // its preceding countdown is acknowledged transitively. Without this
+  // filter, a FILTER_COUNTDOWN emitted within the recap's 35s window
+  // could still be inside its 60s freshness window when the done-latch
+  // fires, flipping the stage from done → countdown and re-showing the
+  // overlay backdrop after the ceremony completed (bugbot caught this).
   const filterCountdownEvent = useMemo(() => {
     let latest: TickerEvent | null = null;
     for (const e of events) {
       if (e.type !== "FILTER_COUNTDOWN") continue;
+      if (acknowledgedFilterId !== null && e.id <= acknowledgedFilterId) continue;
       if (latest === null || e.id > latest.id) latest = e;
     }
     return latest;
-  }, [events]);
+  }, [events, acknowledgedFilterId]);
 
   // Anchor the firing-stage start once a fresh FILTER_FIRED batch arrives.
   useEffect(() => {

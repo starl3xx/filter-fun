@@ -149,6 +149,47 @@ describe("useFilterMoment", () => {
     expect(result2.current.stage).toBe("firing");
   });
 
+  it("stale FILTER_COUNTDOWN does not re-trigger countdown after the cycle's recap auto-fades (regression: bugbot — done → countdown flicker)", () => {
+    // Reported by bugbot on PR #49 round 6. Timeline:
+    //   t=-25s  FILTER_COUNTDOWN id=99 emitted
+    //   t=  0s  FILTER_FIRED      id=100 emitted (firing → recap)
+    //   t= 35s  recap auto-fade   → done-latch (ack=100, firing=null)
+    //   t= 35s  next render checks recentCountdownEvent: id=99 was 60s
+    //           ago — still inside its 60s freshness window. Without
+    //           filtering by ack, the stage flips to "countdown" again
+    //           and re-shows the overlay backdrop.
+    // Fix: filterCountdownEvent useMemo skips events with id ≤ ack.
+    const events = [
+      makeFixtureEvent({
+        id: 99,
+        type: "FILTER_COUNTDOWN",
+        token: null,
+        address: null,
+        timestamp: isoDelta(-25_000),
+      }),
+      makeFixtureEvent({
+        id: 100,
+        type: "FILTER_FIRED",
+        address: "0x000000000000000000000000000000000000aaaa",
+        data: {address: "0x000000000000000000000000000000000000aaaa"},
+        timestamp: isoDelta(0),
+      }),
+    ];
+    const season = makeFixtureSeason({phase: "competition", nextCutAt: isoDelta(0)});
+    const {result, rerender} = renderHook(
+      ({now}: {now: number}) =>
+        useFilterMoment({season, events, now: fakeNow(now), tickIntervalMs: 0, simulate: false}),
+      {initialProps: {now: 1_000}},
+    );
+    expect(result.current.stage).toBe("firing");
+
+    // Past the recap auto-fade window — ack should be set, FILTER_COUNTDOWN
+    // (id=99 ≤ ack=100) should be filtered out, stage should be idle.
+    rerender({now: 36_000});
+    expect(result.current.acknowledgedFilterId).toBe(100);
+    expect(result.current.stage).toBe("idle");
+  });
+
   it("countdown re-arms after a previous filter cycle is acknowledged (regression: bugbot — latch blocked subsequent countdowns)", () => {
     // Reported by bugbot on PR #49 round 4. The stage useMemo had an
     // early-return `if (acknowledgedFilterId !== null && !filterFiredBatch)
