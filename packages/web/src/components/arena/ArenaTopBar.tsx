@@ -182,19 +182,38 @@ function useTickingCountdown(iso: string | null): number | null {
 
 /// Returns true for ~2s after `value` increases between renders. Drives the
 /// "Champion Backing Pool ↑" glow without needing an explicit event.
+///
+/// The reset is anchored to a "glow-until" timestamp rather than a bare
+/// `setTimeout(setGlow(false))` because the previous timer-based approach
+/// could leave glow stuck on: a non-increase value change cancelled the
+/// pending timer (via effect cleanup) but the new effect run took the
+/// else branch and never cleared `glow`. Anchoring on a ref + setting a
+/// trailing timer that *checks the ref* keeps the truth in one place.
 function useGrowthGlow(value: string): boolean {
   const prev = useRef<string | null>(null);
+  const glowUntilRef = useRef<number>(0);
   const [glow, setGlow] = useState(false);
   useEffect(() => {
     const prevNum = prev.current === null ? null : Number(prev.current);
     const curNum = Number(value);
-    if (prev.current !== null && Number.isFinite(prevNum) && Number.isFinite(curNum) && curNum > (prevNum ?? 0)) {
+    const isGrowth =
+      prev.current !== null &&
+      Number.isFinite(prevNum) &&
+      Number.isFinite(curNum) &&
+      curNum > (prevNum ?? 0);
+    prev.current = value;
+    if (isGrowth) {
+      glowUntilRef.current = Date.now() + 2_000;
       setGlow(true);
-      const id = setTimeout(() => setGlow(false), 2_000);
-      prev.current = value;
+      const id = setTimeout(() => {
+        // Only clear if no later growth has extended the window.
+        if (Date.now() >= glowUntilRef.current) setGlow(false);
+      }, 2_000);
       return () => clearTimeout(id);
     }
-    prev.current = value;
+    // Non-growth value change: ensure glow is off (cleanup of a prior run
+    // may have cancelled its trailing timer before it fired).
+    if (Date.now() >= glowUntilRef.current) setGlow(false);
   }, [value]);
   return glow;
 }
