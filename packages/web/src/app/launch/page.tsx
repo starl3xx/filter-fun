@@ -51,7 +51,7 @@ export default function LaunchPage() {
   const {slots, status} = useLaunchSlots(cohort);
   const eligibility = useEligibility();
   const {data: seasonId} = useLauncherSeason();
-  const {phase, error: txError, launch, launchedToken} = useLaunchToken();
+  const {phase, error: txError, launch, launchedToken, reset: resetLaunch} = useLaunchToken();
 
   // Local pin step — kept in the page (not the hook) so a hostile network
   // failure during pinning leaves the wallet untouched.
@@ -97,7 +97,13 @@ export default function LaunchPage() {
 
   const onSubmit = useCallback(
     async (fields: LaunchFormFields) => {
+      // Clear BOTH error sources at the start of every submit so a retry
+      // doesn't render the previous attempt's tx error (e.g. "user rejected
+      // transaction") underneath the "Pinning metadata…" button state.
+      // `useLaunchToken.reset()` resets phase + clears `txError` + resets
+      // the underlying wagmi `useWriteContract` state.
       setPinError(null);
+      resetLaunch();
       setPinning(true);
       try {
         const res = await fetch("/api/metadata", {
@@ -140,7 +146,7 @@ export default function LaunchPage() {
     },
     // Cost values are NOT in deps — they're read via ref. `launch` is the
     // only value the closure pulls from the outer scope.
-    [launch],
+    [launch, resetLaunch],
   );
 
   // On success, redirect to the homepage (the arena IS the homepage as of
