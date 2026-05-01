@@ -436,6 +436,91 @@ If a creator reports "I changed recipient but the UI still shows the old address
 3. If the indexer also returns the old value > 1 min after the tx confirmed, the indexer
    missed the event — restart and backfill (§6.2).
 
+### 5.6 Creator bag-lock (Epic 1.13 — Sepolia-only until Epic 2.3 audit)
+
+Bag-lock is the killer trust differentiator (spec §38.5/§38.8). Creators opt in to
+time-locking their own holdings via the `CreatorCommitments` contract. Locks can extend,
+**never shorten**. There is no admin override and no escape hatch — by design.
+
+> **Mainnet status: NOT ACTIVE.** The CreatorCommitments contract is deployed on Base
+> Sepolia for the genesis cohort. Mainnet activation is gated on the Epic 2.3 audit. Do not
+> direct mainnet creators to call `commit` until that audit signs off and a new mainnet
+> FilterFactory has been redeployed.
+
+> **Pre-1.13 token caveat (Sepolia).** FilterTokens deployed BEFORE this version (the
+> initial Sepolia $FILTER + first cohort) do not consult the CreatorCommitments contract
+> at transfer time — the gating code isn't in their bytecode. Bag-lock applies only to
+> tokens launched AFTER the post-1.13 FilterFactory redeploy. Creators of pre-1.13 tokens
+> who try to commit will see the call revert with `TokenNotRegistered` only if the token
+> was never registered; if registered, `commit` will succeed but **the lock won't enforce**
+> because the token's bytecode doesn't gate transfers. Communicate this loudly when
+> answering Sepolia support.
+
+**The contract**:
+
+```sh
+COMMITMENTS=$(jq -r .creatorCommitments packages/contracts/deployments/base-sepolia.json)
+```
+
+**Creator commits to a lock** (creator-of-record only — admin transfers do NOT carry this
+right; this is a personal commitment by the original launcher):
+
+```sh
+# UNIX timestamp of unlock. Creator runs this themselves; operator only does as guided
+# support. Lock can be extended later but never shortened.
+LOCK_UNTIL=$(date -d '30 days' +%s)
+cast send "$COMMITMENTS" "commit(address,uint256)" \
+  $TOKEN $LOCK_UNTIL \
+  --rpc-url "$RPC_URL" --private-key $CREATOR_KEY
+```
+
+- [ ] Reverts with `TokenNotRegistered` if the token was never registered with the launcher.
+- [ ] Reverts with `NotCreator` if the caller isn't the creator-of-record (admin transfers
+      do NOT grant this right).
+- [ ] Reverts with `LockMustBeFuture` if `lockUntil <= block.timestamp`.
+- [ ] Reverts with `LockCannotShorten` if `lockUntil <= existing unlock`.
+- [ ] On success, emits `Committed(creator, token, lockUntil, previousUnlock)`.
+
+**Read a creator's lock state** (no auth required — public surface):
+
+```sh
+cast call "$COMMITMENTS" "isLocked(address,address)(bool)" $CREATOR $TOKEN --rpc-url "$RPC_URL"
+cast call "$COMMITMENTS" "unlockOf(address,address)(uint256)" $CREATOR $TOKEN --rpc-url "$RPC_URL"
+```
+
+**What the lock actually does**:
+
+- The creator's own balance of `$TOKEN` cannot leave their wallet (any transfer from the
+  locked address — direct, via `transferFrom`, via swap routing — reverts with
+  `TransferLocked`).
+- Incoming transfers TO the locked address still work — creators can keep accruing fees /
+  tips while locked.
+- Mints (token construction) bypass the gate; relevant only at deploy time.
+
+**What the lock does NOT do** (these are the false-trust risks the UI must surface
+loudly — see `docs/bag-lock.md`):
+
+- It does NOT cover tokens the creator transferred to other wallets BEFORE committing.
+  Those balances move freely.
+- It does NOT prevent the creator from buying more tokens. Incoming credits the locked
+  address; only outgoing is gated.
+- It cannot be reversed. If the creator loses their wallet key, the bag is permanently
+  locked. (This is the structural guarantee — that's what makes the lock credible.)
+
+**There is no operator action for unlocking.** None. If a creator asks the operator to
+"shorten my lock" or "let me out early":
+
+1. Confirm the request is genuine (not a phishing attempt against ops).
+2. Politely decline. Point them at `docs/bag-lock.md`.
+3. Do not propose deploying a new commitments contract as a workaround — even if a new
+   contract were deployed, the existing FilterToken would still consult the old one (the
+   commitments address is immutable in the token's bytecode).
+
+**Operator-level ops actions on the commitments contract**: none. The contract has no
+owner, no pause, no admin. If a security issue is found post-deploy, the remediation is to
+deploy a new commitments contract + new factory + accept that legacy tokens still gate
+against the old one. Coordinate any such change through the audit firm before broadcasting.
+
 ---
 
 ## 6. Incident response

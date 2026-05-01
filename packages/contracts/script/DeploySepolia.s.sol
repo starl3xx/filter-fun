@@ -150,7 +150,8 @@ contract DeploySepolia is Script {
             address(launcher),
             weth,
             address(launcher.creatorFeeDistributor()),
-            address(polManager)
+            address(polManager),
+            launcher.creatorCommitments()
         );
         console2.log("FilterFactory:       ", address(factory));
 
@@ -185,6 +186,7 @@ contract DeploySepolia is Script {
                 factory: address(factory),
                 creatorRegistry: address(launcher.creatorRegistry()),
                 creatorFeeDistributor: address(launcher.creatorFeeDistributor()),
+                creatorCommitments: address(launcher.creatorCommitments()),
                 tournamentRegistry: address(launcher.tournamentRegistry()),
                 tournamentVault: address(launcher.tournamentVault()),
                 v4PoolManager: pmAddr,
@@ -291,6 +293,7 @@ contract DeploySepolia is Script {
         address factory;
         address creatorRegistry;
         address creatorFeeDistributor;
+        address creatorCommitments;
         address tournamentRegistry;
         address tournamentVault;
         address v4PoolManager;
@@ -331,6 +334,8 @@ contract DeploySepolia is Script {
             _kv("creatorRegistry", a.creatorRegistry),
             ",",
             _kv("creatorFeeDistributor", a.creatorFeeDistributor),
+            ",",
+            _kv("creatorCommitments", a.creatorCommitments),
             ",",
             _kv("tournamentRegistry", a.tournamentRegistry),
             ",",

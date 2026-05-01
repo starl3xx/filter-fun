@@ -78,7 +78,8 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
             address(launcher),
             address(weth),
             address(launcher.creatorFeeDistributor()),
-            address(polManager)
+            address(polManager),
+            launcher.creatorCommitments()
         );
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));

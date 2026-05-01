@@ -15,6 +15,7 @@ import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol"
 import {FilterToken} from "./FilterToken.sol";
 import {FilterHook} from "./FilterHook.sol";
 import {FilterLpLocker, ICreatorFeeDistributor} from "./FilterLpLocker.sol";
+import {CreatorCommitments} from "./CreatorCommitments.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
 
 /// @title FilterFactory
@@ -37,6 +38,11 @@ contract FilterFactory is IFilterFactory {
     /// @notice Singleton POL orchestrator. Wired immutably so every per-token locker can be
     ///         authorized to add POL liquidity at settlement.
     address public immutable polManager;
+    /// @notice Singleton bag-lock primitive. Threaded into every `FilterToken` constructor as
+    ///         an immutable reference so the token's transfer hook can consult the lock state
+    ///         without per-call SLOAD-then-SSTORE indirection. A new commitments contract
+    ///         requires a new factory + new tokens (by design — see `CreatorCommitments`).
+    CreatorCommitments public immutable creatorCommitments;
 
     uint24 public constant FEE = 10_000; // 1.00%
     int24 public constant TICK_SPACING = 200;
@@ -62,7 +68,8 @@ contract FilterFactory is IFilterFactory {
         address launcher_,
         address weth_,
         address creatorFeeDistributor_,
-        address polManager_
+        address polManager_,
+        CreatorCommitments creatorCommitments_
     ) {
         poolManager = poolManager_;
         hook = hook_;
@@ -70,6 +77,7 @@ contract FilterFactory is IFilterFactory {
         weth = weth_;
         creatorFeeDistributor = creatorFeeDistributor_;
         polManager = polManager_;
+        creatorCommitments = creatorCommitments_;
     }
 
     function deployToken(IFilterFactory.DeployArgs calldata args)
@@ -79,10 +87,16 @@ contract FilterFactory is IFilterFactory {
     {
         if (msg.sender != launcher) revert NotLauncher();
 
-        // 1. Deploy token (full supply minted to factory).
+        // 1. Deploy token (full supply minted to factory). Pass the bag-lock primitive so
+        //    every transfer on this token consults the singleton commitments contract.
         bytes32 salt = keccak256(abi.encodePacked(args.creator, args.symbol, block.number));
         FilterToken t = new FilterToken{salt: salt}(
-            args.name, args.symbol, DEFAULT_INITIAL_SUPPLY, address(this), args.metadataURI
+            args.name,
+            args.symbol,
+            DEFAULT_INITIAL_SUPPLY,
+            address(this),
+            args.metadataURI,
+            creatorCommitments
         );
         token = address(t);
 

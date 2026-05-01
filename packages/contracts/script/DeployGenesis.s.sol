@@ -85,14 +85,15 @@ contract DeployGenesis is Script {
         FilterHook hook = new FilterHook{salt: hookSalt}();
         console2.log("FilterHook:", address(hook));
 
-        // 8. FilterFactory wires hook + manager + launcher + weth + polManager.
+        // 8. FilterFactory wires hook + manager + launcher + weth + polManager + commitments.
         FilterFactory factory = new FilterFactory(
             IPoolManager(pmAddr),
             hook,
             address(launcher),
             weth,
             address(launcher.creatorFeeDistributor()),
-            address(polManager)
+            address(polManager),
+            launcher.creatorCommitments()
         );
         console2.log("FilterFactory:", address(factory));
 
