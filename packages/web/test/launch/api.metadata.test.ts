@@ -67,6 +67,21 @@ describe("POST /api/metadata", () => {
     expect(json.fieldErrors?.ticker).toBeDefined();
   });
 
+  it("survives hostile-client payloads without crashing", async () => {
+    // Empty object → all required fields missing → structured 400, NOT TypeError.
+    const empty = await POST(makePostRequest({}) as never);
+    expect(empty.status).toBe(400);
+    const emptyJson = (await empty.json()) as MetaResponse;
+    expect(emptyJson.fieldErrors?.name).toBeDefined();
+    expect(emptyJson.fieldErrors?.ticker).toBeDefined();
+
+    // Non-string values where strings are expected → same path.
+    const bad = await POST(makePostRequest({name: 42, ticker: null, description: {}, imageUrl: []}) as never);
+    expect(bad.status).toBe(400);
+    const badJson = (await bad.json()) as MetaResponse;
+    expect(badJson.fieldErrors).toBeDefined();
+  });
+
   it("falls back to fs storage when PINATA_JWT not set", async () => {
     const res = await POST(makePostRequest(validBody) as never);
     expect(res.status).toBe(200);

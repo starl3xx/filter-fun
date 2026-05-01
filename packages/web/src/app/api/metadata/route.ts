@@ -21,18 +21,26 @@ import {
   pinToFs,
   pinToPinata,
 } from "@/lib/launch/storage";
-import {buildMetadataDoc, validateLaunchFields, type LaunchFormFields} from "@/lib/launch/validation";
+import {
+  buildMetadataDoc,
+  coerceLaunchFields,
+  validateLaunchFields,
+} from "@/lib/launch/validation";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  let body: LaunchFormFields;
+  let raw: unknown;
   try {
-    body = (await req.json()) as LaunchFormFields;
+    raw = await req.json();
   } catch {
     return NextResponse.json({error: "invalid json"}, {status: 400});
   }
 
+  // Shape-coerce before validating — `req.json()` returns `unknown` and a
+  // hostile client could send `{}` or `{name: 42}`, which would crash
+  // `.trim()` inside the validator and bypass the structured 400 response.
+  const body = coerceLaunchFields(raw);
   const errors = validateLaunchFields(body);
   if (Object.keys(errors).length > 0) {
     return NextResponse.json({error: "validation failed", fieldErrors: errors}, {status: 400});

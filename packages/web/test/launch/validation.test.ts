@@ -7,7 +7,13 @@
 
 import {describe, expect, it} from "vitest";
 
-import {buildMetadataDoc, canonicalSymbol, validateLaunchFields, type LaunchFormFields} from "@/lib/launch/validation";
+import {
+  buildMetadataDoc,
+  canonicalSymbol,
+  coerceLaunchFields,
+  validateLaunchFields,
+  type LaunchFormFields,
+} from "@/lib/launch/validation";
 
 const valid: LaunchFormFields = {
   name: "Filtermaxx",
@@ -72,5 +78,46 @@ describe("buildMetadataDoc", () => {
   it("omits links when no socials provided", () => {
     const doc = buildMetadataDoc({...valid, website: "", twitter: "", farcaster: ""});
     expect(doc.links).toBeUndefined();
+  });
+});
+
+describe("coerceLaunchFields (hostile-client guard)", () => {
+  it("turns null / non-object input into all-empty fields", () => {
+    expect(coerceLaunchFields(null)).toEqual({name: "", ticker: "", description: "", imageUrl: ""});
+    expect(coerceLaunchFields("oops")).toEqual({name: "", ticker: "", description: "", imageUrl: ""});
+    expect(coerceLaunchFields(42)).toEqual({name: "", ticker: "", description: "", imageUrl: ""});
+  });
+
+  it("substitutes empty strings for non-string fields (no TypeError)", () => {
+    const out = coerceLaunchFields({name: 42, ticker: null, description: {}, imageUrl: []});
+    expect(out.name).toBe("");
+    expect(out.ticker).toBe("");
+    expect(out.description).toBe("");
+    expect(out.imageUrl).toBe("");
+  });
+
+  it("preserves valid string fields", () => {
+    const out = coerceLaunchFields(valid);
+    expect(out).toMatchObject(valid);
+  });
+
+  it("keeps optional fields only when they are strings", () => {
+    const out = coerceLaunchFields({...valid, twitter: 123, farcaster: null});
+    // `twitter` from `valid` is a string but the override forced 123 → drop.
+    // Optional strings must survive even when other fields are coerced.
+    expect(out.twitter).toBeUndefined();
+    expect(out.farcaster).toBeUndefined();
+    expect(out.website).toBe(valid.website);
+  });
+
+  it("composes with validateLaunchFields to surface shape problems as field errors", () => {
+    // Hostile payload: empty object → coerce → validate → 4 required-field errors,
+    // not a TypeError.
+    const fields = coerceLaunchFields({});
+    const errs = validateLaunchFields(fields);
+    expect(errs.name).toBeDefined();
+    expect(errs.ticker).toBeDefined();
+    expect(errs.description).toBeDefined();
+    expect(errs.imageUrl).toBeDefined();
   });
 });

@@ -21,6 +21,31 @@ export type FieldErrors = Partial<Record<keyof LaunchFormFields, string>>;
 const TICKER_RE = /^[A-Z0-9]{2,10}$/;
 const HTTPS_RE = /^https:\/\/[^\s]+$/i;
 
+const REQUIRED_FIELDS = ["name", "ticker", "description", "imageUrl"] as const;
+const OPTIONAL_FIELDS = ["website", "twitter", "farcaster"] as const;
+
+/// Coerce arbitrary JSON into a typed `LaunchFormFields`, treating any
+/// missing / non-string field as an empty string so the validator's
+/// length / pattern rules surface them as user-facing errors. The route
+/// casts `req.json()` to `LaunchFormFields` via `as` (compile-time only),
+/// so a hostile client sending `{}` or `{name: 42}` would otherwise crash
+/// `.trim()` at runtime, bypassing the structured `{error, fieldErrors}`
+/// response. This guard turns "shape violation" into "validation failure"
+/// — the route returns 400 with per-field messages either way.
+export function coerceLaunchFields(raw: unknown): LaunchFormFields {
+  const obj = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : {};
+  const out: LaunchFormFields = {name: "", ticker: "", description: "", imageUrl: ""};
+  for (const k of REQUIRED_FIELDS) {
+    const v = obj[k];
+    out[k] = typeof v === "string" ? v : "";
+  }
+  for (const k of OPTIONAL_FIELDS) {
+    const v = obj[k];
+    if (typeof v === "string") out[k] = v;
+  }
+  return out;
+}
+
 /// Sync validation. Returns `{}` when valid; otherwise per-field error
 /// messages. Ticker uniqueness is checked separately (debounced) against
 /// the indexer's /tokens response.
