@@ -106,12 +106,18 @@ export function FilterMomentOverlay(props: FilterMomentOverlayProps) {
         <CountdownClock secondsUntil={props.secondsUntilCut} />
       )}
 
-      {props.stage === "firing" && (
-        <FilterEventReveal
-          survivors={props.cohortSnapshot.length - props.filteredAddresses.size}
-          filtered={props.filteredAddresses.size}
-        />
-      )}
+      {props.stage === "firing" && (() => {
+        // Use the same survivor-set the recap uses (set intersection)
+        // rather than a `length - size` subtraction. If a filtered
+        // address is somehow missing from the snapshot (stale buffered
+        // event, indexer race during a refresh), the subtraction would
+        // under- or over-count — possibly negative — and the firing
+        // strip would disagree with the recap card 5s later. Bugbot
+        // caught this consistency gap.
+        const survivors = pickSurvivors(props.cohortSnapshot, props.filteredAddresses);
+        const filteredInCohort = props.cohortSnapshot.length - survivors.length;
+        return <FilterEventReveal survivors={survivors.length} filtered={filteredInCohort} />;
+      })()}
 
       {props.stage === "recap" && (
         <RecapCard
