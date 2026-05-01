@@ -6,6 +6,8 @@
   },
   "deploy": {
     "startCommand": "node packages/web/server.js",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5
   }
