@@ -53,24 +53,11 @@ call_override = false
 dictionary_weight = 80
 
 # `forge test --profile deep` runs 4× more sequences for the same cohort, useful for
-# local pre-audit sweeps. Keep CI on the default profile.
-[profile.deep]
-src = "src"
-out = "out"
-test = "test"
-script = "script"
-solc_version = "0.8.26"
-optimizer = true
-optimizer_runs = 200
-via_ir = true
-evm_version = "cancun"
-fs_permissions = [
-    { access = "read", path = "./" },
-    { access = "read-write", path = "./deployments" },
-]
-isolate = true
-threads = 1
-
+# local pre-audit sweeps. Keep CI on the default profile. Foundry profiles inherit from
+# `[profile.default]`, so we only override the invariant runs/depth here — `solc_version`,
+# `optimizer`, `via_ir`, `evm_version`, `fs_permissions`, `isolate`, `threads` etc. all
+# carry through unchanged. Re-stating them would bake in a drift hazard (default bumps
+# would not propagate).
 [profile.deep.invariant]
 runs = 1024
 depth = 500

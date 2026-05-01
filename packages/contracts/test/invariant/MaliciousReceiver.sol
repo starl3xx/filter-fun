@@ -56,9 +56,12 @@ contract MaliciousReceiver is IMaliciousReceiverHook {
     event Armed(address indexed target, bytes data);
     event HookFired(address indexed target, bool success);
 
-    /// @notice Arm a re-entry attempt. Resets `armed` to true and clears the per-cycle
-    ///         outcome flags so a fresh attack is observable. Sticky `reentrySucceeded`
-    ///         persists across arm cycles — clear it explicitly via `clear()` if needed.
+    /// @notice Arm a re-entry attempt. Sets `armed = true` and stages the inner callback.
+    ///         Outcome flags (`reentryAttempted`, `reentrySucceeded`) are sticky-by-design
+    ///         and NOT reset here — the invariant suite relies on a single observation at
+    ///         the end of every fuzz sequence, so stickiness is what makes the assertion
+    ///         catch a bypass that landed on cycle N when later cycles read state at N+M.
+    ///         Use `clear()` to wipe outcome flags between independent attack cycles.
     function arm(address target_, bytes calldata callbackData_) external {
         target = target_;
         callbackData = callbackData_;
