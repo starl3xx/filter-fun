@@ -197,3 +197,11 @@ export function weiToDecimalEther(wei: bigint): string {
 function max0(b: bigint): bigint {
   return b < 0n ? 0n : b;
 }
+
+/// Lowercased-hex address validator. Used by every route that takes an `:address`
+/// param — `/token/:address` (handlers.ts) and `/profile/:address` (profile.ts + the
+/// route in index.ts). Centralized so a future regex change (e.g. accepting checksum
+/// addresses without lowercasing first) lands in one place.
+export function isAddressLike(s: string): boolean {
+  return /^0x[0-9a-f]{40}$/.test(s);
+}

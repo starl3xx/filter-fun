@@ -77,17 +77,44 @@ forge test --gas-report
 
 ## Deploy
 
-```sh
-# 1. Mine the FilterHook CREATE2 salt. Same salt on every machine — the salt is determined
-#    by FilterHook's creation code and Foundry's canonical CREATE2 factory address only.
-forge script script/MineHookSalt.s.sol -vv
+### Base Sepolia (Epic 1.6)
 
-# 2. Export the printed HOOK_SALT, then run the genesis deploy.
+One command, idempotent, writes a manifest the indexer + web read for addresses:
+
+```sh
+cp .env.sepolia.example .env.sepolia    # fill DEPLOYER_PRIVATE_KEY, TREASURY_OWNER, etc.
+npm run deploy:sepolia                  # mine salt → deploy → verify on Basescan
+npm run deploy:sepolia:seed             # also runs SeedFilter.s.sol (after oracle startSeason)
+```
+
+The script:
+
+1. Mines the FilterHook CREATE2 salt inline (cached in the manifest after the first run).
+2. Deploys the suite in dependency order: TreasuryTimelock → BonusDistributor → POLVault →
+   FilterLauncher (inline-deploys CreatorRegistry / CreatorFeeDistributor /
+   TournamentRegistry / TournamentVault) → POLManager → FilterHook → FilterFactory.
+3. Wires `polManager` ↔ `launcher` ↔ `polVault`, `factory` ↔ `hook` ↔ `launcher`.
+4. Applies Sepolia config: `setMaxLaunchesPerWallet` and `setRefundableStakeEnabled`.
+5. Writes `deployments/base-sepolia.json` with addresses, block height, deploy commit
+   hash, and the cached hook salt.
+6. Verifies each contract on Basescan via `forge verify-contract`.
+
+End-to-end smoke-test runbook: [`docs/runbook-sepolia-smoke.md`](../../docs/runbook-sepolia-smoke.md).
+
+The script refuses to overwrite an existing manifest. To redeploy, `rm
+deployments/base-sepolia.json` (or pass `--force-redeploy` / `FORCE_REDEPLOY=1`).
+
+### Mainnet (legacy DeployGenesis)
+
+The original mainnet deploy uses `DeployGenesis.s.sol` with multisig roles:
+
+```sh
+forge script script/MineHookSalt.s.sol -vv
 export HOOK_SALT=0x...
 forge script script/DeployGenesis.s.sol --rpc-url $BASE_RPC_URL --broadcast --verify
-
-# 3. Launch $FILTER as the protocol's seed token.
 forge script script/LaunchFilterToken.s.sol --rpc-url $BASE_RPC_URL --broadcast
 ```
 
-V4 routes hook calls based on the lower 14 bits of the hook address. `FilterHook` requires `BEFORE_ADD_LIQUIDITY` (1<<11) | `BEFORE_REMOVE_LIQUIDITY` (1<<9) = `0xA00`. `MineHookSalt` brute-forces the CREATE2 salt that lands the hook at a matching address. Under `vm.broadcast`, Foundry routes `new Contract{salt: ...}()` through the Deterministic Deployer Proxy at `0x4e59b44847b379578588920cA78FbF26c0B4956C`, so the salt is mined against that — not the operator's EOA — and is therefore identical across machines.
+### Hook salt — why it must be mined
+
+V4 routes hook calls based on the lower 14 bits of the hook address. `FilterHook` requires `BEFORE_ADD_LIQUIDITY` (1<<11) | `BEFORE_REMOVE_LIQUIDITY` (1<<9) = `0xA00`. `MineHookSalt` (and `DeploySepolia.s.sol` inline) brute-forces the CREATE2 salt that lands the hook at a matching address. Under `vm.broadcast`, Foundry routes `new Contract{salt: ...}()` through the Deterministic Deployer Proxy at `0x4e59b44847b379578588920cA78FbF26c0B4956C`, so the salt is mined against that — not the operator's EOA — and is therefore identical across machines.

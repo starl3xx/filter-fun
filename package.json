@@ -8,7 +8,8 @@
   ],
   "scripts": {
     "build:contracts": "npm --workspace packages/contracts run build",
-    "test:contracts": "npm --workspace packages/contracts run test"
+    "test:contracts": "npm --workspace packages/contracts run test",
+    "deploy:sepolia": "npm --workspace packages/contracts run deploy:sepolia"
   },
   "engines": {
     "node": ">=20"

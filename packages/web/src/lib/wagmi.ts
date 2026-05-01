@@ -2,9 +2,15 @@ import {http, createConfig} from "wagmi";
 import {base, baseSepolia} from "wagmi/chains";
 import {injected} from "wagmi/connectors";
 
-/// Chain selection: default to Base Sepolia for dev/testnet; switch to mainnet by setting
-/// `NEXT_PUBLIC_CHAIN=base`. Kept dead-simple here — no chain-switcher UI in v0.
-const chainName = process.env.NEXT_PUBLIC_CHAIN ?? "base-sepolia";
+import {deploymentMeta} from "./addresses.js";
+
+/// Chain selection. Resolution order:
+///   1. NEXT_PUBLIC_CHAIN env override (explicit op-set).
+///   2. The deployment manifest's `network` field (synced via `npm run sync:deployment`).
+///   3. base-sepolia default (testnet rehearsal target).
+const chainName =
+  process.env.NEXT_PUBLIC_CHAIN ??
+  (deploymentMeta.network === "base" ? "base" : "base-sepolia");
 const chain = chainName === "base" ? base : baseSepolia;
 
 export const wagmiConfig = createConfig({

@@ -8,6 +8,7 @@
 import {
   buildSeasonResponse,
   buildTokensResponse,
+  isAddressLike,
   tickerWithDollar,
   type SeasonResponse,
   type SeasonRow,
@@ -113,6 +114,6 @@ export async function getTokenDetailHandler(
   });
 }
 
-export function isAddressLike(s: string): boolean {
-  return /^0x[0-9a-f]{40}$/.test(s);
-}
+/// Re-export the centralized validator so `import {isAddressLike} from "./handlers.js"`
+/// (used in tests) keeps working without sprawling import-path churn.
+export {isAddressLike} from "./builders.js";

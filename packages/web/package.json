@@ -9,7 +9,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "sync:deployment": "node ./scripts/sync-deployment.mjs"
   },
   "dependencies": {
     "@filter-fun/oracle": "*",

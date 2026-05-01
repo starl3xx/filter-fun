@@ -9,6 +9,8 @@
     "test:gas": "forge test --gas-report",
     "coverage": "forge coverage --report summary",
     "fmt": "forge fmt",
-    "fmt:check": "forge fmt --check"
+    "fmt:check": "forge fmt --check",
+    "deploy:sepolia": "./script/deploy-sepolia.sh",
+    "deploy:sepolia:seed": "./script/deploy-sepolia.sh --seed-filter"
   }
 }
