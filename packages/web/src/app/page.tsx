@@ -71,18 +71,30 @@ export default function HomePage() {
   }, []);
 
   // Auto-select rank-1 (or first non-zero rank) so the panel is always populated.
+  // Always store the cohort entry's `token` (the canonical address form the
+  // indexer publishes — lowercase) into `selected`. The drop-stale effect
+  // below compares with `===`; if we stored the URL's form (which can be
+  // checksummed / mixed-case) the next render's drop-stale would clear
+  // selection because the strict equality fails, which would re-trigger
+  // this effect, causing an infinite setState loop and a "Maximum update
+  // depth exceeded" crash.
   useEffect(() => {
     if (selected) return;
-    if (tokenParam && cohort.find((t) => t.token.toLowerCase() === tokenParam.toLowerCase())) {
-      setSelected(tokenParam);
-      return;
+    if (tokenParam) {
+      const match = cohort.find((t) => t.token.toLowerCase() === tokenParam.toLowerCase());
+      if (match) {
+        setSelected(match.token);
+        return;
+      }
     }
     const first = cohort.find((t) => t.rank > 0) ?? cohort[0];
     if (first) setSelected(first.token);
   }, [cohort, selected, tokenParam]);
 
   // If the selected token is no longer in the cohort (filtered + dropped),
-  // clear selection so the next render auto-picks rank-1.
+  // clear selection so the next render auto-picks rank-1. Strict equality
+  // is safe because the auto-select above always stores the cohort entry's
+  // own address — see commentary there.
   useEffect(() => {
     if (!selected) return;
     if (!cohort.find((t) => t.token === selected)) setSelected(null);

@@ -37,7 +37,7 @@ import {useTokens} from "@/hooks/arena/useTokens";
 import {useReadContract} from "wagmi";
 import {contractAddresses, isDeployed} from "@/lib/addresses";
 import {FilterLauncherLaunchAbi, MAX_LAUNCHES} from "@/lib/launch/abi";
-import type {LaunchFormFields} from "@/lib/launch/validation";
+import {canonicalSymbol, type LaunchFormFields} from "@/lib/launch/validation";
 import {C, F} from "@/lib/tokens";
 
 export default function LaunchPage() {
@@ -108,9 +108,15 @@ export default function LaunchPage() {
         setPinning(false);
         // Read the latest cost AT submit time — see costRef commentary above.
         const {nextCostWei: liveCost, stakeWei: liveStake} = costRef.current;
+        // Belt-and-suspenders: the form already canonicalizes the ticker
+        // before calling onSubmit, but re-canonicalize here so the contract
+        // can never receive a non-canonical symbol regardless of how this
+        // function is called. The contract uses keccak256(bytes(symbol))
+        // as its uniqueness key, so a single divergent character would
+        // produce a different hash than the form's collision check used.
         launch({
           name: fields.name.trim(),
-          symbol: fields.ticker,
+          symbol: canonicalSymbol(fields.ticker),
           metadataURI: json.uri,
           valueWei: liveCost + liveStake,
         });
