@@ -126,6 +126,7 @@ contract DeployTest is Test, Deployers {
         address factory = vm.parseJsonAddress(m, ".addresses.filterFactory");
         address creatorReg = vm.parseJsonAddress(m, ".addresses.creatorRegistry");
         address creatorFee = vm.parseJsonAddress(m, ".addresses.creatorFeeDistributor");
+        address creatorCom = vm.parseJsonAddress(m, ".addresses.creatorCommitments");
         address tournReg = vm.parseJsonAddress(m, ".addresses.tournamentRegistry");
         address tournVault = vm.parseJsonAddress(m, ".addresses.tournamentVault");
         address mPoolManager = vm.parseJsonAddress(m, ".addresses.v4PoolManager");
@@ -140,6 +141,7 @@ contract DeployTest is Test, Deployers {
         assertTrue(factory != address(0), "factory non-zero");
         assertTrue(creatorReg != address(0), "creatorRegistry non-zero");
         assertTrue(creatorFee != address(0), "creatorFeeDistributor non-zero");
+        assertTrue(creatorCom != address(0), "creatorCommitments non-zero");
         assertTrue(tournReg != address(0), "tournamentRegistry non-zero");
         assertTrue(tournVault != address(0), "tournamentVault non-zero");
         assertEq(mPoolManager, address(manager), "v4 pool manager passthrough");
@@ -154,6 +156,7 @@ contract DeployTest is Test, Deployers {
         assertEq(address(l.polManager()), polMgr, "launcher.polManager");
         assertEq(address(l.creatorRegistry()), creatorReg, "launcher.creatorRegistry");
         assertEq(address(l.creatorFeeDistributor()), creatorFee, "launcher.creatorFeeDistributor");
+        assertEq(address(l.creatorCommitments()), creatorCom, "launcher.creatorCommitments");
         assertEq(address(l.tournamentRegistry()), tournReg, "launcher.tournamentRegistry");
         assertEq(address(l.tournamentVault()), tournVault, "launcher.tournamentVault");
         assertEq(l.oracle(), scheduler, "launcher.oracle");

@@ -17,6 +17,7 @@ import {
 } from "./SeasonVault.sol";
 import {CreatorRegistry} from "./CreatorRegistry.sol";
 import {CreatorFeeDistributor} from "./CreatorFeeDistributor.sol";
+import {CreatorCommitments} from "./CreatorCommitments.sol";
 import {TournamentRegistry} from "./TournamentRegistry.sol";
 import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "./TournamentVault.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
@@ -104,6 +105,15 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     ///         here so SeasonVault can record weekly winners + filtered tokens without a
     ///         post-construction wire-up step.
     TournamentRegistry public immutable tournamentRegistry;
+    /// @notice Singleton bag-lock primitive (Epic 1.13, spec §38.5/§38.8). Reads from the
+    ///         CreatorRegistry above so authorization is sourced from the same identity-of-
+    ///         record table the rest of the protocol uses. Wired into `FilterFactory` at
+    ///         deploy time so every newly-launched FilterToken consults this exact instance
+    ///         on every transfer. NOTE: existing Sepolia tokens deployed before this version
+    ///         do NOT consult `creatorCommitments` — they have a pre-1.13 token bytecode
+    ///         without the gate. Bag-lock applies to tokens launched AFTER the post-1.13
+    ///         FilterFactory redeploy.
+    CreatorCommitments public immutable creatorCommitments;
     /// @notice Singleton quarterly Filter Bowl settlement vault. Per-(year, quarter) escrow
     ///         + 45/25/10/10/10 + 2.5% bounty distribution + Merkle rollover/bonus claims.
     ///         Deployed inline here so the registry + vault are wired without a
@@ -160,6 +170,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         forfeitRecipient = treasury_;
         creatorRegistry = new CreatorRegistry(address(this));
         creatorFeeDistributor = new CreatorFeeDistributor(address(this), weth_, treasury_, creatorRegistry);
+        creatorCommitments = new CreatorCommitments(creatorRegistry);
         tournamentRegistry = new TournamentRegistry(address(this));
         tournamentVault = new TournamentVault(
             address(this),
