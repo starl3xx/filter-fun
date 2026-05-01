@@ -45,7 +45,12 @@ export default function ArenaPage() {
   const {events, status: liveStatus} = useTickerEvents();
   const trendBuffers = useTrendBuffers(tokens);
 
-  const cohort = tokens ?? [];
+  // Memoize the empty-fallback so `cohort` keeps a stable identity while
+  // `tokens` is null — without this the auto-select / drop-stale effects
+  // below see a fresh `[]` reference on every render and fire each cycle
+  // (no state is set, but the effect runs unnecessarily during the loading
+  // phase before the first /tokens response arrives).
+  const cohort = useMemo(() => tokens ?? [], [tokens]);
   const [selected, setSelected] = useState<`0x${string}` | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
