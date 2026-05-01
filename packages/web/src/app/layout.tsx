@@ -20,8 +20,34 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "filter.fun",
+  // `metadataBase` lets Next resolve relative `openGraph.url` / image URLs per-route. We
+  // intentionally omit a hardcoded `openGraph.url` so child pages inherit the correct
+  // absolute URL from their pathname; setting it here would pin every page's `og:url` to
+  // the homepage.
+  metadataBase: new URL("https://filter.fun"),
+  title: {
+    default: "filter.fun",
+    template: "%s · filter.fun",
+  },
   description: "Get filtered or get funded ▼",
+  openGraph: {
+    type: "website",
+    siteName: "filter.fun",
+    title: "filter.fun",
+    description: "Get filtered or get funded ▼",
+  },
+  // Card type is `summary` (small icon + text) — `summary_large_image` requires an OG
+  // image asset; the launch surface and arena page don't have one yet. Bump to
+  // `summary_large_image` once an OG image lands under `public/og.png` (or per-route via
+  // `generateMetadata`) — Twitter falls back to `summary` when no image is provided, but
+  // declaring it explicitly is clearer.
+  twitter: {
+    card: "summary",
+    site: "@filterdotfun",
+    creator: "@filterdotfun",
+    title: "filter.fun",
+    description: "Get filtered or get funded ▼",
+  },
 };
 
 export default function RootLayout({children}: {children: ReactNode}) {

@@ -4,7 +4,7 @@
 
 > One of the problems with most token launchpads is that the vast majority of tokens launched die or never take off at all. With filter.fun, that's a feature, not a bug. **We've solved launchpads.**
 
-- **Product docs:** https://filterfun.mintlify.app — canonical 5-step explainer, HP scoring, risk disclosure, season cadence, API reference. The spec and roadmap excerpts live there too.
+- **Product docs:** https://docs.filter.fun — canonical 5-step explainer, HP scoring, risk disclosure, season cadence, API reference. The spec and roadmap excerpts live there too.
 - **Operator runbooks:** [`docs/runbook-operator.md`](docs/runbook-operator.md) · [`docs/runbook-sepolia-smoke.md`](docs/runbook-sepolia-smoke.md) · [`docs/zombie-tokens.md`](docs/zombie-tokens.md) · [`docs/bag-lock.md`](docs/bag-lock.md)
 
 This README is a developer entry point. It does not retell the product. Read the docs site for that.
