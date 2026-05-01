@@ -2,10 +2,13 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {Deployers} from "v4-core/test/utils/Deployers.sol";
 
 import {DeploySepolia} from "../script/DeploySepolia.s.sol";
 import {SeedFilter} from "../script/SeedFilter.s.sol";
+import {VerifySepolia} from "../script/VerifySepolia.s.sol";
+import {RedeployFactory} from "../script/RedeployFactory.s.sol";
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {FilterFactory} from "../src/FilterFactory.sol";
 import {FilterHook} from "../src/FilterHook.sol";
@@ -13,6 +16,7 @@ import {POLVault} from "../src/POLVault.sol";
 import {POLManager} from "../src/POLManager.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
 import {TreasuryTimelock} from "../src/TreasuryTimelock.sol";
+import {CreatorRegistry} from "../src/CreatorRegistry.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 
 import {MockWETH} from "./mocks/MockWETH.sol";
@@ -41,7 +45,20 @@ import {MockWETH} from "./mocks/MockWETH.sol";
 contract DeployTest is Test, Deployers {
     DeploySepolia internal deployer;
     SeedFilter internal seed;
+    VerifySepolia internal verify;
+    RedeployFactory internal redeploy;
     MockWETH internal weth;
+
+    /// VerifySepolia.run() emits this on success. Mirrored locally so the test can decode
+    /// it from `vm.recordLogs()` without importing the script's event ABI directly.
+    event VerifySepoliaOK(
+        uint256 chainId,
+        address filterLauncher,
+        uint256 maxLaunchesPerWallet,
+        bool filterTokenChecked,
+        address filterToken,
+        uint256 tokensChecked
+    );
 
     /// Deterministic Foundry default test wallet. The script reads it via
     /// `vm.envUint("DEPLOYER_PRIVATE_KEY")`; we hand the same value so `vm.addr(pk)` matches
@@ -66,6 +83,8 @@ contract DeployTest is Test, Deployers {
         weth = new MockWETH();
         deployer = new DeploySepolia();
         seed = new SeedFilter();
+        verify = new VerifySepolia();
+        redeploy = new RedeployFactory();
         deployerAddr = vm.addr(DEPLOYER_PK);
 
         // Fund the deployer so `new` calls under broadcast don't OOG.
@@ -106,6 +125,12 @@ contract DeployTest is Test, Deployers {
         vm.setEnv("HOOK_SALT", "");
         // Used by SeedFilter; harmless when DeploySepolia tests run.
         vm.setEnv("FILTER_METADATA_URI", "ipfs://test-filter-metadata");
+        // Used by VerifySepolia; verifier ignores it when callers pass `runWithFlags(...)`
+        // directly, but reset it so any operator-style `verify.run()` reaches a known state.
+        vm.setEnv("SKIP_FILTER_TOKEN_CHECK", "0");
+        // Used by RedeployFactory; default to refusing rotations that would orphan public
+        // launches. Tests that exercise the override toggle this explicitly.
+        vm.setEnv("ACTIVE_LAUNCH_OK", "0");
     }
 
     function test_DeployScriptProducesWiredSystem() public freshEnv {
@@ -293,5 +318,254 @@ contract DeployTest is Test, Deployers {
         seed.run();
         vm.expectRevert(bytes("manifest.filterToken already set; remove it to re-seed"));
         seed.run();
+    }
+
+    // ============================================================ VerifySepolia
+    //
+    // Operational verifier tests. Live in the same contract as Deploy + SeedFilter for the
+    // same reason those two are co-located: forge runs separate test FILES in parallel and
+    // they would race on shared `vm.setEnv` knobs (`MANIFEST_PATH_OVERRIDE`,
+    // `V4_POOL_MANAGER_ADDRESS`, etc.). Keeping every script test in one contract guarantees
+    // sequential execution.
+    //
+    // The verifier is read-only — the tests deploy + (optionally) seed, then run
+    // `verify.runWithFlags(skipFilter)` and either:
+    //   - decode the emitted `VerifySepoliaOK` event for happy paths, or
+    //   - assert the specific `AssertionFailed_<n>` revert for failure paths.
+    //
+    // We call `runWithFlags(...)` directly instead of `run()` so the test passes the skip
+    // flag explicitly, sidestepping forge's per-test env-isolation snapshot quirks.
+
+    /// Helper: deploy + open season + seed $FILTER, returning the launcher.
+    function _deployAndSeed() internal returns (FilterLauncher launcher) {
+        launcher = _deployAndStartSeason(true);
+        seed.run();
+    }
+
+    /// Decoded form of the VerifySepoliaOK event, easier to assert against than raw logs.
+    struct VerifyOKLog {
+        uint256 chainId;
+        address filterLauncher;
+        uint256 maxLaunchesPerWallet;
+        bool filterTokenChecked;
+        address filterToken;
+        uint256 tokensChecked;
+    }
+
+    /// Locate the single VerifySepoliaOK entry in a recorded log batch and decode it.
+    /// Reverts if the event isn't present — the verifier emits exactly one on success.
+    function _findOkLog(Vm.Log[] memory logs) internal pure returns (VerifyOKLog memory ev) {
+        bytes32 sig = keccak256("VerifySepoliaOK(uint256,address,uint256,bool,address,uint256)");
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics.length > 0 && logs[i].topics[0] == sig) {
+                (
+                    ev.chainId,
+                    ev.filterLauncher,
+                    ev.maxLaunchesPerWallet,
+                    ev.filterTokenChecked,
+                    ev.filterToken,
+                    ev.tokensChecked
+                ) = abi.decode(logs[i].data, (uint256, address, uint256, bool, address, uint256));
+                return ev;
+            }
+        }
+        revert("VerifySepoliaOK event not found in recorded logs");
+    }
+
+    /// Full happy path: deploy, seed $FILTER, run verifier, decode the emitted
+    /// VerifySepoliaOK event and assert the addresses + counts match what the verifier
+    /// actually inspected.
+    function test_VerifyHappyPathWithFilterSeeded() public freshEnv {
+        FilterLauncher launcher = _deployAndSeed();
+        address filterToken = vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".filterToken.address");
+
+        vm.recordLogs();
+        verify.runWithFlags(false);
+        VerifyOKLog memory ev = _findOkLog(vm.getRecordedLogs());
+
+        assertEq(ev.chainId, 84_532, "ev.chainId");
+        assertEq(ev.filterLauncher, address(launcher), "ev.filterLauncher");
+        assertEq(ev.maxLaunchesPerWallet, 1, "ev.maxLaunchesPerWallet");
+        assertTrue(ev.filterTokenChecked, "ev.filterTokenChecked");
+        assertEq(ev.filterToken, filterToken, "ev.filterToken");
+        assertEq(ev.tokensChecked, 1, "ev.tokensChecked");
+    }
+
+    /// Pre-seed verification: deploy but don't run SeedFilter, verify with skip flag set.
+    /// This is the path an operator uses post-deploy / pre-`launchProtocolToken` to confirm
+    /// wiring before opening a season.
+    function test_VerifyHappyPathSkipFilterToken() public freshEnv {
+        FilterLauncher launcher = _deployAndStartSeason(false);
+
+        vm.recordLogs();
+        verify.runWithFlags(true);
+        VerifyOKLog memory ev = _findOkLog(vm.getRecordedLogs());
+
+        assertEq(ev.chainId, 84_532, "ev.chainId");
+        assertEq(ev.filterLauncher, address(launcher), "ev.filterLauncher");
+        assertEq(ev.maxLaunchesPerWallet, 1, "ev.maxLaunchesPerWallet");
+        assertFalse(ev.filterTokenChecked, "ev.filterTokenChecked");
+        assertEq(ev.filterToken, address(0), "ev.filterToken (skipped)");
+        assertEq(ev.tokensChecked, 0, "ev.tokensChecked (no season)");
+    }
+
+    /// Assertion 1 — verifier hard-codes SPEC_MAX_LAUNCHES = 1 (spec §4.6). To force a
+    /// mismatch we deploy with the spec value, then directly poke the launcher's storage
+    /// via the owner-only setter to flip the on-chain cap to 2. The verifier should then
+    /// surface the assertion-1 revert.
+    function test_VerifyFailsOnMaxLaunchesMismatch() public freshEnv {
+        FilterLauncher launcher = _deployAndStartSeason(false);
+        // Owner is the deployer EOA; flip the cap to 2 so the verifier's spec-locked
+        // expected (1) doesn't match.
+        vm.prank(deployerAddr);
+        launcher.setMaxLaunchesPerWallet(2);
+
+        // skipFilter=true so we don't trip assertion 2a before reaching assertion 1
+        // (the deploy alone leaves filterToken.address=0).
+        vm.expectRevert(bytes("AssertionFailed_1: maxLaunchesPerWallet != spec 4.6 lock (1)"));
+        verify.runWithFlags(true);
+    }
+
+    /// Assertion 2a — manifest.filterToken.address is zero (DeploySepolia placeholder)
+    /// and the verifier wasn't told to skip. Should revert with the assertion-2a message
+    /// pointing the operator at SKIP_FILTER_TOKEN_CHECK.
+    function test_VerifyFailsWhenFilterTokenZeroAndNotSkipped() public freshEnv {
+        _deployAndStartSeason(false);
+
+        vm.expectRevert(
+            bytes(
+                "AssertionFailed_2a: manifest.filterToken.address is zero - set SKIP_FILTER_TOKEN_CHECK=1 if pre-seed"
+            )
+        );
+        verify.runWithFlags(false);
+    }
+
+    /// Assertion 5 — admin diverges from creator. The default is admin == creator (no
+    /// override set), so to break the invariant we run a full nominate + accept rotation
+    /// to a different EOA, then verify and expect the revert.
+    function test_VerifyFailsWhenAdminDivergesFromCreator() public freshEnv {
+        _deployAndSeed();
+        address filterToken = vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".filterToken.address");
+        CreatorRegistry creatorRegistry =
+            CreatorRegistry(vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.creatorRegistry"));
+
+        // $FILTER's creator-of-record is the deployer EOA: `launchProtocolToken` is owner-
+        // gated and `_launch` records `msg.sender` as the creator. The launcher contract
+        // itself never calls into CreatorRegistry as the creator. Prank as the deployer
+        // (current admin since no override exists) to rotate admin to a different wallet.
+        address newAdmin = makeAddr("verifyDivergedAdmin");
+        vm.prank(deployerAddr);
+        creatorRegistry.nominateAdmin(filterToken, newAdmin);
+        vm.prank(newAdmin);
+        creatorRegistry.acceptAdmin(filterToken);
+
+        // Sanity: post-rotation, adminOf differs from creatorOf.
+        assertEq(creatorRegistry.creatorOf(filterToken), deployerAddr);
+        assertEq(creatorRegistry.adminOf(filterToken), newAdmin);
+
+        vm.expectRevert(
+            bytes("AssertionFailed_5: creatorRegistry.adminOf != creatorOf for at least one token")
+        );
+        verify.runWithFlags(false);
+    }
+
+    /// Idempotency: running the verifier multiple times produces the same result without
+    /// touching chain state. Read-only by construction; this just confirms a re-run doesn't
+    /// trip up on cached cheatcode state.
+    function test_VerifyIsIdempotent() public freshEnv {
+        _deployAndSeed();
+        verify.runWithFlags(false);
+        verify.runWithFlags(false);
+        verify.runWithFlags(false);
+    }
+
+    // ============================================================ RedeployFactory
+    //
+    // Operator-facing factory rotation. The script wraps DeploySepolia with FORCE_REDEPLOY=1
+    // plus an active-launch safety guard and a manifest-archive step. Tests cover:
+    //   - happy path (deploy → seed → archive + redeploy → emits event with old/new pair)
+    //   - active-launch refusal without ACTIVE_LAUNCH_OK=1
+    //   - missing-manifest refusal
+
+    /// Mirrors RedeployFactory.FactoryRedeployed for vm.expectEmit.
+    event FactoryRedeployed(
+        address indexed oldFactory,
+        address indexed newFactory,
+        address indexed oldLauncher,
+        address newLauncher,
+        string archivePath
+    );
+
+    /// Happy path: prior deploy + seeded $FILTER, no public launches → rotation succeeds,
+    /// archive lands on disk, manifest now points at NEW factory + launcher addresses,
+    /// and the new FilterHook lands at a fresh CREATE2 address (RedeployFactory mines a
+    /// salt strictly above the prior one, sidestepping the collision a naive redeploy
+    /// would hit on a live chain).
+    function test_RedeployFactoryHappyPath() public freshEnv {
+        _deployAndSeed();
+        address oldFactory = vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterFactory");
+        address oldLauncher = vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher");
+        address oldHook = vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterHook");
+        bytes32 oldSalt = vm.parseJsonBytes32(vm.readFile(TEST_MANIFEST), ".hookSalt");
+
+        vm.recordLogs();
+        redeploy.run();
+
+        // Pull addresses from the freshly-written manifest.
+        string memory after_ = vm.readFile(TEST_MANIFEST);
+        address newFactory = vm.parseJsonAddress(after_, ".addresses.filterFactory");
+        address newLauncher = vm.parseJsonAddress(after_, ".addresses.filterLauncher");
+        address newHook = vm.parseJsonAddress(after_, ".addresses.filterHook");
+        bytes32 newSalt = vm.parseJsonBytes32(after_, ".hookSalt");
+        assertTrue(newFactory != oldFactory, "factory rotated");
+        assertTrue(newLauncher != oldLauncher, "launcher rotated");
+        assertTrue(newHook != oldHook, "hook rotated to fresh CREATE2 slot");
+        assertTrue(uint256(newSalt) > uint256(oldSalt), "fresh salt strictly above prior");
+
+        // Archive directory exists and contains the prior manifest.
+        assertTrue(vm.exists("./deployments/archive"), "archive dir created");
+
+        // FactoryRedeployed event present in logs with correct old/new.
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("FactoryRedeployed(address,address,address,address,string)");
+        bool found;
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics.length >= 4 && logs[i].topics[0] == sig) {
+                assertEq(address(uint160(uint256(logs[i].topics[1]))), oldFactory, "topic.oldFactory");
+                assertEq(address(uint160(uint256(logs[i].topics[2]))), newFactory, "topic.newFactory");
+                assertEq(address(uint160(uint256(logs[i].topics[3]))), oldLauncher, "topic.oldLauncher");
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "FactoryRedeployed event emitted");
+    }
+
+    /// Refusal path: a public launch exists in the current season → script reverts unless
+    /// ACTIVE_LAUNCH_OK=1. We open a season, set baseLaunchCost to 0 so the test wallet can
+    /// launch without funding gymnastics, then call launchToken so launchCount > 0.
+    function test_RedeployFactoryRefusesWithActiveLaunch() public freshEnv {
+        FilterLauncher launcher = _deployAndStartSeason(true);
+
+        // Drop launch cost to zero so the prank-call below doesn't need ETH.
+        vm.prank(deployerAddr);
+        launcher.setBaseLaunchCost(0);
+
+        address launcherCaller = makeAddr("publicLauncher");
+        vm.deal(launcherCaller, 1 ether);
+        vm.prank(launcherCaller);
+        launcher.launchToken("token", "TKN", "ipfs://test");
+        assertEq(launcher.launchCount(1), 1, "active launch recorded");
+
+        vm.expectRevert(bytes("RedeployFactory: active launches present; set ACTIVE_LAUNCH_OK=1 to override"));
+        redeploy.run();
+    }
+
+    /// Refusal path: no manifest → script bails with a clear message instead of silently
+    /// running the deploy from scratch (which would mask operator typos in MANIFEST_PATH_OVERRIDE).
+    function test_RedeployFactoryRefusesWhenManifestMissing() public freshEnv {
+        // freshEnv already removed the manifest. Don't run deployer.run() so it stays missing.
+        vm.expectRevert(bytes("RedeployFactory: manifest missing - nothing to rotate"));
+        redeploy.run();
     }
 }

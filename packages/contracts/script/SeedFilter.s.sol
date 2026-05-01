@@ -5,6 +5,7 @@ import {Script, console2} from "forge-std/Script.sol";
 
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
+import {ScriptUtils} from "./ScriptUtils.sol";
 
 /// @notice Seeds the testnet rehearsal $FILTER token via the protocol-launch bypass at
 ///         FilterLauncher.launchProtocolToken. Reads the launcher address from the deploy
@@ -29,10 +30,8 @@ import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 ///           - launcher.currentSeasonId() > 0 and current phase == Launch
 ///           - manifest.filterToken is empty (don't double-seed)
 contract SeedFilter is Script {
-    string internal constant DEFAULT_MANIFEST_PATH = "./deployments/base-sepolia.json";
-
     function run() external {
-        string memory manifestPath = _manifestPath();
+        string memory manifestPath = ScriptUtils.manifestPath();
         require(vm.exists(manifestPath), "manifest missing; run DeploySepolia first");
         string memory manifest = vm.readFile(manifestPath);
 
@@ -55,7 +54,7 @@ contract SeedFilter is Script {
         string memory metadataUri = vm.envString("FILTER_METADATA_URI");
         require(bytes(metadataUri).length > 0, "FILTER_METADATA_URI required");
 
-        uint256 pk = _envPrivateKey();
+        uint256 pk = ScriptUtils.envPrivateKey();
         FilterLauncher launcher = FilterLauncher(launcherAddr);
 
         // Pre-flight: season must be open and in Launch phase. Catches the "deployed but oracle
@@ -80,51 +79,40 @@ contract SeedFilter is Script {
         _appendFilterToken(manifestPath, token, locker, metadataUri);
     }
 
-    /// Persist `filterToken` (and locker / metadata) into the manifest. We rebuild the JSON via
-    /// Foundry's serializer rather than string-splicing — `vm.writeJson(value, path, key)` lets
-    /// us overwrite a single key without re-serializing the whole document, but only for scalar
-    /// keys. Since we want both `filterToken` (object) and to keep all prior keys, the cleanest
-    /// path is `vm.writeJson(serialized, path, ".filterToken")`.
+    /// Persist `filterToken` (and locker / metadata) into the manifest. We hand-build the JSON
+    /// rather than using `vm.serializeXxx` because the serializer caches builder state on a
+    /// process-global, cheatcode-handler-level keyed map. Even with per-invocation unique keys,
+    /// across parallel forge test files (forge runs different test contracts on different
+    /// threads in the same process) the serializer racily emits `DuplicateSymbol()` or builds
+    /// inconsistent JSON. Hand-building dodges that entirely — the output is plain
+    /// `string.concat`, identical to `DeploySepolia`'s manifest emission.
     function _appendFilterToken(
         string memory manifestPath,
         address token,
         address locker,
         string memory metadataUri
     ) internal {
-        // Foundry's JSON serializer caches state per-id at the cheatcode-handler level —
-        // across multiple `run()` invocations in the same forge process (e.g. test runs)
-        // a fixed id like "filterToken" accumulates fields from prior calls. Discriminating
-        // by `address(this)` (the SeedFilter contract — fresh every `new SeedFilter()`) +
-        // the token address gives a unique id every invocation, so stale builder entries
-        // from a prior call can't bleed into this one.
-        string memory key = string.concat("ft_", vm.toString(address(this)), "_", vm.toString(token));
-        vm.serializeAddress(key, "address", token);
-        vm.serializeAddress(key, "locker", locker);
-        vm.serializeString(key, "name", "filter");
-        vm.serializeString(key, "symbol", "FILTER");
-        vm.serializeUint(key, "seededAt", block.timestamp);
-        string memory value = vm.serializeString(key, "metadataURI", metadataUri);
+        string memory value = string.concat(
+            "{",
+            "\"address\":\"",
+            ScriptUtils.addrToString(token),
+            "\",",
+            "\"locker\":\"",
+            ScriptUtils.addrToString(locker),
+            "\",",
+            "\"name\":\"filter\",",
+            "\"symbol\":\"FILTER\",",
+            "\"seededAt\":",
+            ScriptUtils.uintToString(block.timestamp),
+            ",",
+            "\"metadataURI\":\"",
+            metadataUri,
+            "\"",
+            "}"
+        );
 
         // Targeted write: replaces only the `filterToken` key in the manifest, leaving every
         // other key untouched. Avoids any chance of dropping addresses we wrote earlier.
         vm.writeJson(value, manifestPath, ".filterToken");
-    }
-
-    /// Manifest path with optional env override — keeps tests from clobbering the real
-    /// `./deployments/base-sepolia.json` and mirrors the pattern in `DeploySepolia.s.sol`.
-    function _manifestPath() internal view returns (string memory) {
-        try vm.envString("MANIFEST_PATH_OVERRIDE") returns (string memory v) {
-            return bytes(v).length == 0 ? DEFAULT_MANIFEST_PATH : v;
-        } catch {
-            return DEFAULT_MANIFEST_PATH;
-        }
-    }
-
-    function _envPrivateKey() internal view returns (uint256) {
-        try vm.envUint("DEPLOYER_PRIVATE_KEY") returns (uint256 pk) {
-            return pk;
-        } catch {
-            return vm.envUint("PRIVATE_KEY");
-        }
     }
 }

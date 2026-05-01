@@ -100,9 +100,49 @@ The script:
 6. Verifies each contract on Basescan via `forge verify-contract`.
 
 End-to-end smoke-test runbook: [`docs/runbook-sepolia-smoke.md`](../../docs/runbook-sepolia-smoke.md).
+Operator-runbook §8 covers the full happy-path lifecycle plus the rotation step below.
 
 The script refuses to overwrite an existing manifest. To redeploy, `rm
 deployments/base-sepolia.json` (or pass `--force-redeploy` / `FORCE_REDEPLOY=1`).
+
+### Operational scripts
+
+Three companion scripts live alongside `DeploySepolia` and follow the same env-driven
+pattern (`MANIFEST_PATH_OVERRIDE`, `DEPLOYER_PRIVATE_KEY`, etc.):
+
+- **`SeedFilter.s.sol`** — populates `$FILTER` after the oracle calls `startSeason()`.
+  Refuses to double-seed by probing `manifest.filterToken.address`.
+- **`VerifySepolia.s.sol`** — read-only operational verifier. Asserts five invariants
+  against the live deploy: `maxLaunchesPerWallet == 1` (spec §4.6 lock),
+  `$FILTER` registered in `CreatorRegistry`, `tournamentRegistry.launcher == FilterLauncher`,
+  `launcher.polManager` and `launcher.treasury` match the manifest, and `adminOf == creatorOf`
+  for every token in the current season. Emits `VerifySepoliaOK` on success or reverts
+  with `AssertionFailed_<n>`. Use `SKIP_FILTER_TOKEN_CHECK=1` for pre-seed verifications.
+- **`RedeployFactory.s.sol`** — operator-facing factory rotation. Required after PR #43
+  on Sepolia (factory needs `CreatorCommitments` in its constructor). Mines a fresh
+  `HOOK_SALT` strictly above the cached one so the new `FilterHook` lands at an unoccupied
+  CREATE2 address, archives the prior manifest under `deployments/archive/<basename>-<unix-ts>.json`,
+  then delegates to `DeploySepolia` with `FORCE_REDEPLOY=1`. Refuses to run if the current
+  season has any public launches unless `ACTIVE_LAUNCH_OK=1`. Emits `FactoryRedeployed`
+  with the old/new factory + launcher pair and the archive path.
+
+```sh
+# Verify the live deploy matches spec (skips $FILTER check if pre-seed):
+SKIP_FILTER_TOKEN_CHECK=1 forge script script/VerifySepolia.s.sol \
+  --rpc-url "$BASE_SEPOLIA_RPC_URL"
+
+# Rotate the factory (refuses unless either no active launches or ACTIVE_LAUNCH_OK=1):
+forge script script/RedeployFactory.s.sol \
+  --rpc-url "$BASE_SEPOLIA_RPC_URL" --broadcast
+```
+
+### Test harness notes
+
+The Foundry test harness uses `--isolate --threads 1` (wired via `package.json`'s `test`
+script and the `contracts-ci.yml` workflow). The matching `isolate = true` and `threads = 1`
+fields in `foundry.toml` are aspirational — `forge test` in stable 1.5.1 silently ignores
+them, so the CLI flags are the actual enforcement. Without these flags `Deploy.t.sol`
+flakes on cross-test CREATE2 collisions and shared `vm.setEnv` / `vm.writeJson` state.
 
 ### Mainnet (legacy DeployGenesis)
 
