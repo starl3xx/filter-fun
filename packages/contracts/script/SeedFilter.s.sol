@@ -103,7 +103,7 @@ contract SeedFilter is Script {
             "\"name\":\"filter\",",
             "\"symbol\":\"FILTER\",",
             "\"seededAt\":",
-            vm.toString(block.timestamp),
+            ScriptUtils.uintToString(block.timestamp),
             ",",
             "\"metadataURI\":\"",
             metadataUri,
