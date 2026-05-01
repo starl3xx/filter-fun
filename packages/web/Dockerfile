@@ -10,6 +10,7 @@ WORKDIR /repo
 COPY package.json package-lock.json ./
 
 # 2. All workspace package manifests so npm sees the full graph.
+COPY packages/cadence/package.json packages/cadence/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/indexer/package.json packages/indexer/
 COPY packages/oracle/package.json packages/oracle/
@@ -29,7 +30,9 @@ COPY --from=deps /repo/package-lock.json ./package-lock.json
 COPY --from=deps /repo/packages ./packages
 
 # 4. Source. Web depends on oracle + scheduler at compile time (transpilePackages),
-#    scheduler depends on oracle, oracle depends on scoring — copy all four.
+#    scheduler re-exports from cadence, scheduler depends on oracle, oracle depends
+#    on scoring — copy all five.
+COPY packages/cadence ./packages/cadence
 COPY packages/oracle ./packages/oracle
 COPY packages/scoring ./packages/scoring
 COPY packages/scheduler ./packages/scheduler
