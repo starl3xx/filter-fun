@@ -27,6 +27,11 @@ export const FilterTokenAbi = [
         "name": "metadataURI_",
         "type": "string",
         "internalType": "string"
+      },
+      {
+        "name": "commitments_",
+        "type": "address",
+        "internalType": "contract CreatorCommitments"
       }
     ],
     "stateMutability": "nonpayable"
@@ -94,6 +99,19 @@ export const FilterTokenAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "commitments",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract CreatorCommitments"
       }
     ],
     "stateMutability": "view"
@@ -349,6 +367,22 @@ export const FilterTokenAbi = [
         "name": "spender",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TransferLocked",
+    "inputs": [
+      {
+        "name": "from",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "unlockAt",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   }

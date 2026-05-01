@@ -4,13 +4,13 @@ Ponder-based on-chain event indexer for filter.fun. Consumes `FilterLauncher`, `
 
 ## Layout
 
-- `ponder.config.ts` — networks, contracts, factory patterns. Reads addresses from env.
-- `ponder.schema.ts` — `season`, `token`, `feeAccrual`, `phaseChange`, `liquidation`, `rolloverClaim`, `bonusFunding`, `bonusClaim`.
-- `src/*.ts` — event handlers grouped by source contract.
-- `src/api/*.ts` — HTTP API (Epic 1.3 parts 1+2+3/3): `/season`, `/tokens`, `/token/:address`, `/profile/:address`, `/events` (SSE). Pure handlers in `handlers.ts`/`profile.ts`/`builders.ts`/`hp.ts`/`status.ts`/`phase.ts`; route wiring + Drizzle adapter in `index.ts`. Cross-cutting concerns (LRU cache, per-IP rate limit, IP resolution) live in `cache.ts`/`ratelimit.ts`/`middleware.ts`.
+- `ponder.config.ts` — networks, contracts, factory patterns, block intervals. Reads addresses from env.
+- `ponder.schema.ts` — base lifecycle tables (`season`, `token`, `feeAccrual`, `phaseChange`, `liquidation`, `rolloverClaim`, `bonusFunding`, `bonusClaim`) plus enrichment tables (`pool`, `swap`, `hpSnapshot`, `holderBalance`, `holderSnapshot`, `creatorLock`, `tournamentStatus`, `tournamentQuarterEntrant`, `tournamentAnnualEntrant`).
+- `src/*.ts` — event handlers grouped by source contract: `FilterLauncher`, `FilterFactory`, `FilterToken` (Transfer → holder balances), `SeasonVault`, `FilterLpLocker`, `BonusDistributor`, `CreatorCommitments`, `TournamentRegistry`, `V4PoolManager`, `HpSnapshot` (block interval).
+- `src/api/*.ts` — HTTP API: `/season`, `/tokens`, `/token/:address`, `/tokens/:address/history`, `/profile/:address`, `/events` (SSE). Pure handlers in `handlers.ts`/`profile.ts`/`history.ts`/`builders.ts`/`hp.ts`/`status.ts`/`phase.ts`; route wiring + Drizzle adapter in `index.ts`. Cross-cutting concerns (LRU cache, per-IP rate limit, IP resolution) live in `cache.ts`/`ratelimit.ts`/`middleware.ts`.
 - `src/api/events/*.ts` — `/events` stream: pure detectors + priority pipeline + connection hub + tick engine; SSE route in `events/index.ts`.
 - `test/api/*.test.ts` — vitest unit tests against the pure handlers + events module.
-- `abis/*.json` — Foundry-extracted ABIs. Run `npm run abi:sync` after any contract change.
+- `abis/*.json` — Foundry-extracted ABIs. Run `npm run abi:sync` after any contract change. `V4PoolManager.ts` is hand-written (Uniswap V4 is an upstream dep, not part of `packages/contracts`).
 
 ## Setup
 
@@ -102,10 +102,17 @@ Cohort for the current season, sorted by ascending rank (rank 1 first). Matches 
       "stickyLiquidity": 0.41,
       "retention": 0.55,
       "momentum": 0.50
+    },
+    "bagLock": {
+      "isLocked": true,
+      "unlockTimestamp": 1730851200,
+      "creator": "0x…"
     }
   }
 ]
 ```
+
+`bagLock` is sourced from `creatorLock` rows the indexer mirrors from `CreatorCommitments.Committed` events (spec §38.5 / §38.7). `isLocked` is `unlockTimestamp > nowSec` evaluated at request time, so a freshly-expired lock surfaces as `false` without a re-index. Tokens whose creator never committed render `{isLocked: false, unlockTimestamp: null, creator: <launch creator>}`.
 
 `status` precedence (highest first):
 
@@ -175,6 +182,54 @@ Clients connect with the standard `EventSource` API. The browser handles auto-re
 - `EVENTS_LARGE_TRADE_WETH` (decimal-ether: `"0.5"`), `EVENTS_TRADE_FEE_BPS`
 - `EVENTS_FILTER_MOMENT_WINDOW_MS`, `EVENTS_FILTER_COUNTDOWN_THRESHOLD_SEC`
 
+### `GET /tokens/:address/history`
+
+HP timeseries for one token. Powers the admin console HP-component drilldown (Epic 1.11 v2) and the Arena sparkline. Backed by `hpSnapshot` rows the indexer writes on a periodic block-interval handler — default cadence is every 150 blocks (≈5 min on Base's 2s blocks); override via `HP_SNAPSHOT_INTERVAL_BLOCKS`.
+
+```
+GET /tokens/0xabc.../history?from=1700000000&to=1700604800&interval=300
+```
+
+Query params (all optional):
+
+| Param | Default | Notes |
+|---|---|---|
+| `from` | `to - 7*24*60*60` | Unix seconds (inclusive) |
+| `to` | `Math.floor(Date.now()/1000)` | Unix seconds (inclusive) |
+| `interval` | `300` (5 min) | Bucket size in seconds; clamped to `[60, 86400]` |
+
+Range cap: `to - from <= 30*24*60*60` (30 days). Larger ranges return `400`.
+
+Response:
+
+```json
+{
+  "token": "0xabc…",
+  "from": 1700000000,
+  "to":   1700604800,
+  "interval": 300,
+  "points": [
+    {
+      "timestamp": 1700000000,
+      "hp": 82,
+      "rank": 3,
+      "phase": "competition",
+      "components": {
+        "velocity": 0.74,
+        "effectiveBuyers": 0.62,
+        "stickyLiquidity": 0.41,
+        "retention": 0.55,
+        "momentum": 0.50
+      }
+    }
+  ]
+}
+```
+
+Bucketing: snapshots are floor-aligned into `interval`-sized windows; the LATEST sample within each bucket wins. Empty buckets are absent (sparse output) — the renderer chooses to gap or interpolate.
+
+Cache: shares the `/tokens` TTL (5s default). `?no-cache=1` forces BYPASS.
+
 ### `GET /token/:address`
 
 Per-token detail — used by the leaderboard click-through. Returns `404` for any address the indexer has never seen, `400` for malformed addresses.
@@ -224,14 +279,32 @@ Wallet-level stats. Powers the Arena profile page and feeds the leaderboard "cre
 `createdTokens[].status` precedence:
 
 1. `liquidated` → `FILTERED`
-2. `season.winner === token` → `WEEKLY_WINNER`
-3. otherwise → `ACTIVE`
+2. `tournamentStatus` from `TournamentRegistry` (when `!= ACTIVE`) — `QUARTERLY_FINALIST`/`QUARTERLY_CHAMPION`/`ANNUAL_FINALIST`/`ANNUAL_CHAMPION`/`WEEKLY_WINNER`
+3. `season.winner === token` → `WEEKLY_WINNER` (legacy fallback before the registry has a row)
+4. otherwise → `ACTIVE`
 
-`QUARTERLY_FINALIST`/`QUARTERLY_CHAMPION`/`ANNUAL_FINALIST`/`ANNUAL_CHAMPION` statuses are part of the wire-format enum but are not yet emitted — the championship registry index lands in Epic 1.5.
+`badges`:
 
-`badges` derives from `createdTokens`. `CHAMPION_CREATOR` fires when the wallet created any token whose status is `WEEKLY_WINNER`. Other badges (`WEEK_WINNER` for token holders at finalize, `FILTER_SURVIVOR` for first-cut survivors, plus the tournament-tier badges) require holder-snapshot + tournament indexes that aren't built yet — see "Known gaps" below.
+| Badge | Trigger |
+|---|---|
+| `CHAMPION_CREATOR` | wallet created any token whose status is `WEEKLY_WINNER` |
+| `WEEK_WINNER` | wallet held the winning token at season finalize (`holderSnapshot.trigger = FINALIZE` × `season.winner`) |
+| `FILTER_SURVIVOR` | wallet held any non-liquidated token at first cut (`holderSnapshot.trigger = CUT`) |
+| `QUARTERLY_FINALIST` | wallet held any quarterly Filter Bowl entrant |
+| `QUARTERLY_CHAMPION` | wallet held a quarterly champion |
+| `ANNUAL_FINALIST` | wallet held an annual entrant — surface ships, but spec §33.8 leaves the annual settlement dormant |
+| `ANNUAL_CHAMPION` | wallet held an annual champion — same dormancy caveat |
 
-`stats.rolloverEarnedWei` aggregates `rolloverClaim.winnerTokens` per wallet (winner-token wei units; future Epic 1.10 will map these to WETH-equivalent). `stats.bonusEarnedWei` aggregates `bonusClaim.amount` (always WEI directly). `filtersSurvived`, `lifetimeTradeVolumeWei`, and `tokensTraded` ship as `0`/`"0"` until the holder-snapshot and swap-event indexes ship.
+`stats`:
+
+| Field | Source |
+|---|---|
+| `wins` | count of `createdTokens` with status `WEEKLY_WINNER` |
+| `filtersSurvived` | distinct `seasonId` count from `holderSnapshot` rows where `holder = wallet AND trigger = CUT` |
+| `rolloverEarnedWei` | sum of `rolloverClaim.winnerTokens` per wallet (winner-token wei units) |
+| `bonusEarnedWei` | sum of `bonusClaim.amount` |
+| `lifetimeTradeVolumeWei` | sum of `swap.wethValue` where `taker = wallet` |
+| `tokensTraded` | distinct `swap.token` count for the same wallet |
 
 ## Cadence (Epic 1.10)
 
@@ -299,16 +372,54 @@ Configuration knobs (env vars, optional with the defaults shown):
 - `RATELIMIT_EVENTS_CONNS=5` — concurrent SSE connections per IP
 - `TRUST_PROXY=false` — see "IP resolution" above
 
-## Known gaps (Epic 1.3 parts 1+2+3/3)
+## Enrichment indexes (PR #45)
 
-The API is shipped with the spec §26.4 shape locked, but several fields currently surface placeholders because the underlying indexer schema doesn't track the relevant events yet. Documented here so callers know what is real vs. stand-in:
+The schema beyond the base lifecycle tables is layered on for /profile (deferred fields), /tokens/:address/history, /tokens.bagLock, and tournament/holder-derived badges.
 
-- **HP component values** depend on per-wallet swap streams + holder balances + LP-depth deltas, none of which are indexed today (the schema covers contract events: lifecycle, fees, claims). With degenerate inputs the cohort min-max normalization collapses to zeros across every component. Shape is correct (HP in [0, 1] → rendered as 0–100 integer; five components per token; phase weights applied), values are not. Fixing this is the indexer-expansion work that part 2/3 will need.
-- **Market-data fields** on `/tokens` (`price`, `priceChange24h`, `volume24h`, `liquidity`, `holders`) are placeholders. Populating them requires the same swap/transfer/LP indexing as HP.
-- **`polReserve`** on `/season` is `"0"` until POLManager / SeasonPOLReserve events are indexed. Schema has no POL accrual table yet.
-- **Cadence anchors** (`nextCutAt`, `finalSettlementAt`) are derived from `season.startedAt` + offsets read from `@filter-fun/cadence` (96h cut, 168h settlement, override via env — see the Cadence section above). The cadence package is the single source of truth shared with `@filter-fun/scheduler`.
-- **`/events` swap-derived signals** — once swap events are indexed (the same gap that blocks real HP), individual-trade detection can move from fee-derived inference to direct trade events (cleaner near-cut elevation, no dependency on `EVENTS_TRADE_FEE_BPS`). The locker→token resolution for fee-derived signals is now wired in `events/feeAdapter.ts` (joins `feeAccrual.token` against `token.locker` to map the per-token-locker emitter back to the token contract address) — both `recentFees`/`baselineFees` and the cumulative aggregation are populated from real data.
-- **`/profile/:address` deferred fields** — `stats.filtersSurvived` (needs holder-snapshot index at first-cut time), `stats.lifetimeTradeVolumeWei` + `stats.tokensTraded` (need swap-event indexing), and the `WEEK_WINNER`/`FILTER_SURVIVOR`/`QUARTERLY_*`/`ANNUAL_*` badges (same indexes plus the championship registry from Epic 1.5) all ship as `0`/`"0"`/empty-set in genesis. The wire shape is locked so callers can render the full profile UI now and the indexer fills in real values as the underlying indexes land. Tracked as a follow-up issue on the Epic 1.3 part 3/3 PR.
+| Table | Driven by | Used for |
+|---|---|---|
+| `pool` | `FilterFactory.TokenDeployed` | Resolve V4 `Swap.id` → filter token + locker + creator |
+| `swap` | `V4PoolManager.Swap` (filtered to filter pools via `pool` join) | `/profile.stats.lifetimeTradeVolumeWei` + `tokensTraded`; future direct-trade signals on `/events` |
+| `hpSnapshot` | `HpSnapshot:block` (block-interval handler — default every 150 blocks) | `/tokens/:address/history` |
+| `holderBalance` | `FilterToken.Transfer` (factory-pattern per launched token) | running per-(token, holder) balance — input to `holderSnapshot` |
+| `holderSnapshot` | `SeasonVault.Liquidated` (first cut → CUT) + `SeasonVault.Finalized` (winner → FINALIZE) | `/profile.stats.filtersSurvived`, `WEEK_WINNER` + `FILTER_SURVIVOR` badges |
+| `creatorLock` | `CreatorCommitments.Committed` | `/tokens.bagLock` |
+| `tournamentStatus`, `tournamentQuarterEntrant`, `tournamentAnnualEntrant` | `TournamentRegistry` events | `/profile.createdTokens[].status` (tournament-tier) + `/profile.badges` (`QUARTERLY_*`, `ANNUAL_*`) |
+
+Configurable via env:
+
+| Var | Default | Notes |
+|---|---|---|
+| `HP_SNAPSHOT_INTERVAL_BLOCKS` | `150` | `hpSnapshot` write cadence (≈5 min on Base) |
+| `HOLDER_SNAPSHOT_DUST_WEI` | `100000000000000` (1e14, ~0.0001 token) | Min balance for a holder to count in a snapshot |
+| `CREATOR_COMMITMENTS_ADDRESS` | unset | Until the deploy manifest carries this address, set explicitly so `Committed` events land |
+| `WETH_ADDRESS` | unset | Required for V4 Swap classification (BUY/SELL); sourced from the deploy manifest in production |
+
+### Annual championship surface (spec §33.8)
+
+The `ANNUAL_FINALIST` / `ANNUAL_CHAMPION` statuses + badges ship in the API + indexer schema even though spec §33.8 has the annual settlement *deferred indefinitely*. The decision is:
+
+- The contracts (`TournamentRegistry.recordAnnualFinalists` / `recordAnnualChampion`) exist and are auth-gated to oracle/vault.
+- The indexer subscribes to those events.
+- /profile + /tokens reflect annual state if/when an oracle ever activates the surface.
+- In practice today, all annual fields stay empty.
+
+Shipping the surface dormant means the day the annual is activated, the API "just works" with zero changes — and clients render correctly today (badges array has a stable type).
+
+### Testing notes
+
+The Ponder block-interval and event handlers are exercised end-to-end on a real chain (testnet rehearsal); vitest covers only the pure handlers via fixture queries. `test_coverage_state.md` (project memory) documents the integration-test gap. The fixture pattern + queries-interface boundary is what makes the API surface testable without a running indexer — every new query (e.g. `swapAggregatesForUser`, `holderBadgeFlagsForUser`, `bagLocksForTokens`) flows through the same shape.
+
+## Known gaps
+
+The API ships with the spec shape locked. Some fields surface placeholders because the underlying indexer signal isn't fully wired:
+
+- **HP component values** still rely on cohort min-max normalization with no swap/transfer/LP-depth inputs at the API tick boundary (the `/tokens` tick engine doesn't consume the new `swap` index yet — that's a follow-up that wires the same path the `events/feeAdapter.ts` uses for fees). The `hpSnapshot` writer derives values the same way so /tokens and /tokens/:address/history agree by construction.
+- **Market-data fields** on `/tokens` (`price`, `priceChange24h`, `volume24h`, `liquidity`, `holders`) remain placeholders — derivable from `swap` + `holderBalance` once the /tokens builder reads them; tracked separately.
+- **`polReserve`** on `/season` is `"0"` until POLManager / SeasonPOLReserve events are indexed.
+- **Cadence anchors** (`nextCutAt`, `finalSettlementAt`) are derived from `season.startedAt` + offsets read from `@filter-fun/cadence` (96h cut, 168h settlement; override via env). The cadence package is the single source of truth shared with `@filter-fun/scheduler`.
+- **V4 swap `taker` resolution** — `swap.taker` records the V4 `sender` (typically the universal router, not the EOA). `lifetimeTradeVolumeWei` therefore counts router activity until router-decoding lands (Track D). The schema is forward-compat: backfilling `taker` to the EOA later doesn't require a wire change.
+- **V4 PoolManager filtering** — we currently subscribe to ALL Swap events from the singleton PoolManager and drop foreign pools at the handler boundary. On a busy mainnet this is wasteful. The eventual fix is a topic-based filter once we can enumerate filter.fun poolIds at config time. Acceptable for genesis where the indexer starts at our deploy block.
 
 ## Status (genesis-of-indexer)
 
@@ -323,6 +434,7 @@ Off-chain CI (`.github/workflows/off-chain-ci.yml`) runs `typecheck`, `codegen`,
 
 ## Outstanding
 
-- Indexer-side: track swap / transfer / LP events so HP inputs, market-data fields, `/events` volume baselines, and the `/profile` deferred fields (`filtersSurvived`, `lifetimeTradeVolumeWei`, `tokensTraded`, holder-derived badges) are real.
-- Championship-tier badges + `QUARTERLY_*`/`ANNUAL_*` createdToken statuses on `/profile` — wired to the wire format but values land with Epic 1.5 (championship registry).
-- `FilterFactory.TokenDeployed` adds the locker but doesn't index `FilterFactory` directly. If we want pool keys / start blocks per launch in the index, add a small handler.
+- Wire the new `swap` + `holderBalance` indexes into the `/tokens` HP tick engine + market-data placeholders (price/volume24h/liquidity/holders). The data is now indexed; the consumer is not.
+- `polReserve` on `/season` — POLManager / SeasonPOLReserve events are still not indexed.
+- V4 PoolManager swap filtering — index ALL swaps + filter at handler boundary today. Add a topic-based filter once factory-time poolId enumeration lands.
+- Router → EOA decoding for `swap.taker` so `lifetimeTradeVolumeWei` reflects EOA activity rather than router activity (Track D).

@@ -39,6 +39,16 @@ export const FilterLpLockerAbi = [
         "internalType": "address"
       },
       {
+        "name": "creatorFeeDistributor_",
+        "type": "address",
+        "internalType": "contract ICreatorFeeDistributor"
+      },
+      {
+        "name": "polManager_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "key_",
         "type": "tuple",
         "internalType": "struct PoolKey",
@@ -90,7 +100,7 @@ export const FilterLpLockerAbi = [
   },
   {
     "type": "function",
-    "name": "MECHANICS_BPS",
+    "name": "CREATOR_FEE_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -103,7 +113,7 @@ export const FilterLpLockerAbi = [
   },
   {
     "type": "function",
-    "name": "TREASURY_BPS",
+    "name": "MECHANICS_FEE_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -116,7 +126,20 @@ export const FilterLpLockerAbi = [
   },
   {
     "type": "function",
-    "name": "VAULT_BPS",
+    "name": "POL_SALT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PRIZE_FEE_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -126,6 +149,53 @@ export const FilterLpLockerAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "TREASURY_FEE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "addPolLiquidity",
+    "inputs": [
+      {
+        "name": "wethIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minTokensFromSwap",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "wethUsed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tokensUsed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "liquidity",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -175,6 +245,19 @@ export const FilterLpLockerAbi = [
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "creatorFeeDistributor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ICreatorFeeDistributor"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -229,6 +312,32 @@ export const FilterLpLockerAbi = [
   {
     "type": "function",
     "name": "mechanics",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "polLiquidity",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "polManager",
     "inputs": [],
     "outputs": [
       {
@@ -470,6 +579,12 @@ export const FilterLpLockerAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "toCreator",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
         "name": "asset",
         "type": "address",
         "indexed": false,
@@ -498,6 +613,37 @@ export const FilterLpLockerAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "PolLiquidityAdded",
+    "inputs": [
+      {
+        "name": "wethIn",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "wethUsed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tokensUsed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "liquidity",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AlreadyLiquidated",
     "inputs": []
@@ -515,6 +661,11 @@ export const FilterLpLockerAbi = [
   {
     "type": "error",
     "name": "NotFactory",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotPolManager",
     "inputs": []
   },
   {

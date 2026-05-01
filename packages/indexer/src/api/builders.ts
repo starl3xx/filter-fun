@@ -75,6 +75,22 @@ export interface TokenRow {
   isFinalist: boolean;
   liquidated: boolean;
   liquidationProceeds: bigint | null;
+  /// Creator-of-record from the launch event, surfaced so /tokens can report the
+  /// bag-lock owner alongside `bagLock.unlockTimestamp`. Optional on the row so
+  /// existing test fixtures (which don't set it) keep compiling — the builder
+  /// falls back to `0x0` and labels the lock as "unlocked / unset" in that case.
+  creator?: `0x${string}`;
+}
+
+/// Per-token bag-lock surface, derived from `creator_lock` rows the indexer mirrors
+/// from `CreatorCommitments.Committed` events (spec §38.5 + §38.7). `isLocked`
+/// reflects "is the creator's bag locked NOW" (`unlockTimestamp > nowSec`); the raw
+/// `unlockTimestamp` is surfaced even when the lock has expired so the UI can
+/// render "unlocked since <date>" without an extra round-trip.
+export interface BagLock {
+  isLocked: boolean;
+  unlockTimestamp: number | null;
+  creator: `0x${string}`;
 }
 
 export interface TokenResponse {
@@ -95,6 +111,7 @@ export interface TokenResponse {
     retention: number;
     momentum: number;
   };
+  bagLock: BagLock;
 }
 
 /// Builds the `/tokens` response array. Sorted by ascending rank.
@@ -104,10 +121,18 @@ export interface TokenResponse {
 /// liquidity, holders) are placeholders here ("0" / 0) — see the "known gap" note in `hp.ts`.
 /// Fields driven by indexed lifecycle (token row + finalist flag + liquidation state) come
 /// straight from the row.
+///
+/// Bag-lock plumbing: `bagLockByToken` is a map keyed by lowercased token address →
+/// `{creator, unlockTimestamp}`. Tokens absent from the map surface as
+/// `{isLocked: false, unlockTimestamp: null, creator: row.creator ?? 0x0}` — i.e.
+/// "no commitment recorded." `nowSec` drives the `isLocked` flag so a freshly-expired
+/// lock immediately reports as unlocked without a re-index.
 export function buildTokensResponse(
   rows: ReadonlyArray<TokenRow>,
   scored: ReadonlyMap<string, ScoredToken>,
   apiPhase: ApiPhase,
+  bagLockByToken: ReadonlyMap<string, {creator: `0x${string}`; unlockTimestamp: bigint}> = new Map(),
+  nowSec: bigint = 0n,
 ): TokenResponse[] {
   const enriched: TokenResponse[] = rows.map((r) => {
     const s = scored.get(r.id.toLowerCase());
@@ -118,6 +143,18 @@ export function buildTokensResponse(
       isFinalist: r.isFinalist,
       liquidated: r.liquidated,
     });
+    const lock = bagLockByToken.get(r.id.toLowerCase());
+    const bagLock: BagLock = lock
+      ? {
+          isLocked: lock.unlockTimestamp > nowSec,
+          unlockTimestamp: Number(lock.unlockTimestamp),
+          creator: lock.creator,
+        }
+      : {
+          isLocked: false,
+          unlockTimestamp: null,
+          creator: r.creator ?? "0x0000000000000000000000000000000000000000",
+        };
     return {
       token: r.id,
       ticker: tickerWithDollar(r.symbol),
@@ -138,6 +175,7 @@ export function buildTokensResponse(
         retention: s?.components.retention.score ?? 0,
         momentum: s?.components.momentum.score ?? 0,
       },
+      bagLock,
     };
   });
   // Sort by rank ascending; tokens with rank 0 (unscored / launch phase) sort last by id.

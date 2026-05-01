@@ -87,10 +87,20 @@ const profileCache = new LruTtlCache<unknown>({
   ttlMs: cacheCfg.profileTtlMs,
   maxEntries: cacheCfg.maxEntries,
 });
+/// `/tokens/:address/history` is queryable on (token, from, to, interval), so the
+/// cache holds many entries — one per distinct param tuple per token. Reuse the
+/// profile-cache TTL knob since the data behind history changes on the same cadence
+/// as the per-token snapshot writer (5 min ≈ HP_SNAPSHOT_INTERVAL_BLOCKS), but cap
+/// the entries at the same multi-entry budget as profile.
+const historyCache = new LruTtlCache<unknown>({
+  ttlMs: cacheCfg.tokensTtlMs,
+  maxEntries: cacheCfg.maxEntries,
+});
 
 export const seasonResponseCache: LruTtlCache<unknown> = seasonCache;
 export const tokensResponseCache: LruTtlCache<unknown> = tokensCache;
 export const profileResponseCache: LruTtlCache<unknown> = profileCache;
+export const historyResponseCache: LruTtlCache<unknown> = historyCache;
 
 // ============================================================ IP resolution
 
@@ -185,6 +195,18 @@ export const TOKENS_CACHE_KEY = "tokens:current";
 
 export function profileCacheKey(addr: `0x${string}`): string {
   return `profile:${addr.toLowerCase()}`;
+}
+
+/// Cache key for `/tokens/:address/history`. `from` / `to` / `interval` are part
+/// of the key — different ranges/intervals share no entries. Param values are
+/// passed through unchanged (the handler validates them later), but we replace
+/// `undefined` with the literal sentinel `"-"` so the key is stable even when
+/// the client omits a param entirely.
+export function historyCacheKey(
+  addr: `0x${string}`,
+  params: {from?: string; to?: string; interval?: string},
+): string {
+  return `history:${addr.toLowerCase()}:${params.from ?? "-"}:${params.to ?? "-"}:${params.interval ?? "-"}`;
 }
 
 /// `?no-cache=1` (or `?nocache=1` — accept both, no convention has won) signals BYPASS.

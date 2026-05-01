@@ -4,15 +4,23 @@
 ///
 ///   - **createdTokens** — every token whose `creator = address`, with the lifecycle
 ///     status mapped onto the spec §22.2 enum. Tokens from past seasons + the current
-///     season are both included.
-///   - **stats** — winnable/claimable-total subset. `wins` and `rolloverEarnedWei` and
-///     `bonusEarnedWei` come straight from indexed claim events. `filtersSurvived` and
-///     `lifetimeTradeVolumeWei` and `tokensTraded` are reported as `0` until the
-///     supporting indexes (holder snapshots + swap events) ship — see TODO comments
-///     below and the PR body for the follow-up issue.
-///   - **badges** — derived from `createdTokens`. `CHAMPION_CREATOR` fires when the
-///     wallet created a `WEEKLY_WINNER`. Other badges (`WEEK_WINNER`, `FILTER_SURVIVOR`,
-///     tournament tier) require holder/tournament indexes and are deferred.
+///     season are both included. Tournament-tier statuses (QUARTERLY_FINALIST/CHAMPION,
+///     ANNUAL_FINALIST/CHAMPION) come from the `tournament_status` index populated by
+///     `TournamentRegistry` events. ANNUAL_* surfaces ship even though spec §33.8 has
+///     the annual settlement deferred indefinitely — empty until/unless activated.
+///   - **stats** —
+///       - `wins`, `rolloverEarnedWei`, `bonusEarnedWei` from indexed claim/season events
+///       - `filtersSurvived` — count of seasons where this wallet held a `CUT`-trigger
+///         holderSnapshot row (i.e. survived the first cut of the season).
+///       - `lifetimeTradeVolumeWei`, `tokensTraded` — sum + distinct count from indexed
+///         V4 swap events.
+///   - **badges** — derived from the union of:
+///       - `CHAMPION_CREATOR`: created any WEEKLY_WINNER token.
+///       - `WEEK_WINNER`: held the winner at finalize (indexed via `holder_snapshot`
+///         trigger=FINALIZE).
+///       - `FILTER_SURVIVOR`: held any survivor at first cut (trigger=CUT).
+///       - `QUARTERLY_FINALIST`/`QUARTERLY_CHAMPION`/`ANNUAL_FINALIST`/`ANNUAL_CHAMPION`:
+///         held a token in the corresponding tournamentEntrant memberships.
 ///
 /// Unknown wallets return 200 with the all-zero shape rather than 404 — spec §22 expects
 /// the Arena profile UI to render an empty state for new wallets, and 200/zero avoids
@@ -75,22 +83,60 @@ export interface CreatedTokenRow {
   /// Pre-computed rank for tokens still alive in the current cohort. Null for tokens from
   /// past seasons (rank no longer meaningful) and unscored launch-phase tokens.
   rank: number | null;
+  /// Tournament-tier status from the `tournament_status` index. Null when the registry has
+  /// no row (token never reached WEEKLY_WINNER) — handler falls through to the
+  /// liquidated/season-winner ladder.
+  tournamentStatus: CreatedTokenStatus | null;
 }
 
 export interface ClaimSums {
-  /// Sum of `rolloverClaim.winnerTokens` across all rollover claims by this wallet. Stored
-  /// as a bigint — winner-token wei units (18-decimal ERC20). Future Epic 1.10 maps these
-  /// to WETH-equivalent; for now we surface the raw aggregate.
   rolloverEarnedWei: bigint;
-  /// Sum of `bonusClaim.amount`. Always WEI directly (the bonus is paid in WETH).
   bonusEarnedWei: bigint;
 }
 
+export interface SwapAggregates {
+  /// Sum of `swap.wethValue` for every row where `taker = wallet`.
+  lifetimeTradeVolumeWei: bigint;
+  /// Distinct `swap.token` count for the same wallet — "tokens traded."
+  tokensTraded: number;
+}
+
+export interface HolderBadgeFlags {
+  /// Wallet appears in any `holder_snapshot` row with `trigger = FINALIZE` AND
+  /// `token = season.winner` for the same season — held the winner at finalize.
+  weekWinner: boolean;
+  /// Wallet appears in any `holder_snapshot` row with `trigger = CUT` — held some
+  /// non-liquidated token at first cut. Same wallet → counts once per season for
+  /// `filtersSurvived`.
+  filterSurvivor: boolean;
+  /// Number of distinct `seasonId`s where the wallet appears in any `trigger = CUT`
+  /// holder_snapshot row.
+  filtersSurvived: number;
+}
+
+export interface TournamentBadgeFlags {
+  quarterlyFinalist: boolean;
+  quarterlyChampion: boolean;
+  annualFinalist: boolean;
+  annualChampion: boolean;
+}
+
 export interface ProfileQueries {
-  /// Tokens whose `creator` equals the lowercased address.
+  /// Tokens whose `creator` equals the lowercased address. Rows include tournament
+  /// status from the registry index when available.
   createdTokensByCreator: (creator: `0x${string}`) => Promise<CreatedTokenRow[]>;
   /// Aggregate claim sums for the lowercased address.
   claimSumsForUser: (user: `0x${string}`) => Promise<ClaimSums>;
+  /// Lifetime swap volume + distinct-tokens-traded for the wallet, derived from the
+  /// `swap` index. Returns `{0n, 0}` for wallets that never traded (or for whom the
+  /// router→EOA decoding lands them on a non-EOA `taker`).
+  swapAggregatesForUser: (user: `0x${string}`) => Promise<SwapAggregates>;
+  /// Holder-snapshot derivations (week-winner / filter-survivor / filtersSurvived).
+  holderBadgeFlagsForUser: (user: `0x${string}`) => Promise<HolderBadgeFlags>;
+  /// Tournament-tier badges. A wallet earns each tier via *any* token they held at the
+  /// relevant snapshot — i.e. holder_snapshot × tournamentEntrant join. Empty when the
+  /// wallet has no qualifying holdings.
+  tournamentBadgeFlagsForUser: (user: `0x${string}`) => Promise<TournamentBadgeFlags>;
 }
 
 export async function getProfileHandler(
@@ -103,9 +149,12 @@ export async function getProfileHandler(
   if (!isAddressLike(lower)) return {status: 400, body: {error: "invalid address"}};
   const addr = lower as `0x${string}`;
 
-  const [created, claims] = await Promise.all([
+  const [created, claims, swapAgg, holderFlags, tournamentFlags] = await Promise.all([
     q.createdTokensByCreator(addr),
     q.claimSumsForUser(addr),
+    q.swapAggregatesForUser(addr),
+    q.holderBadgeFlagsForUser(addr),
+    q.tournamentBadgeFlagsForUser(addr),
   ]);
 
   const createdTokens = created.map((r) => ({
@@ -126,17 +175,13 @@ export async function getProfileHandler(
       createdTokens,
       stats: {
         wins,
-        // TODO(Epic 1.4 follow-up): requires holder-snapshot index at first-cut time.
-        // Tracked in https://github.com/starl3xx/filter-fun/issues — see PR body.
-        filtersSurvived: 0,
+        filtersSurvived: holderFlags.filtersSurvived,
         rolloverEarnedWei: claims.rolloverEarnedWei.toString(),
         bonusEarnedWei: claims.bonusEarnedWei.toString(),
-        // TODO(Epic 1.4 follow-up): requires swap-event indexing (currently we only index
-        // FeesCollected accruals, not Uniswap V4 Swap events).
-        lifetimeTradeVolumeWei: "0",
-        tokensTraded: 0,
+        lifetimeTradeVolumeWei: swapAgg.lifetimeTradeVolumeWei.toString(),
+        tokensTraded: swapAgg.tokensTraded,
       },
-      badges: deriveBadges(createdTokens),
+      badges: deriveBadges(createdTokens, holderFlags, tournamentFlags),
       computedAt: now().toISOString(),
     },
   };
@@ -144,24 +189,35 @@ export async function getProfileHandler(
 
 function createdTokenStatus(r: CreatedTokenRow): CreatedTokenStatus {
   if (r.liquidated) return "FILTERED";
+  // Tournament tier outranks the WEEKLY_WINNER fallback — once a token has won a
+  // quarterly Filter Bowl or annual championship, the registry row promotes its
+  // status above the season-level winner label.
+  if (r.tournamentStatus && r.tournamentStatus !== "ACTIVE") {
+    // Defensive: don't surface `FILTERED` from the registry if our local `liquidated`
+    // flag disagrees — covered above. WEEKLY_WINNER from the registry equates to the
+    // legacy season-winner check; either path is correct.
+    return r.tournamentStatus;
+  }
   if (r.seasonWinner && r.seasonWinner.toLowerCase() === r.id.toLowerCase()) {
     return "WEEKLY_WINNER";
   }
-  // Tournament tier statuses (QUARTERLY_*, ANNUAL_*) need the championship registry index
-  // (Epic 1.5). Until that ships, finalist-but-not-yet-won tokens land on ACTIVE rather
-  // than guessing — surfacing a wrong tier is worse than not surfacing one yet.
   return "ACTIVE";
 }
 
 function deriveBadges(
   createdTokens: ReadonlyArray<{status: CreatedTokenStatus}>,
+  holder: HolderBadgeFlags,
+  tourney: TournamentBadgeFlags,
 ): ProfileBadge[] {
   const badges = new Set<ProfileBadge>();
   if (createdTokens.some((t) => t.status === "WEEKLY_WINNER")) {
     badges.add("CHAMPION_CREATOR");
   }
-  // WEEK_WINNER (held a winning token), FILTER_SURVIVOR (held a survivor at first cut),
-  // and the tournament tier badges all require indexes that don't exist yet. Deferred.
+  if (holder.weekWinner) badges.add("WEEK_WINNER");
+  if (holder.filterSurvivor) badges.add("FILTER_SURVIVOR");
+  if (tourney.quarterlyFinalist) badges.add("QUARTERLY_FINALIST");
+  if (tourney.quarterlyChampion) badges.add("QUARTERLY_CHAMPION");
+  if (tourney.annualFinalist) badges.add("ANNUAL_FINALIST");
+  if (tourney.annualChampion) badges.add("ANNUAL_CHAMPION");
   return [...badges];
 }
-

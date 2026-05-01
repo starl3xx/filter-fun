@@ -20,6 +20,8 @@ const targets = [
   "FilterToken",
   "SeasonVault",
   "BonusDistributor",
+  "TournamentRegistry",
+  "CreatorCommitments",
 ];
 
 for (const name of targets) {

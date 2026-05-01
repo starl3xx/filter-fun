@@ -9,8 +9,11 @@ import {
   getProfileHandler,
   type ClaimSums,
   type CreatedTokenRow,
+  type HolderBadgeFlags,
   type ProfileQueries,
   type ProfileResponse,
+  type SwapAggregates,
+  type TournamentBadgeFlags,
 } from "../../src/api/profile.js";
 
 const FIXED_NOW = new Date("2026-04-30T22:00:00.000Z");
@@ -20,13 +23,32 @@ function addr(n: number): `0x${string}` {
   return `0x${n.toString(16).padStart(40, "0")}` as `0x${string}`;
 }
 
+const ZERO_HOLDER: HolderBadgeFlags = {
+  weekWinner: false,
+  filterSurvivor: false,
+  filtersSurvived: 0,
+};
+const ZERO_TOURNEY: TournamentBadgeFlags = {
+  quarterlyFinalist: false,
+  quarterlyChampion: false,
+  annualFinalist: false,
+  annualChampion: false,
+};
+const ZERO_SWAP: SwapAggregates = {lifetimeTradeVolumeWei: 0n, tokensTraded: 0};
+
 function fixtureQueries(opts: {
   created?: CreatedTokenRow[];
   claims?: ClaimSums;
+  swap?: SwapAggregates;
+  holder?: HolderBadgeFlags;
+  tourney?: TournamentBadgeFlags;
 }): ProfileQueries {
   return {
     createdTokensByCreator: async () => opts.created ?? [],
     claimSumsForUser: async () => opts.claims ?? {rolloverEarnedWei: 0n, bonusEarnedWei: 0n},
+    swapAggregatesForUser: async () => opts.swap ?? ZERO_SWAP,
+    holderBadgeFlagsForUser: async () => opts.holder ?? ZERO_HOLDER,
+    tournamentBadgeFlagsForUser: async () => opts.tourney ?? ZERO_TOURNEY,
   };
 }
 
@@ -46,6 +68,9 @@ describe("/profile/:address", () => {
         return [];
       },
       claimSumsForUser: async () => ({rolloverEarnedWei: 0n, bonusEarnedWei: 0n}),
+      swapAggregatesForUser: async () => ZERO_SWAP,
+      holderBadgeFlagsForUser: async () => ZERO_HOLDER,
+      tournamentBadgeFlagsForUser: async () => ZERO_TOURNEY,
     };
     const upper = lower.toUpperCase().replace("0X", "0x");
     const r = await getProfileHandler(q, upper, fixedNow);
@@ -86,6 +111,7 @@ describe("/profile/:address", () => {
             createdAt: 1_700_000_000n,
             seasonWinner: tokA, // this season's winner — WEEKLY_WINNER
             rank: 1,
+            tournamentStatus: null,
           },
           {
             id: tokB,
@@ -96,6 +122,7 @@ describe("/profile/:address", () => {
             createdAt: 1_700_086_400n,
             seasonWinner: addr(0xff), // someone else won — ACTIVE
             rank: 4,
+            tournamentStatus: null,
           },
         ],
       }),
@@ -126,6 +153,7 @@ describe("/profile/:address", () => {
             createdAt: 1_700_000_000n,
             seasonWinner: null,
             rank: null,
+            tournamentStatus: null,
           },
         ],
       }),
@@ -172,6 +200,7 @@ describe("/profile/:address", () => {
             createdAt: 1_700_000_000n,
             seasonWinner: tok.toUpperCase().replace("0X", "0x") as `0x${string}`,
             rank: 1,
+            tournamentStatus: null,
           },
         ],
       }),
@@ -184,5 +213,148 @@ describe("/profile/:address", () => {
   it("computedAt always reflects the injected clock, not Date.now()", async () => {
     const r = await getProfileHandler(fixtureQueries({}), addr(1), fixedNow);
     expect((r.body as ProfileResponse).computedAt).toBe(FIXED_NOW.toISOString());
+  });
+});
+
+// ============================================================ enrichment fields (PR #45)
+
+describe("/profile — swap aggregates (issue #35)", () => {
+  it("lifetimeTradeVolumeWei + tokensTraded surface real values from swap index", async () => {
+    const r = await getProfileHandler(
+      fixtureQueries({
+        swap: {
+          lifetimeTradeVolumeWei: 12n * 10n ** 18n, // 12 ETH
+          tokensTraded: 4,
+        },
+      }),
+      addr(0xcafe),
+      fixedNow,
+    );
+    const body = r.body as ProfileResponse;
+    expect(body.stats.lifetimeTradeVolumeWei).toBe((12n * 10n ** 18n).toString());
+    expect(body.stats.tokensTraded).toBe(4);
+  });
+});
+
+describe("/profile — holder-derived badges (issue #35)", () => {
+  it("WEEK_WINNER badge fires when holder snapshot includes a FINALIZE-trigger row", async () => {
+    const r = await getProfileHandler(
+      fixtureQueries({holder: {weekWinner: true, filterSurvivor: false, filtersSurvived: 0}}),
+      addr(0xa),
+      fixedNow,
+    );
+    expect((r.body as ProfileResponse).badges).toContain("WEEK_WINNER");
+  });
+
+  it("FILTER_SURVIVOR badge fires for a CUT-trigger row", async () => {
+    const r = await getProfileHandler(
+      fixtureQueries({holder: {weekWinner: false, filterSurvivor: true, filtersSurvived: 1}}),
+      addr(0xb),
+      fixedNow,
+    );
+    expect((r.body as ProfileResponse).badges).toContain("FILTER_SURVIVOR");
+  });
+
+  it("filtersSurvived counts distinct seasons", async () => {
+    const r = await getProfileHandler(
+      fixtureQueries({holder: {weekWinner: false, filterSurvivor: true, filtersSurvived: 5}}),
+      addr(0xc),
+      fixedNow,
+    );
+    expect((r.body as ProfileResponse).stats.filtersSurvived).toBe(5);
+  });
+});
+
+describe("/profile — tournament-tier badges (issue #35)", () => {
+  it("derives QUARTERLY_FINALIST + QUARTERLY_CHAMPION when held a champion token", async () => {
+    const r = await getProfileHandler(
+      fixtureQueries({
+        tourney: {
+          quarterlyFinalist: true,
+          quarterlyChampion: true,
+          annualFinalist: false,
+          annualChampion: false,
+        },
+      }),
+      addr(0xd),
+      fixedNow,
+    );
+    const badges = (r.body as ProfileResponse).badges;
+    expect(badges).toContain("QUARTERLY_FINALIST");
+    expect(badges).toContain("QUARTERLY_CHAMPION");
+    expect(badges).not.toContain("ANNUAL_FINALIST");
+  });
+
+  it("ANNUAL_* badges ship in the surface even though §33.8 leaves them dormant", async () => {
+    // Spec §33.8 decision: do not trigger annual settlement. The indexer + handler
+    // still surface annual badges so the day annual gets activated, the surface "just
+    // works" with no API change. Today this path returns false flags in practice.
+    const r = await getProfileHandler(
+      fixtureQueries({
+        tourney: {
+          quarterlyFinalist: true,
+          quarterlyChampion: true,
+          annualFinalist: true, // hypothetical — would only flip if oracle activates
+          annualChampion: false,
+        },
+      }),
+      addr(0xe),
+      fixedNow,
+    );
+    const badges = (r.body as ProfileResponse).badges;
+    expect(badges).toContain("ANNUAL_FINALIST");
+  });
+});
+
+describe("/profile — tournament status overrides WEEKLY_WINNER on createdTokens", () => {
+  it("QUARTERLY_CHAMPION outranks the season-winner WEEKLY_WINNER label", async () => {
+    const tok = addr(0xa1);
+    const r = await getProfileHandler(
+      fixtureQueries({
+        created: [
+          {
+            id: tok,
+            symbol: "EDGE",
+            seasonId: 1n,
+            liquidated: false,
+            isFinalist: true,
+            createdAt: 1_700_000_000n,
+            seasonWinner: tok, // would be WEEKLY_WINNER on its own
+            rank: 1,
+            tournamentStatus: "QUARTERLY_CHAMPION",
+          },
+        ],
+      }),
+      addr(0xfacade),
+      fixedNow,
+    );
+    const body = r.body as ProfileResponse;
+    expect(body.createdTokens[0]?.status).toBe("QUARTERLY_CHAMPION");
+    // `wins` counts WEEKLY_WINNER labels — so a token promoted to QUARTERLY_CHAMPION
+    // is NOT a "win" in the weekly sense. CHAMPION_CREATOR therefore won't fire here.
+    expect(body.stats.wins).toBe(0);
+  });
+
+  it("FILTERED still wins over tournament status (a liquidated token can't be a champion)", async () => {
+    const r = await getProfileHandler(
+      fixtureQueries({
+        created: [
+          {
+            id: addr(0x1),
+            symbol: "RIP",
+            seasonId: 1n,
+            liquidated: true,
+            isFinalist: false,
+            createdAt: 1_700_000_000n,
+            seasonWinner: null,
+            rank: null,
+            tournamentStatus: "WEEKLY_WINNER", // contract invariant says this can't co-exist; defensive
+          },
+        ],
+      }),
+      addr(0xface00d),
+      fixedNow,
+    );
+    expect((r.body as ProfileResponse).createdTokens[0]?.status).toBe("FILTERED");
   });
 });

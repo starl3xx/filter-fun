@@ -57,12 +57,18 @@ function fixtureQueries(opts: {
   tokens?: TokenRow[];
   publicLaunchCount?: number;
   detailLookup?: Record<string, TokenDetailRow>;
+  bagLocks?: Array<{
+    token: `0x${string}`;
+    creator: `0x${string}`;
+    unlockTimestamp: bigint;
+  }>;
 }): ApiQueries {
   return {
     latestSeason: async () => opts.season,
     publicLaunchCount: async () => opts.publicLaunchCount ?? 0,
     tokensInSeason: async () => opts.tokens ?? [],
     tokenByAddress: async (a) => opts.detailLookup?.[a] ?? null,
+    bagLocksForTokens: async () => opts.bagLocks ?? [],
   };
 }
 
@@ -362,6 +368,87 @@ describe("HP component shape", () => {
     expect(c.velocity.weight).toBeCloseTo(0.30); // less than pre-filter 0.40
     expect(c.effectiveBuyers.weight).toBeCloseTo(0.15);
     expect(c.momentum.weight).toBeCloseTo(0.10);
+  });
+});
+
+// ============================================================ Bag-lock surface
+
+describe("/tokens — bagLock", () => {
+  it("renders default `{isLocked:false, unlockTimestamp:null, creator:0x0}` when no lock recorded", async () => {
+    const tokens: TokenRow[] = [mkToken({id: addr(1), symbol: "T1"})];
+    const r = await getTokensHandler(
+      fixtureQueries({season: mkSeason({phase: "Filter"}), tokens}),
+      STARTED_AT + 12n * HOUR,
+    );
+    const list = r.body as unknown as Array<Record<string, unknown>>;
+    const lock = list[0]!.bagLock as Record<string, unknown>;
+    expect(lock.isLocked).toBe(false);
+    expect(lock.unlockTimestamp).toBeNull();
+    expect((lock.creator as string).toLowerCase()).toBe(
+      "0x0000000000000000000000000000000000000000",
+    );
+  });
+
+  it("isLocked=true when unlockTimestamp > nowSec", async () => {
+    const tokens: TokenRow[] = [mkToken({id: addr(1), symbol: "T1", creator: addr(99)})];
+    const r = await getTokensHandler(
+      fixtureQueries({
+        season: mkSeason({phase: "Filter"}),
+        tokens,
+        bagLocks: [
+          {
+            token: addr(1),
+            creator: addr(99),
+            unlockTimestamp: STARTED_AT + 30n * DAY, // far future
+          },
+        ],
+      }),
+      STARTED_AT + 12n * HOUR,
+    );
+    const list = r.body as unknown as Array<Record<string, unknown>>;
+    const lock = list[0]!.bagLock as Record<string, unknown>;
+    expect(lock.isLocked).toBe(true);
+    expect(lock.unlockTimestamp).toBe(Number(STARTED_AT + 30n * DAY));
+    expect(lock.creator).toBe(addr(99));
+  });
+
+  it("isLocked=false on a freshly-expired lock — wall-clock comparison, no re-index needed", async () => {
+    const tokens: TokenRow[] = [mkToken({id: addr(1), symbol: "T1", creator: addr(99)})];
+    // Lock expired 1 second before nowSec.
+    const nowSec = STARTED_AT + 12n * HOUR;
+    const r = await getTokensHandler(
+      fixtureQueries({
+        season: mkSeason({phase: "Filter"}),
+        tokens,
+        bagLocks: [
+          {token: addr(1), creator: addr(99), unlockTimestamp: nowSec - 1n},
+        ],
+      }),
+      nowSec,
+    );
+    const list = r.body as unknown as Array<Record<string, unknown>>;
+    const lock = list[0]!.bagLock as Record<string, unknown>;
+    expect(lock.isLocked).toBe(false);
+    expect(lock.unlockTimestamp).toBe(Number(nowSec - 1n));
+  });
+
+  it("locks update on extension — the latest unlockTimestamp is what surfaces", async () => {
+    // The indexer-side handler always overwrites the latest `Committed` event into
+    // `creator_lock`; we model that by passing the latest row through fixture queries.
+    const tokens: TokenRow[] = [mkToken({id: addr(1), symbol: "T1", creator: addr(99)})];
+    const r = await getTokensHandler(
+      fixtureQueries({
+        season: mkSeason({phase: "Filter"}),
+        tokens,
+        bagLocks: [
+          {token: addr(1), creator: addr(99), unlockTimestamp: STARTED_AT + 60n * DAY},
+        ],
+      }),
+      STARTED_AT + 12n * HOUR,
+    );
+    const list = r.body as unknown as Array<Record<string, unknown>>;
+    const lock = list[0]!.bagLock as Record<string, unknown>;
+    expect(lock.unlockTimestamp).toBe(Number(STARTED_AT + 60n * DAY));
   });
 });
 
