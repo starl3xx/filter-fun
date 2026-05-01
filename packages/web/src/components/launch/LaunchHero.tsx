@@ -20,8 +20,8 @@ import type {SeasonResponse} from "@/lib/arena/api";
 import {fmtCutCountdown, fmtEth, weekLabel} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
 
+import {Triangle} from "@/components/Triangle";
 import type {LaunchSlot} from "@/hooks/launch/useLaunchSlots";
-import {Triangle} from "./Triangle";
 import {fmtEthFromWei} from "@/lib/launch/format";
 
 export type LaunchHeroProps = {

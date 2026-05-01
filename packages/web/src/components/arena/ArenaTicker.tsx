@@ -22,6 +22,7 @@
 
 import {useMemo} from "react";
 
+import {Triangle} from "@/components/Triangle";
 import type {SeasonResponse, TickerEvent} from "@/lib/arena/api";
 import {fmtCutCountdown, isPreFilterWindow, secondsUntil} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
@@ -230,7 +231,7 @@ function PreFilterStrip({events, season, now}: {events: TickerEvent[]; season: S
           flexShrink: 0,
         }}
       >
-        <span aria-hidden>🔻</span>
+        <Triangle size={10} inline />
         <span>FILTER IN {fmtCutCountdown(secs)}</span>
       </div>
       <div
@@ -248,7 +249,11 @@ function PreFilterStrip({events, season, now}: {events: TickerEvent[]; season: S
 
 function FilterMomentStrip({events}: {events: TickerEvent[]}) {
   const headline = events.find((e) => e.type === "FILTER_FIRED");
-  const message = headline?.message ?? "🔻 FILTER LIVE";
+  // The headline is a string from the indexer SSE stream and may carry the
+  // 🔻 emoji on the wire (chat-style notification — see Triangle.tsx). The
+  // fallback string uses ▼ since this component-level constant doesn't
+  // travel over the stream.
+  const message = headline?.message ?? "▼ FILTER LIVE";
   return (
     <div
       className="ff-pulse"

@@ -6,9 +6,8 @@
 ///
 /// Anchors the page emotionally between hero + slot grid.
 
+import {Triangle} from "@/components/Triangle";
 import {C, F} from "@/lib/tokens";
-
-import {Triangle} from "./Triangle";
 
 export function FilterStrip() {
   return (

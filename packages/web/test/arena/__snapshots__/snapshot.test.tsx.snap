@@ -880,7 +880,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             <span
               aria-hidden="true"
             >
-              🔻
+              ▼
             </span>
             Filtered
           </span>
@@ -967,7 +967,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             <span
               aria-hidden="true"
             >
-              🔻
+              ▼
             </span>
             Filtered
           </span>
@@ -1054,7 +1054,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             <span
               aria-hidden="true"
             >
-              🔻
+              ▼
             </span>
             Filtered
           </span>
@@ -1669,11 +1669,37 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
           <div
             style="display: flex; align-items: center; gap: 10px; background: rgba(26, 1, 42, 0.933); padding: 5px 14px; border-radius: 99px; border: 1.5px solid rgb(255, 45, 85); box-shadow: 0 0 16px #ff2d55cc;"
           >
-            <span
-              style="font-size: 13px;"
+            <svg
+              aria-label="filter"
+              height="11"
+              role="img"
+              style="display: inline-block; vertical-align: -0.18em;"
+              viewBox="0 0 16 16"
+              width="11"
             >
-              🔻
-            </span>
+              <defs>
+                <lineargradient
+                  id="ff-tri-:r1:"
+                  x1="0%"
+                  x2="0%"
+                  y1="0%"
+                  y2="100%"
+                >
+                  <stop
+                    offset="0%"
+                    stop-color="#ff5fb8"
+                  />
+                  <stop
+                    offset="100%"
+                    stop-color="#ff2d55"
+                  />
+                </lineargradient>
+              </defs>
+              <path
+                d="M2 4 L14 4 L8 14 Z"
+                fill="url(#ff-tri-:r1:)"
+              />
+            </svg>
             <span
               style="font-size: 11px; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-weight: 900; letter-spacing: 0.18em; text-transform: uppercase; color: rgb(255, 45, 85);"
             >
@@ -2000,7 +2026,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             <span
               aria-hidden="true"
             >
-              🔻
+              ▼
             </span>
             Filtered
           </span>
@@ -2087,7 +2113,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             <span
               aria-hidden="true"
             >
-              🔻
+              ▼
             </span>
             Filtered
           </span>
@@ -2174,7 +2200,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             <span
               aria-hidden="true"
             >
-              🔻
+              ▼
             </span>
             Filtered
           </span>
@@ -2230,9 +2256,39 @@ exports[`Arena visual snapshots > ArenaTopBar matches snapshot 1`] = `
       >
         <span
           aria-hidden="true"
-          style="font-size: 18px; filter: drop-shadow(0 0 6px #ff2d5588);"
+          style="display: inline-flex; filter: drop-shadow(0 0 6px #ff2d5588);"
         >
-          🔻
+          <svg
+            aria-label="filter"
+            height="18"
+            role="img"
+            style="display: block;"
+            viewBox="0 0 16 16"
+            width="18"
+          >
+            <defs>
+              <lineargradient
+                id="ff-tri-:r0:"
+                x1="0%"
+                x2="0%"
+                y1="0%"
+                y2="100%"
+              >
+                <stop
+                  offset="0%"
+                  stop-color="#ff5fb8"
+                />
+                <stop
+                  offset="100%"
+                  stop-color="#ff2d55"
+                />
+              </lineargradient>
+            </defs>
+            <path
+              d="M2 4 L14 4 L8 14 Z"
+              fill="url(#ff-tri-:r0:)"
+            />
+          </svg>
         </span>
         <span
           style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-weight: 800; font-size: 16px; letter-spacing: -0.01em;"

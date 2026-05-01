@@ -9,7 +9,7 @@
 import {render} from "@testing-library/react";
 import {describe, expect, it} from "vitest";
 
-import {Triangle} from "@/components/launch/Triangle";
+import {Triangle} from "@/components/Triangle";
 
 describe("Triangle", () => {
   it("emits unique gradient ids for sibling instances of the same size", () => {

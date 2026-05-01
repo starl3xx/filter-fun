@@ -49,6 +49,6 @@ function treatmentFor(status: TokenStatus): {color: string; label: string; icon:
     case "AT_RISK":
       return {color: "#ffa940", label: "At risk", icon: "⚠️"};
     case "FILTERED":
-      return {color: C.red, label: "Filtered", icon: "🔻"};
+      return {color: C.red, label: "Filtered", icon: "▼"};
   }
 }
