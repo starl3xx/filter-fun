@@ -106,6 +106,9 @@ describe("useFilterMoment", () => {
         timestamp: isoDelta(0),
       }),
     ];
+    // First render: hook anchors firingStartedAtMs to client's `now` at
+    // first observation (post-bugbot round 8 fix), then we rerender ~6s
+    // later to age past the 5s firing window into recap.
     const {result, rerender} = renderHook(
       ({now}: {now: number}) =>
         useFilterMoment({
@@ -115,14 +118,15 @@ describe("useFilterMoment", () => {
           tickIntervalMs: 0,
           simulate: false,
         }),
-      {initialProps: {now: 6_000}},
+      {initialProps: {now: 0}},
     );
+    rerender({now: 6_000});
     expect(result.current.stage).toBe("recap");
 
     act(() => {
       result.current.dismiss();
     });
-    rerender({now: 6_100});
+    rerender({now: 6_200});
     expect(result.current.stage).toBe("idle");
 
     // A *newer* firing event re-arms the overlay.
@@ -198,9 +202,12 @@ describe("useFilterMoment", () => {
     // and FILTER_COUNTDOWN-event paths were both unreachable until a new
     // FILTER_FIRED arrived. The fix removes the early-return; the latch
     // is still enforced by filterFiredBatch filtering acknowledged ids.
+    //
+    // After the round-8 fix (firingStartedAtMs anchored to client `now`,
+    // not server timestamp), simulating "a week ago, user dismissed"
+    // requires explicitly calling dismiss() — a stale buffered event no
+    // longer auto-ages out via server timestamp.
     const firedAddr = "0x000000000000000000000000000000000000abcd" as `0x${string}`;
-    // Week 1 firing — already in the past; user dismissed and we're now
-    // 7 days later inside the next week's countdown window.
     const events = [
       makeFixtureEvent({
         id: 700,
@@ -212,20 +219,31 @@ describe("useFilterMoment", () => {
     ];
     const seasonInCountdown = makeFixtureSeason({nextCutAt: isoDelta(5 * 60_000)});
 
-    const {result} = renderHook(() =>
-      useFilterMoment({
-        season: seasonInCountdown,
-        events,
-        now: fakeNow(0),
-        tickIntervalMs: 0,
-        simulate: false,
-      }),
+    const {result, rerender} = renderHook(
+      ({now}: {now: number}) =>
+        useFilterMoment({
+          season: seasonInCountdown,
+          events,
+          now: fakeNow(now),
+          tickIntervalMs: 0,
+          simulate: false,
+        }),
+      {initialProps: {now: 0}},
     );
-    // First render: stage processes the firing batch (week-old event,
-    // unacknowledged). Then recap auto-fade triggers the done-latch which
-    // sets acknowledgedFilterId and clears firingStartedAtMs. With the
-    // early-idle removed, the next render's stage useMemo falls through
-    // to the wall-clock countdown check and returns "countdown".
+    // First render: hook anchors to client `now`, stage = firing.
+    expect(result.current.stage).toBe("firing");
+
+    // Simulate the user dismissing the ceremony. Latches ack=700.
+    act(() => {
+      result.current.dismiss();
+    });
+    rerender({now: 100});
+
+    // With the latch set + filterFiredBatch filtering acknowledged ids
+    // out of the buffer, the stage useMemo falls through to the
+    // wall-clock countdown check. `secondsUntilCut = 5min`, within the
+    // 10-minute window → "countdown". Pre-fix, the early-idle bailout
+    // would have returned "idle" instead.
     expect(result.current.stage).toBe("countdown");
     expect(result.current.acknowledgedFilterId).toBe(700);
   });

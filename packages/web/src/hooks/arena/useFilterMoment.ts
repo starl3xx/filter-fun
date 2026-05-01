@@ -205,10 +205,25 @@ export function useFilterMoment(args: UseFilterMomentArgs): UseFilterMomentResul
   }, [events, acknowledgedFilterId]);
 
   // Anchor the firing-stage start once a fresh FILTER_FIRED batch arrives.
+  //
+  // We anchor to the *client's* `now` at first observation rather than the
+  // server's event timestamp. Stage elapsed is computed against client
+  // `Date.now()`, so a server anchor would corrupt the 5s firing window
+  // under clock drift or SSE latency: if the client clock is >5s ahead of
+  // the server, elapsed-at-receipt would already be >5s and the firing
+  // animation would be skipped entirely; if behind, firing would extend.
+  // Client-side anchoring keeps stage durations exactly what the spec
+  // calls for, regardless of clock skew. Bugbot caught this.
+  //
+  // Page-refresh edge case: if the user lands on the page during an
+  // already-firing or already-recap event, this re-shows the ceremony
+  // from frame 0. The acknowledgedFilterId latch still fires once the
+  // recap auto-fades, so they see the ceremony once and then it goes
+  // away — better UX than showing a half-finished animation.
   useEffect(() => {
     if (simulateActive) return; // simulation drives its own clock
     if (!filterFiredBatch) return;
-    setFiringStartedAtMs((prev) => prev ?? filterFiredBatch.anchorTimestampMs);
+    setFiringStartedAtMs((prev) => prev ?? nowFactoryRef.current().getTime());
   }, [filterFiredBatch, simulateActive]);
 
   // ============================================================ Countdown derivation
