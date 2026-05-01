@@ -17,7 +17,11 @@ const ZERO_ADDR: Address = "0x0000000000000000000000000000000000000000";
 export const contractAddresses = {
   filterLauncher: (deployment.addresses.filterLauncher || ZERO_ADDR) as Address,
   filterFactory: (deployment.addresses.filterFactory || ZERO_ADDR) as Address,
-  filterToken: ((deployment as {filterToken?: string}).filterToken || ZERO_ADDR) as Address,
+  // `filterToken` is intentionally not exported here. The deploy manifest
+  // stores it at the top level as an object `{address, locker, ...}` (set
+  // by SeedFilter.s.sol after the protocol launch), not under `addresses.*`.
+  // Re-add when something in the web app actually needs it, with the correct
+  // path: `(deployment as {filterToken?: {address?: string}}).filterToken?.address`.
 } as const;
 
 /// True iff the deploy manifest carries a real address for `name`. Use to

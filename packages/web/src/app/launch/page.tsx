@@ -76,7 +76,11 @@ export default function LaunchPage() {
   // launchCount === MAX_LAUNCHES the eligibility branch already hides the
   // form (window-closed), but the display path still renders briefly while
   // the eligibility read settles. Without clamping, "Slot #13" can flash.
-  const rawNext = status?.launchCount ?? slots.findIndex((s) => s.kind === "next");
+  // `findIndex` returns -1 when no "next" slot exists (all filled / closed);
+  // fall back to the last slot rather than letting Math.max clamp to 0,
+  // which would mislabel as "Slot #01" instead of the actually-final state.
+  const findNextIdx = slots.findIndex((s) => s.kind === "next");
+  const rawNext = status?.launchCount ?? (findNextIdx >= 0 ? findNextIdx : MAX_LAUNCHES - 1);
   const nextSlotIndex = Math.min(Math.max(rawNext, 0), MAX_LAUNCHES - 1);
   const nextCostWei = status?.nextLaunchCostWei ?? 0n;
   const stakeWei = stakeOn ? nextCostWei : 0n;
