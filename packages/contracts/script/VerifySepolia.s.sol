@@ -7,6 +7,7 @@ import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 import {CreatorRegistry} from "../src/CreatorRegistry.sol";
 import {TournamentRegistry} from "../src/TournamentRegistry.sol";
+import {ScriptUtils} from "./ScriptUtils.sol";
 
 /// @notice Read-only operational verifier for the live Sepolia deploy.
 ///
@@ -49,8 +50,6 @@ contract VerifySepolia is Script {
         uint256 tokensChecked
     );
 
-    string internal constant DEFAULT_MANIFEST_PATH = "./deployments/base-sepolia.json";
-
     /// @notice Spec §4.6 locks the per-wallet weekly cap at 1 across Sepolia and mainnet.
     ///         Hardcoded here rather than read from env so the verifier's expected value
     ///         is committed alongside the spec, not subject to operator typo at runtime.
@@ -64,12 +63,12 @@ contract VerifySepolia is Script {
     ///         which has been observed to silently revert OS env mutations made between
     ///         tests in the same suite.
     function run() external {
-        runWithFlags(_envBool("SKIP_FILTER_TOKEN_CHECK", false));
+        runWithFlags(ScriptUtils.envBool("SKIP_FILTER_TOKEN_CHECK", false));
     }
 
     /// @notice Pure-flag entry point. Use this from tests; production operators use `run()`.
     function runWithFlags(bool skipFilter) public {
-        string memory manifestPath = _manifestPath();
+        string memory manifestPath = ScriptUtils.manifestPath();
         require(vm.exists(manifestPath), "VerifySepolia: manifest missing");
         string memory m = vm.readFile(manifestPath);
 
@@ -197,29 +196,5 @@ contract VerifySepolia is Script {
             tokensChecked: tokensChecked
         });
         console2.log("=== VerifySepoliaOK ===");
-    }
-
-    // ============================================================ Helpers
-
-    function _manifestPath() internal view returns (string memory) {
-        try vm.envString("MANIFEST_PATH_OVERRIDE") returns (string memory v) {
-            return bytes(v).length == 0 ? DEFAULT_MANIFEST_PATH : v;
-        } catch {
-            return DEFAULT_MANIFEST_PATH;
-        }
-    }
-
-    /// Boolean env parser identical to DeploySepolia's — strict whitelist, loud rejection of
-    /// unrecognized values. Keeps verifier behavior independent of forge-std's parser drift.
-    function _envBool(string memory key, bool fallback_) internal view returns (bool) {
-        try vm.envString(key) returns (string memory raw) {
-            if (bytes(raw).length == 0) return fallback_;
-            bytes32 h = keccak256(bytes(raw));
-            if (h == keccak256("1") || h == keccak256("true") || h == keccak256("TRUE")) return true;
-            if (h == keccak256("0") || h == keccak256("false") || h == keccak256("FALSE")) return false;
-            revert(string.concat("VerifySepolia: unrecognized boolean for ", key));
-        } catch {
-            return fallback_;
-        }
     }
 }

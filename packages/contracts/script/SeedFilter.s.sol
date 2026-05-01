@@ -5,6 +5,7 @@ import {Script, console2} from "forge-std/Script.sol";
 
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
+import {ScriptUtils} from "./ScriptUtils.sol";
 
 /// @notice Seeds the testnet rehearsal $FILTER token via the protocol-launch bypass at
 ///         FilterLauncher.launchProtocolToken. Reads the launcher address from the deploy
@@ -29,10 +30,8 @@ import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 ///           - launcher.currentSeasonId() > 0 and current phase == Launch
 ///           - manifest.filterToken is empty (don't double-seed)
 contract SeedFilter is Script {
-    string internal constant DEFAULT_MANIFEST_PATH = "./deployments/base-sepolia.json";
-
     function run() external {
-        string memory manifestPath = _manifestPath();
+        string memory manifestPath = ScriptUtils.manifestPath();
         require(vm.exists(manifestPath), "manifest missing; run DeploySepolia first");
         string memory manifest = vm.readFile(manifestPath);
 
@@ -55,7 +54,7 @@ contract SeedFilter is Script {
         string memory metadataUri = vm.envString("FILTER_METADATA_URI");
         require(bytes(metadataUri).length > 0, "FILTER_METADATA_URI required");
 
-        uint256 pk = _envPrivateKey();
+        uint256 pk = ScriptUtils.envPrivateKey();
         FilterLauncher launcher = FilterLauncher(launcherAddr);
 
         // Pre-flight: season must be open and in Launch phase. Catches the "deployed but oracle
@@ -96,10 +95,10 @@ contract SeedFilter is Script {
         string memory value = string.concat(
             "{",
             "\"address\":\"",
-            _addrToString(token),
+            ScriptUtils.addrToString(token),
             "\",",
             "\"locker\":\"",
-            _addrToString(locker),
+            ScriptUtils.addrToString(locker),
             "\",",
             "\"name\":\"filter\",",
             "\"symbol\":\"FILTER\",",
@@ -115,41 +114,5 @@ contract SeedFilter is Script {
         // Targeted write: replaces only the `filterToken` key in the manifest, leaving every
         // other key untouched. Avoids any chance of dropping addresses we wrote earlier.
         vm.writeJson(value, manifestPath, ".filterToken");
-    }
-
-    /// Lowercase hex address with `0x` prefix — matches `DeploySepolia._addrToString` so the
-    /// manifest is consistent across the two writers. (`vm.toString(address)` emits EIP-55
-    /// mixed-case which is fine but inconsistent across runs; we normalize to lowercase so
-    /// the manifest output is deterministic for diffs and downstream parsing.)
-    function _addrToString(address a) private pure returns (string memory) {
-        bytes memory hexChars = "0123456789abcdef";
-        bytes memory out = new bytes(42);
-        out[0] = "0";
-        out[1] = "x";
-        uint160 value = uint160(a);
-        for (uint256 i = 0; i < 20; ++i) {
-            uint8 b = uint8(value >> (8 * (19 - i)));
-            out[2 + i * 2] = hexChars[b >> 4];
-            out[2 + i * 2 + 1] = hexChars[b & 0x0f];
-        }
-        return string(out);
-    }
-
-    /// Manifest path with optional env override — keeps tests from clobbering the real
-    /// `./deployments/base-sepolia.json` and mirrors the pattern in `DeploySepolia.s.sol`.
-    function _manifestPath() internal view returns (string memory) {
-        try vm.envString("MANIFEST_PATH_OVERRIDE") returns (string memory v) {
-            return bytes(v).length == 0 ? DEFAULT_MANIFEST_PATH : v;
-        } catch {
-            return DEFAULT_MANIFEST_PATH;
-        }
-    }
-
-    function _envPrivateKey() internal view returns (uint256) {
-        try vm.envUint("DEPLOYER_PRIVATE_KEY") returns (uint256 pk) {
-            return pk;
-        } catch {
-            return vm.envUint("PRIVATE_KEY");
-        }
     }
 }

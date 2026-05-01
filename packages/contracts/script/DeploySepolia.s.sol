@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
+import {ScriptUtils} from "./ScriptUtils.sol";
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {FilterFactory} from "../src/FilterFactory.sol";
 import {FilterHook} from "../src/FilterHook.sol";
@@ -53,17 +54,11 @@ contract DeploySepolia is Script {
     /// Hook flag bits for FilterHook (BEFORE_ADD_LIQUIDITY | BEFORE_REMOVE_LIQUIDITY).
     uint160 internal constant HOOK_FLAGS = uint160(0xA00);
 
-    /// Where the manifest lands. Resolved against `forge`'s working dir, which is the
-    /// `packages/contracts/` package root. The `deployments/` directory is committed (via
-    /// .gitkeep) so this file shows up alongside the other build artifacts. Tests override
-    /// this via `MANIFEST_PATH_OVERRIDE` to avoid clobbering a real manifest.
-    string internal constant DEFAULT_MANIFEST_PATH = "./deployments/base-sepolia.json";
-
     function run() external {
-        string memory manifestPath = _manifestPath();
+        string memory manifestPath = ScriptUtils.manifestPath();
 
         // ------------------------------------------------------------ Idempotency check
-        bool force = _envBool("FORCE_REDEPLOY", false);
+        bool force = ScriptUtils.envBool("FORCE_REDEPLOY", false);
         if (vm.exists(manifestPath) && !force) {
             string memory existing = vm.readFile(manifestPath);
             // A manifest with a non-zero `addresses.filterLauncher` means a real prior deploy.
@@ -82,7 +77,7 @@ contract DeploySepolia is Script {
         }
 
         // ------------------------------------------------------------ Read env
-        uint256 pk = _envPrivateKey();
+        uint256 pk = ScriptUtils.envPrivateKey();
         address pmAddr = vm.envAddress("V4_POOL_MANAGER_ADDRESS");
         address weth = vm.envAddress("WETH_ADDRESS");
         address treasuryOwner = vm.envAddress("TREASURY_OWNER");
@@ -90,7 +85,7 @@ contract DeploySepolia is Script {
         address mechanics = vm.envOr("MECHANICS_WALLET", treasuryOwner);
         address polVaultOwner = vm.envOr("POL_VAULT_OWNER", treasuryOwner);
         uint256 maxLaunchesPerWallet = vm.envUint("MAX_LAUNCHES_PER_WALLET");
-        bool refundableStake = _envBool("REFUNDABLE_STAKE_ENABLED", true);
+        bool refundableStake = ScriptUtils.envBool("REFUNDABLE_STAKE_ENABLED", true);
 
         require(block.chainid == 84_532, "DeploySepolia: chainId != 84532 (Base Sepolia)");
 
@@ -212,53 +207,6 @@ contract DeploySepolia is Script {
     }
 
     // ============================================================ Helpers
-
-    /// Manifest path with optional env override. Tests set `MANIFEST_PATH_OVERRIDE` to a tmp
-    /// file so they don't clobber the real `./deployments/base-sepolia.json`.
-    function _manifestPath() internal view returns (string memory) {
-        try vm.envString("MANIFEST_PATH_OVERRIDE") returns (string memory v) {
-            return bytes(v).length == 0 ? DEFAULT_MANIFEST_PATH : v;
-        } catch {
-            return DEFAULT_MANIFEST_PATH;
-        }
-    }
-
-    /// Accept either `DEPLOYER_PRIVATE_KEY` (per spec) or `PRIVATE_KEY` (legacy convention).
-    function _envPrivateKey() internal view returns (uint256) {
-        try vm.envUint("DEPLOYER_PRIVATE_KEY") returns (uint256 pk) {
-            return pk;
-        } catch {
-            return vm.envUint("PRIVATE_KEY");
-        }
-    }
-
-    function _envBool(string memory key, bool fallback_) internal view returns (bool) {
-        try vm.envString(key) returns (string memory raw) {
-            if (bytes(raw).length == 0) return fallback_;
-            // Whitelist truthy/falsy spellings explicitly. `vm.envBool`'s parser is forgiving
-            // about spaces and casing in different forge versions; doing it ourselves keeps
-            // the contract's behavior independent of forge-std version drift, which matters
-            // because env state leaks across test files (process-wide) and a misparse would
-            // silently bypass the FORCE_REDEPLOY guard.
-            //
-            // Reject anything outside the whitelist with a clear error rather than falling
-            // back. An operator typing `FORCE_REDEPLOY=True` (capital T) intends "true"; if
-            // we silently fell back to the default `false`, the idempotency guard would
-            // refuse to overwrite even though the operator asked it to. Loud failure beats
-            // silent surprise here.
-            if (_eq(raw, "1") || _eq(raw, "true") || _eq(raw, "TRUE")) return true;
-            if (_eq(raw, "0") || _eq(raw, "false") || _eq(raw, "FALSE")) return false;
-            revert(
-                string.concat("DeploySepolia: unrecognized boolean for ", key, "; expected 1/0/true/false")
-            );
-        } catch {
-            return fallback_;
-        }
-    }
-
-    function _eq(string memory a, string memory b) private pure returns (bool) {
-        return keccak256(bytes(a)) == keccak256(bytes(b));
-    }
 
     /// Use HOOK_SALT from env if set; else mine inline against the canonical DDP. Mining is
     /// deterministic over `(creationCode, deployer)` so the salt is stable across machines.
@@ -411,9 +359,14 @@ contract DeploySepolia is Script {
     }
 
     // ---------- JSON-emit helpers ----------
+    //
+    // The address/uint/bytes32 stringifiers used to live here too; they're now in
+    // `ScriptUtils` so `SeedFilter` can share the address formatter. The `_kv*` wrappers
+    // stay here because they're glue that pre-formats keys for this manifest's specific
+    // shape — not generally reusable.
 
     function _kv(string memory key, address value) private pure returns (string memory) {
-        return string.concat("\"", key, "\":\"", _addrToString(value), "\"");
+        return string.concat("\"", key, "\":\"", ScriptUtils.addrToString(value), "\"");
     }
 
     function _kvStr(string memory key, string memory value) private pure returns (string memory) {
@@ -421,7 +374,7 @@ contract DeploySepolia is Script {
     }
 
     function _kvUint(string memory key, uint256 value) private pure returns (string memory) {
-        return string.concat("\"", key, "\":", _uintToString(value));
+        return string.concat("\"", key, "\":", ScriptUtils.uintToString(value));
     }
 
     function _kvBool(string memory key, bool value) private pure returns (string memory) {
@@ -429,58 +382,11 @@ contract DeploySepolia is Script {
     }
 
     function _kvBytes32(string memory key, bytes32 value) private pure returns (string memory) {
-        return string.concat("\"", key, "\":\"", _bytes32ToHex(value), "\"");
+        return string.concat("\"", key, "\":\"", ScriptUtils.bytes32ToHex(value), "\"");
     }
 
     function _kvRaw(string memory key, string memory rawJson) private pure returns (string memory) {
         return string.concat("\"", key, "\":", rawJson);
-    }
-
-    /// Lowercase hex address with `0x` prefix — the `vm.toString(address)` cheatcode emits
-    /// EIP-55 mixed case which is fine but inconsistent across runs; we normalize to
-    /// lowercase so the manifest output is deterministic for diffs.
-    function _addrToString(address a) private pure returns (string memory) {
-        bytes memory hexChars = "0123456789abcdef";
-        bytes memory out = new bytes(42);
-        out[0] = "0";
-        out[1] = "x";
-        uint160 value = uint160(a);
-        for (uint256 i = 0; i < 20; ++i) {
-            uint8 b = uint8(value >> (8 * (19 - i)));
-            out[2 + i * 2] = hexChars[b >> 4];
-            out[2 + i * 2 + 1] = hexChars[b & 0x0f];
-        }
-        return string(out);
-    }
-
-    function _bytes32ToHex(bytes32 v) private pure returns (string memory) {
-        bytes memory hexChars = "0123456789abcdef";
-        bytes memory out = new bytes(66);
-        out[0] = "0";
-        out[1] = "x";
-        for (uint256 i = 0; i < 32; ++i) {
-            uint8 b = uint8(v[i]);
-            out[2 + i * 2] = hexChars[b >> 4];
-            out[2 + i * 2 + 1] = hexChars[b & 0x0f];
-        }
-        return string(out);
-    }
-
-    function _uintToString(uint256 v) private pure returns (string memory) {
-        if (v == 0) return "0";
-        uint256 tmp = v;
-        uint256 digits;
-        while (tmp != 0) {
-            ++digits;
-            tmp /= 10;
-        }
-        bytes memory buf = new bytes(digits);
-        while (v != 0) {
-            --digits;
-            buf[digits] = bytes1(uint8(48 + (v % 10)));
-            v /= 10;
-        }
-        return string(buf);
     }
 
     function _envOrDefaultString(string memory key, string memory fallback_)

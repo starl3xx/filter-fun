@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 
 import {DeploySepolia} from "./DeploySepolia.s.sol";
+import {ScriptUtils} from "./ScriptUtils.sol";
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {FilterHook} from "../src/FilterHook.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
@@ -61,7 +62,6 @@ contract RedeployFactory is Script {
         string archivePath
     );
 
-    string internal constant DEFAULT_MANIFEST_PATH = "./deployments/base-sepolia.json";
     string internal constant ARCHIVE_DIR = "./deployments/archive";
 
     /// Canonical CREATE2 deployer used by forge under broadcast — must match
@@ -73,7 +73,7 @@ contract RedeployFactory is Script {
     uint160 internal constant HOOK_FLAGS = 0xA00;
 
     function run() external {
-        string memory manifestPath = _manifestPath();
+        string memory manifestPath = ScriptUtils.manifestPath();
         require(vm.exists(manifestPath), "RedeployFactory: manifest missing - nothing to rotate");
 
         string memory existing = vm.readFile(manifestPath);
@@ -87,7 +87,7 @@ contract RedeployFactory is Script {
         // step. If it's also been used to open a season, we have to know whether public
         // launches happened — those tokens are orphaned by the rotation. Fail loudly unless
         // the operator explicitly opts in.
-        bool ackActiveLaunch = _envBool("ACTIVE_LAUNCH_OK", false);
+        bool ackActiveLaunch = ScriptUtils.envBool("ACTIVE_LAUNCH_OK", false);
         FilterLauncher launcher = FilterLauncher(oldLauncher);
         uint256 sid = launcher.currentSeasonId();
         uint64 activeCount;
@@ -199,27 +199,5 @@ contract RedeployFactory is Script {
             if (bs[bs.length - bf.length + i] != bf[i]) return false;
         }
         return true;
-    }
-
-    function _manifestPath() internal view returns (string memory) {
-        try vm.envString("MANIFEST_PATH_OVERRIDE") returns (string memory v) {
-            return bytes(v).length == 0 ? DEFAULT_MANIFEST_PATH : v;
-        } catch {
-            return DEFAULT_MANIFEST_PATH;
-        }
-    }
-
-    /// Strict whitelist boolean parser, matching `DeploySepolia._envBool`. Loud rejection of
-    /// unrecognized values keeps "FALSE", "False", typos etc. from being silently coerced.
-    function _envBool(string memory key, bool fallback_) internal view returns (bool) {
-        try vm.envString(key) returns (string memory raw) {
-            if (bytes(raw).length == 0) return fallback_;
-            bytes32 h = keccak256(bytes(raw));
-            if (h == keccak256("1") || h == keccak256("true") || h == keccak256("TRUE")) return true;
-            if (h == keccak256("0") || h == keccak256("false") || h == keccak256("FALSE")) return false;
-            revert(string.concat("RedeployFactory: unrecognized boolean for ", key));
-        } catch {
-            return fallback_;
-        }
     }
 }
