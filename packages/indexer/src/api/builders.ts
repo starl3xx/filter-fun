@@ -127,12 +127,19 @@ export interface TokenResponse {
 /// `{isLocked: false, unlockTimestamp: null, creator: row.creator ?? 0x0}` — i.e.
 /// "no commitment recorded." `nowSec` drives the `isLocked` flag so a freshly-expired
 /// lock immediately reports as unlocked without a re-index.
+///
+/// `bagLockByToken` and `nowSec` are required (no defaults). Bugbot caught a
+/// dangerous prior default of `nowSec = 0n`: any caller that supplied lock data
+/// but forgot the clock would evaluate `unlockTimestamp > 0n` as `true` for every
+/// row and silently report all locks as active regardless of actual expiry.
+/// Callers without lock data should pass an empty map + `0n`; callers with lock
+/// data must pass the real wall clock.
 export function buildTokensResponse(
   rows: ReadonlyArray<TokenRow>,
   scored: ReadonlyMap<string, ScoredToken>,
   apiPhase: ApiPhase,
-  bagLockByToken: ReadonlyMap<string, {creator: `0x${string}`; unlockTimestamp: bigint}> = new Map(),
-  nowSec: bigint = 0n,
+  bagLockByToken: ReadonlyMap<string, {creator: `0x${string}`; unlockTimestamp: bigint}>,
+  nowSec: bigint,
 ): TokenResponse[] {
   const enriched: TokenResponse[] = rows.map((r) => {
     const s = scored.get(r.id.toLowerCase());
