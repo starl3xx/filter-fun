@@ -26,7 +26,9 @@ export type ArenaTopBarProps = {
 
 export function ArenaTopBar({season, liveStatus}: ArenaTopBarProps) {
   const countdownSec = useTickingCountdown(season?.nextCutAt ?? null);
-  const backingGlow = useGrowthGlow(season?.polReserve ?? "0");
+  // Pass `null` until season loads so the loading-sentinel "0" doesn't get
+  // mistaken for a previous value the first real response then "grows" past.
+  const backingGlow = useGrowthGlow(season?.polReserve ?? null);
 
   const liveColor = liveStatus === "open" ? C.green : liveStatus === "closed" ? C.faint : C.yellow;
   const liveText = liveStatus === "open" ? "LIVE" : liveStatus === "reconnecting" ? "RECONNECTING" : liveStatus === "closed" ? "OFFLINE" : "CONNECTING";
@@ -189,11 +191,19 @@ function useTickingCountdown(iso: string | null): number | null {
 /// pending timer (via effect cleanup) but the new effect run took the
 /// else branch and never cleared `glow`. Anchoring on a ref + setting a
 /// trailing timer that *checks the ref* keeps the truth in one place.
-function useGrowthGlow(value: string): boolean {
+///
+/// Pass `null` while the upstream value is still loading. The hook treats
+/// the first `null → real` transition as "initial load, not growth" — so
+/// the Champion Backing Pool doesn't flash on every page mount.
+function useGrowthGlow(value: string | null): boolean {
   const prev = useRef<string | null>(null);
   const glowUntilRef = useRef<number>(0);
   const [glow, setGlow] = useState(false);
   useEffect(() => {
+    // Skip while loading — record nothing, signal nothing. Once the first
+    // real value arrives, prev becomes that value and only *subsequent*
+    // changes are scored as growth.
+    if (value === null) return;
     const prevNum = prev.current === null ? null : Number(prev.current);
     const curNum = Number(value);
     const isGrowth =
