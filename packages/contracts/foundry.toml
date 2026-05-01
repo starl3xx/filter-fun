@@ -31,6 +31,51 @@ fs_permissions = [
 isolate = true
 threads = 1
 
+# Invariant testing config (spec §42.2). Applies to every `invariant_*` test.
+#
+# `runs` — number of randomized action sequences. 256 is the Foundry default and the
+#   minimum bar for the audit-prep checklist. The deep profile below bumps to 1024 for
+#   pre-audit local sweeps; CI sticks to 256 to keep the per-PR contracts job under the
+#   ~5-min budget (full suite currently runs in ~2 min wall-clock on default).
+# `depth` — calls per sequence. 500 is enough to walk a full season's lifecycle (filter
+#   events → submitWinner → claims) plus a margin of adversary attempts.
+# `fail_on_revert` — false because the handlers use try/catch on every adversary action;
+#   "revert" here means a guard fired correctly, not a test failure. The ghost-flag pattern
+#   carries the actual pass/fail signal into the `invariant_*` assertions.
+# `call_override` — false; we don't need to swap implementations mid-sequence.
+# `dictionary_weight` — 80 (default) keeps the fuzzer's input dictionary biased toward
+#   addresses + selectors already mentioned in the test; productive for our bounded actor set.
+[invariant]
+runs = 256
+depth = 500
+fail_on_revert = false
+call_override = false
+dictionary_weight = 80
+
+# `forge test --profile deep` runs 4× more sequences for the same cohort, useful for
+# local pre-audit sweeps. Keep CI on the default profile.
+[profile.deep]
+src = "src"
+out = "out"
+test = "test"
+script = "script"
+solc_version = "0.8.26"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+evm_version = "cancun"
+fs_permissions = [
+    { access = "read", path = "./" },
+    { access = "read-write", path = "./deployments" },
+]
+isolate = true
+threads = 1
+
+[profile.deep.invariant]
+runs = 1024
+depth = 500
+fail_on_revert = false
+
 [lint]
 exclude_lints = ["unsafe-typecast"]
 
