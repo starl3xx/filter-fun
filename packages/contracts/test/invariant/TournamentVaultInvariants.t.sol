@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 
+import {TournamentVault} from "../../src/TournamentVault.sol";
+
 import {TournamentHandler} from "./handlers/TournamentHandler.sol";
 
 /// @title TournamentVaultInvariants
@@ -46,13 +48,25 @@ contract TournamentVaultInvariantsTest is StdInvariant, Test {
     // ============================================================ Conservation
     //
     // Tournament vault holds quarterly + annual funds in a single WETH balance, so the
-    // conservation invariants split into two assertions:
-    //   1. Per-period bookkeeping: when settled, sum of allocated slices equals the funded pot
-    //   2. Combined balance: vault's actual WETH balance equals the residual of (q + a)
-    //      after each timescale's outflows (mechanics + treasury + bounty are forwarded out;
-    //      rollover + bonus + pol stay parked)
+    // conservation invariants split into:
+    //   1. Per-period bookkeeping: on-chain Tournament struct matches ghost-derived BPS slices
+    //   2. External balances: mechanics + treasury + bounty creator received their cuts
+    //   3. Combined balance: vault's actual WETH balance equals the residual of (q + a)
+    //      after each timescale's outflows
+    //
+    // Critical: these read on-chain state (`vault.tournamentOf(...)`,
+    // `weth.balanceOf(mechanics)`) and compare against ghosts. Without that, the suite
+    // would only assert ghost-vs-ghost tautologies that hold by construction regardless
+    // of what TournamentVault actually does.
     function invariant_quarterlyConservation() public view {
         if (!handler.ghostQSettled()) return;
+        // (1) On-chain Tournament struct matches expected BPS slices.
+        TournamentVault.Tournament memory t = handler.vault().tournamentOf(handler.YEAR(), handler.QUARTER());
+        assertEq(t.bountyAmount, handler.ghostQBountyAccrued(), "qConservation: on-chain bounty drift");
+        assertEq(t.rolloverReserve, handler.ghostQRolloverAccrued(), "qConservation: on-chain rollover drift");
+        assertEq(t.bonusReserve, handler.ghostQBonusAccrued(), "qConservation: on-chain bonus drift");
+        assertEq(t.polAccumulated, handler.ghostQPolAccrued(), "qConservation: on-chain pol drift");
+        // (2) Bookkeeping closure: sum of all six slices equals what was funded.
         uint256 sum = handler.ghostQBountyAccrued() + handler.ghostQRolloverAccrued()
             + handler.ghostQBonusAccrued() + handler.ghostQMechanicsAccrued() + handler.ghostQPolAccrued()
             + handler.ghostQTreasuryAccrued();
@@ -61,10 +75,41 @@ contract TournamentVaultInvariantsTest is StdInvariant, Test {
 
     function invariant_annualConservation() public view {
         if (!handler.ghostASettled()) return;
+        TournamentVault.Tournament memory t = handler.vault().annualTournamentOf(handler.YEAR());
+        assertEq(t.bountyAmount, handler.ghostABountyAccrued(), "aConservation: on-chain bounty drift");
+        assertEq(t.rolloverReserve, handler.ghostARolloverAccrued(), "aConservation: on-chain rollover drift");
+        assertEq(t.bonusReserve, handler.ghostABonusAccrued(), "aConservation: on-chain bonus drift");
+        assertEq(t.polAccumulated, handler.ghostAPolAccrued(), "aConservation: on-chain pol drift");
         uint256 sum = handler.ghostABountyAccrued() + handler.ghostARolloverAccrued()
             + handler.ghostABonusAccrued() + handler.ghostAMechanicsAccrued() + handler.ghostAPolAccrued()
             + handler.ghostATreasuryAccrued();
         assertEq(sum, handler.ghostAFunded(), "aConservation: sum(slices) != funded");
+    }
+
+    /// @notice External destinations check: `mechanics` + `treasury` are forwarded
+    ///         immediately at settle time and accumulate across q + a settlements.
+    ///         `winnerCreator` accumulates both bounties (we wire the same address as
+    ///         creator for both winners). These are independently observable WETH
+    ///         balances — drift here means the vault forwarded the wrong amount.
+    function invariant_externalDestinationsMatch() public view {
+        uint256 expectedMech = handler.ghostQMechanicsAccrued() + handler.ghostAMechanicsAccrued();
+        uint256 expectedTreasury = handler.ghostQTreasuryAccrued() + handler.ghostATreasuryAccrued();
+        uint256 expectedBounty = handler.ghostQBountyAccrued() + handler.ghostABountyAccrued();
+        assertEq(
+            IERC20(address(handler.weth())).balanceOf(handler.mechanics()),
+            expectedMech,
+            "external: mechanics balance drift"
+        );
+        assertEq(
+            IERC20(address(handler.weth())).balanceOf(handler.treasury()),
+            expectedTreasury,
+            "external: treasury balance drift"
+        );
+        assertEq(
+            IERC20(address(handler.weth())).balanceOf(handler.winnerCreator()),
+            expectedBounty,
+            "external: winnerCreator (bounty) balance drift"
+        );
     }
 
     /// @notice Combined on-chain balance reconciliation. Vault holds (per timescale):
@@ -89,32 +134,39 @@ contract TournamentVaultInvariantsTest is StdInvariant, Test {
     }
 
     // ============================================================ Settlement math
+    //
+    // Reads the on-chain `Tournament` struct and compares each component to the
+    // BPS-derived expectation. Without this, ghost-vs-ghost would tautologically pass
+    // regardless of TournamentVault's actual behavior.
     function invariant_settlementMathExact() public view {
         if (handler.ghostQSettled()) {
             uint256 pot = handler.ghostQFunded();
             uint256 expectedBounty = (pot * 250) / 10_000;
-            assertEq(handler.ghostQBountyAccrued(), expectedBounty, "qMath: bounty drift");
             uint256 remainder = pot - expectedBounty;
-            assertEq(
-                handler.ghostQRolloverAccrued() + handler.ghostQBonusAccrued()
-                    + handler.ghostQMechanicsAccrued() + handler.ghostQPolAccrued()
-                    + handler.ghostQTreasuryAccrued(),
-                remainder,
-                "qMath: remainder split drift"
-            );
+            uint256 expectedRollover = (remainder * 4500) / 10_000;
+            uint256 expectedBonus = (remainder * 2500) / 10_000;
+            uint256 expectedPol = (remainder * 1000) / 10_000;
+            TournamentVault.Tournament memory t =
+                handler.vault().tournamentOf(handler.YEAR(), handler.QUARTER());
+            assertEq(t.bountyAmount, expectedBounty, "qMath: on-chain bounty != BPS");
+            assertEq(t.rolloverReserve, expectedRollover, "qMath: on-chain rollover != BPS");
+            assertEq(t.bonusReserve, expectedBonus, "qMath: on-chain bonus != BPS");
+            assertEq(t.polAccumulated, expectedPol, "qMath: on-chain pol != BPS");
+            // Mechanics + treasury are forwarded out via WETH transfer; their cumulative
+            // balances are checked in invariant_externalDestinationsMatch.
         }
         if (handler.ghostASettled()) {
             uint256 pot = handler.ghostAFunded();
             uint256 expectedBounty = (pot * 250) / 10_000;
-            assertEq(handler.ghostABountyAccrued(), expectedBounty, "aMath: bounty drift");
             uint256 remainder = pot - expectedBounty;
-            assertEq(
-                handler.ghostARolloverAccrued() + handler.ghostABonusAccrued()
-                    + handler.ghostAMechanicsAccrued() + handler.ghostAPolAccrued()
-                    + handler.ghostATreasuryAccrued(),
-                remainder,
-                "aMath: remainder split drift"
-            );
+            uint256 expectedRollover = (remainder * 4500) / 10_000;
+            uint256 expectedBonus = (remainder * 2500) / 10_000;
+            uint256 expectedPol = (remainder * 1000) / 10_000;
+            TournamentVault.Tournament memory t = handler.vault().annualTournamentOf(handler.YEAR());
+            assertEq(t.bountyAmount, expectedBounty, "aMath: on-chain bounty != BPS");
+            assertEq(t.rolloverReserve, expectedRollover, "aMath: on-chain rollover != BPS");
+            assertEq(t.bonusReserve, expectedBonus, "aMath: on-chain bonus != BPS");
+            assertEq(t.polAccumulated, expectedPol, "aMath: on-chain pol != BPS");
         }
     }
 
@@ -181,19 +233,25 @@ contract TournamentVaultInvariantsTest is StdInvariant, Test {
     }
 
     // ============================================================ Dust handling
+    //
+    // Pulls the on-chain Tournament struct and asserts every wei is accounted for: the
+    // four parked components (bounty, rollover, bonus, pol) plus mechanics + treasury
+    // (forwarded out, observed via cumulative balance deltas across q+a) sum to the
+    // funded pot exactly. No "unaccounted-for" balance can exist.
     function invariant_dustHandling() public view {
-        // Per-component sums must equal funded pot exactly; no hidden balance.
         if (handler.ghostQSettled()) {
-            uint256 sum = handler.ghostQBountyAccrued() + handler.ghostQRolloverAccrued()
-                + handler.ghostQBonusAccrued() + handler.ghostQMechanicsAccrued() + handler.ghostQPolAccrued()
-                + handler.ghostQTreasuryAccrued();
-            assertEq(sum, handler.ghostQFunded(), "qDust: sum != funded");
+            TournamentVault.Tournament memory t =
+                handler.vault().tournamentOf(handler.YEAR(), handler.QUARTER());
+            // On-chain parked components + ghost-tracked outflows must equal funded.
+            uint256 onChainParked = t.bountyAmount + t.rolloverReserve + t.bonusReserve + t.polAccumulated;
+            uint256 outflowed = handler.ghostQMechanicsAccrued() + handler.ghostQTreasuryAccrued();
+            assertEq(onChainParked + outflowed, handler.ghostQFunded(), "qDust: on-chain != funded");
         }
         if (handler.ghostASettled()) {
-            uint256 sum = handler.ghostABountyAccrued() + handler.ghostARolloverAccrued()
-                + handler.ghostABonusAccrued() + handler.ghostAMechanicsAccrued() + handler.ghostAPolAccrued()
-                + handler.ghostATreasuryAccrued();
-            assertEq(sum, handler.ghostAFunded(), "aDust: sum != funded");
+            TournamentVault.Tournament memory t = handler.vault().annualTournamentOf(handler.YEAR());
+            uint256 onChainParked = t.bountyAmount + t.rolloverReserve + t.bonusReserve + t.polAccumulated;
+            uint256 outflowed = handler.ghostAMechanicsAccrued() + handler.ghostATreasuryAccrued();
+            assertEq(onChainParked + outflowed, handler.ghostAFunded(), "aDust: on-chain != funded");
         }
     }
 }
