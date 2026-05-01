@@ -4,8 +4,9 @@ pragma solidity ^0.8.26;
 /// @title CreatorRegistry
 /// @notice Singleton mapping (token → creator) populated by the FilterLauncher at launch
 ///         time and never overwritten. Also records the launch timestamp so downstream
-///         consumers (notably `CreatorFeeDistributor`) can compute the 72-hour creator-fee
-///         window without re-reading the launcher.
+///         consumers (notably `CreatorFeeDistributor`) can compute the 72-hour (Days 1–3)
+///         creator-fee window without re-reading the launcher. Distinct from the Day 4 hard
+///         cut at hour 96 — see `docs/zombie-tokens.md` and `packages/cadence/`.
 ///
 ///         Kept deliberately tiny: a write-once registry with a launcher-only writer. No
 ///         creator transfer, no rotation. Future iterations may add "creator profiles" or

@@ -15,7 +15,9 @@ interface ILauncherView {
 /// @notice Singleton sink for the 0.20% creator slice of every swap. Accrues per-token,
 ///         claimable by the registered creator. Eligibility is time-and-state gated:
 ///
-///         - First 72 hours after launch (recorded by `CreatorRegistry`).
+///         - First 72 hours after launch (Days 1–3, recorded by `CreatorRegistry`). This
+///           window is intentionally distinct from the Day 4 hard cut at hour 96: creator
+///           fees flow during the warm-up days only, not into the cut window itself.
 ///         - Token has not yet been filtered (vault calls `markFiltered` at filter time).
 ///
 ///         When a fee arrives outside the eligibility window, it is redirected to the

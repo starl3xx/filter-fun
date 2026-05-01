@@ -25,7 +25,7 @@ const HOUR = 3600n;
 const DAY = 24n * HOUR;
 
 /// Season started exactly 1 day ago at the time the tests run. Lets cadence assertions
-/// (next-cut at 72h, settlement at 168h) compare against `startedAt + offset`.
+/// (next-cut at 96h, settlement at 168h) compare against `startedAt + offset`.
 const STARTED_AT = 1_700_000_000n;
 
 function mkSeason(over: Partial<SeasonRow> = {}): SeasonRow {
@@ -88,10 +88,10 @@ describe("/season", () => {
       championPool: "0",
       polReserve: "0",
     });
-    // nextCutAt is start + 72h while in launch/competition.
+    // nextCutAt is start + 96h (Day 4 hard cut) while in launch/competition.
     const cutAt = (r.body as {nextCutAt: string}).nextCutAt;
     const settleAt = (r.body as {finalSettlementAt: string}).finalSettlementAt;
-    expect(new Date(cutAt).getTime() / 1000).toBe(Number(STARTED_AT + 3n * DAY));
+    expect(new Date(cutAt).getTime() / 1000).toBe(Number(STARTED_AT + 4n * DAY));
     expect(new Date(settleAt).getTime() / 1000).toBe(Number(STARTED_AT + 7n * DAY));
   });
 

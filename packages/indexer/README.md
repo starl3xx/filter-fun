@@ -74,7 +74,7 @@ Live state of the current weekly season — drives Arena top-bar countdowns, pri
 | `phase` | `season.phase` (mapped) | `Launch → launch`, `Filter → competition`, `Finals → finals`, `Settlement/Closed → settled` |
 | `launchCount` | `count(token where seasonId = X and !isProtocolLaunched)` | Excludes $FILTER and any future protocol seeds |
 | `maxLaunches` | constant `12` | Mirrors `FilterLauncher.MAX_LAUNCHES` |
-| `nextCutAt` | derived | `startedAt + 72h` (pre-finals) or `+ 168h` (finals) per spec §36.1.5 |
+| `nextCutAt` | derived | `startedAt + 96h` (pre-finals, Day 4 hard cut) or `+ 168h` (finals) per spec §36.1.5; override via `SEASON_HARD_CUT_HOUR` |
 | `finalSettlementAt` | derived | `startedAt + 168h` |
 | `championPool` | `totalPot − bonusReserve` | Both fields filled at `Finalized`; pre-finalize this is `0` |
 | `polReserve` | placeholder `0` | POL accruals not yet indexed — see "Known gaps" below |
@@ -233,6 +233,25 @@ Wallet-level stats. Powers the Arena profile page and feeds the leaderboard "cre
 
 `stats.rolloverEarnedWei` aggregates `rolloverClaim.winnerTokens` per wallet (winner-token wei units; future Epic 1.10 will map these to WETH-equivalent). `stats.bonusEarnedWei` aggregates `bonusClaim.amount` (always WEI directly). `filtersSurvived`, `lifetimeTradeVolumeWei`, and `tokensTraded` ship as `0`/`"0"` until the holder-snapshot and swap-event indexes ship.
 
+## Cadence (Epic 1.10)
+
+`nextCutAt` and `finalSettlementAt` in `/season` are computed as `season.startedAt + N hours`, where the hour anchors come from `@filter-fun/cadence` (the same module the scheduler reads, so the API can never disagree with the on-chain phase advances). The locked timeline:
+
+- Hour 0–48: launch window
+- Hour 48–96: trading-only
+- Hour 96: hard cut (`nextCutAt` while in launch / competition)
+- Hour 96–168: finals (`nextCutAt` shifts to the settlement anchor)
+- Hour 168: settlement (`finalSettlementAt`)
+
+Override via env at indexer startup (validated; bad values abort the process):
+
+- `SEASON_LAUNCH_END_HOUR` (default `48`)
+- `SEASON_HARD_CUT_HOUR` (default `96`; must be `> launchEnd`)
+- `SEASON_SETTLEMENT_HOUR` (default `168`; must be `> hardCut`)
+- `SEASON_SOFT_FILTER_ENABLED` (default `false`; spec §33.6 — Day 5 soft filter is OFF; flag is forward-compat only)
+
+Mostly used to compress the timeline for Sepolia smoke tests — e.g. `SEASON_HARD_CUT_HOUR=2 SEASON_SETTLEMENT_HOUR=4` runs a season-in-an-hour. See [`packages/cadence/README.md`](../cadence/README.md) for the full env interface.
+
 ## Caching (Epic 1.3 part 3/3)
 
 `/season`, `/tokens`, and `/profile/:address` are wrapped in an in-process LRU+TTL cache. The cache is single-instance — single Ponder process, no redis. The `Cache` interface in `cache.ts` is intentionally narrow so a redis-backed implementation can drop in later without touching call sites.
@@ -287,7 +306,7 @@ The API is shipped with the spec §26.4 shape locked, but several fields current
 - **HP component values** depend on per-wallet swap streams + holder balances + LP-depth deltas, none of which are indexed today (the schema covers contract events: lifecycle, fees, claims). With degenerate inputs the cohort min-max normalization collapses to zeros across every component. Shape is correct (HP in [0, 1] → rendered as 0–100 integer; five components per token; phase weights applied), values are not. Fixing this is the indexer-expansion work that part 2/3 will need.
 - **Market-data fields** on `/tokens` (`price`, `priceChange24h`, `volume24h`, `liquidity`, `holders`) are placeholders. Populating them requires the same swap/transfer/LP indexing as HP.
 - **`polReserve`** on `/season` is `"0"` until POLManager / SeasonPOLReserve events are indexed. Schema has no POL accrual table yet.
-- **Cadence anchors** (`nextCutAt`, `finalSettlementAt`) are derived from `season.startedAt` + spec §36.1.5 offsets (72h cut, 168h settlement). When Epic 1.10 lands and the contract emits explicit cadence anchors, swap the helpers in `phase.ts` for direct reads.
+- **Cadence anchors** (`nextCutAt`, `finalSettlementAt`) are derived from `season.startedAt` + offsets read from `@filter-fun/cadence` (96h cut, 168h settlement, override via env — see the Cadence section above). The cadence package is the single source of truth shared with `@filter-fun/scheduler`.
 - **`/events` swap-derived signals** — once swap events are indexed (the same gap that blocks real HP), individual-trade detection can move from fee-derived inference to direct trade events (cleaner near-cut elevation, no dependency on `EVENTS_TRADE_FEE_BPS`). The locker→token resolution for fee-derived signals is now wired in `events/feeAdapter.ts` (joins `feeAccrual.token` against `token.locker` to map the per-token-locker emitter back to the token contract address) — both `recentFees`/`baselineFees` and the cumulative aggregation are populated from real data.
 - **`/profile/:address` deferred fields** — `stats.filtersSurvived` (needs holder-snapshot index at first-cut time), `stats.lifetimeTradeVolumeWei` + `stats.tokensTraded` (need swap-event indexing), and the `WEEK_WINNER`/`FILTER_SURVIVOR`/`QUARTERLY_*`/`ANNUAL_*` badges (same indexes plus the championship registry from Epic 1.5) all ship as `0`/`"0"`/empty-set in genesis. The wire shape is locked so callers can render the full profile UI now and the indexer fills in real values as the underlying indexes land. Tracked as a follow-up issue on the Epic 1.3 part 3/3 PR.
 

@@ -5,21 +5,30 @@
 /// §26.4 — Settlement and Closed both fold into `settled` since they look identical to a
 /// spectator (winner has been selected, prize flow has been executed).
 ///
-/// Cadence is derived from `season.startedAt` + spec §36.1.5 anchors:
-///   - Day 1–2 (0–48h):  launch window
-///   - Day 3 (72h):       first hard cut (12 → 6)
-///   - Day 7 (168h):      final settlement
+/// Cadence is derived from `season.startedAt` + the locked anchors in `@filter-fun/cadence`
+/// (spec §3.2 + §36.1.5 + §33.6, locked 2026-04-30):
+///   - Day 1–2 (0–48h):   launch window
+///   - Day 4 (96h):        first hard cut (12 → 6)
+///   - Day 7 (168h):       final settlement
+///   - No Day 5 soft filter (spec §33.6 resolved off)
 ///
 /// We derive next-cut and final-settlement timestamps from the on-chain `startedAt` rather
-/// than indexing dedicated cadence events. When Epic 1.10 lands and the contract emits
-/// the actual cadence anchors, swap these helpers for direct reads.
+/// than indexing dedicated cadence events. The cadence module is the single source of truth
+/// — both the indexer (here) and the scheduler import the same constants, so the API and the
+/// on-chain phase advances cannot drift.
+
+import {hoursToSec, loadCadence, type Cadence} from "@filter-fun/cadence";
 
 export type ContractPhase = "Launch" | "Filter" | "Finals" | "Settlement" | "Closed";
 export type ApiPhase = "launch" | "competition" | "finals" | "settled";
 
-const HOUR = 3600n;
-const FIRST_CUT_OFFSET = 72n * HOUR;
-const FINAL_SETTLEMENT_OFFSET = 168n * HOUR;
+/// Cadence read once at module-init from process env. Override via `SEASON_HARD_CUT_HOUR=…`
+/// etc. — see `@filter-fun/cadence` README. Failing here aborts indexer startup (intentional;
+/// silent fallback to default would mis-time settlement on Phase 2 mainnet).
+const cadence: Cadence = loadCadence();
+
+const FIRST_CUT_OFFSET_SEC = hoursToSec(cadence.hardCutHour);
+const FINAL_SETTLEMENT_OFFSET_SEC = hoursToSec(cadence.settlementHour);
 
 export function toApiPhase(p: ContractPhase | string): ApiPhase {
   switch (p) {
@@ -43,25 +52,25 @@ export function toApiPhase(p: ContractPhase | string): ApiPhase {
 export function nextCutEpochSec(startedAtSec: bigint, phase: ApiPhase): bigint | null {
   if (phase === "settled") return null;
   const offset = phase === "launch" || phase === "competition"
-    ? FIRST_CUT_OFFSET
-    : FINAL_SETTLEMENT_OFFSET;
+    ? FIRST_CUT_OFFSET_SEC
+    : FINAL_SETTLEMENT_OFFSET_SEC;
   return startedAtSec + offset;
 }
 
 /// Returns the ISO8601 timestamp of the next cut event for `season`.
 ///
-/// - In `launch` / `competition` phase: next cut = startedAt + 72h (Day 3 first cut).
+/// - In `launch` / `competition` phase: next cut = startedAt + 96h (Day 4 first cut).
 /// - In `finals`: next cut = startedAt + 168h (final settlement is the next "cut").
 /// - In `settled`: returns the final-settlement timestamp (already past, surfaced as historical).
 export function nextCutAtIso(startedAtSec: bigint, phase: ApiPhase): string {
   const offset = phase === "launch" || phase === "competition"
-    ? FIRST_CUT_OFFSET
-    : FINAL_SETTLEMENT_OFFSET;
+    ? FIRST_CUT_OFFSET_SEC
+    : FINAL_SETTLEMENT_OFFSET_SEC;
   return secondsToIso(startedAtSec + offset);
 }
 
 export function finalSettlementAtIso(startedAtSec: bigint): string {
-  return secondsToIso(startedAtSec + FINAL_SETTLEMENT_OFFSET);
+  return secondsToIso(startedAtSec + FINAL_SETTLEMENT_OFFSET_SEC);
 }
 
 function secondsToIso(sec: bigint): string {
