@@ -12,6 +12,7 @@
 
 import {memo, useMemo} from "react";
 
+import {Triangle} from "@/components/Triangle";
 import type {TokenResponse} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {fmtPrice} from "@/lib/format";
@@ -192,7 +193,7 @@ function CutLine() {
           boxShadow: `0 0 16px ${C.red}cc`,
         }}
       >
-        <span style={{fontSize: 13}}>🔻</span>
+        <Triangle size={11} inline />
         <span style={{fontSize: 11, fontFamily: F.display, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", color: C.red}}>
           CUT LINE
         </span>

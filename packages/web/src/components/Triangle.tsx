@@ -2,9 +2,13 @@
 
 /// Brand ▼ glyph — pink → red gradient SVG (spec §32.4).
 ///
-/// Used everywhere the marketing surface previously used 🔻. The launch
-/// page is the first surface to commit to the SVG mark; over time the
-/// arena page can migrate from the emoji form too.
+/// The canonical mark on every visual surface (launch, arena, broadcast,
+/// claim flows). Strings that travel over text channels — SSE event
+/// messages from the indexer, HTML `<meta name="description">` — use the
+/// ▼ unicode glyph instead since they can't host SVG. The rare surviving
+/// 🔻 emoji is intentional and lives on chat-style notifications produced
+/// by `packages/indexer/src/api/events/message.ts` and a test fixture
+/// that mirrors them.
 
 import {useId} from "react";
 

@@ -2,6 +2,7 @@
 
 import {useAccount, useConnect, useDisconnect} from "wagmi";
 
+import {Triangle} from "@/components/Triangle";
 import {C, F} from "@/lib/tokens";
 
 const NAV_ITEMS = ["Arena", "Tokens", "Missions", "Stats", "Launch"];
@@ -35,11 +36,10 @@ export function TopBar() {
             placeItems: "center",
             background: `linear-gradient(135deg, ${C.pink}, ${C.purple})`,
             borderRadius: 9,
-            fontSize: 18,
             boxShadow: `0 4px 18px ${C.pink}80, inset 0 1px 0 #ffffff44`,
           }}
         >
-          🔻
+          <Triangle size={18} />
         </div>
         <h1 style={{margin: 0, fontWeight: 800, fontSize: 20, letterSpacing: "-0.02em", fontFamily: F.display}}>
           filter

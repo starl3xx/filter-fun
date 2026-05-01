@@ -19,10 +19,10 @@ import type {TokenResponse} from "@/lib/arena/api";
 import {C, F} from "@/lib/tokens";
 import {canonicalSymbol, validateLaunchFields, type FieldErrors, type LaunchFormFields} from "@/lib/launch/validation";
 
+import {Triangle} from "@/components/Triangle";
 import type {LaunchPhase} from "@/hooks/launch/useLaunchToken";
 import {CostPanel} from "./CostPanel";
 import {CreatorIncentives} from "./CreatorIncentives";
-import {Triangle} from "./Triangle";
 
 export type LaunchFormProps = {
   /// Slot the next launch will land in.

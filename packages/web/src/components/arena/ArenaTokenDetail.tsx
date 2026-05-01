@@ -15,6 +15,7 @@
 ///
 /// The custom V4 swap UI is explicitly deferred (see PR body / spec §19.8).
 
+import {Triangle} from "@/components/Triangle";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
@@ -62,7 +63,7 @@ export function ArenaTokenDetail({token, trend, season, chain}: ArenaTokenDetail
 function Empty() {
   return (
     <div style={{display: "flex", flexDirection: "column", gap: 8, alignItems: "center", justifyContent: "center", flex: 1, color: C.faint, textAlign: "center"}}>
-      <span aria-hidden style={{fontSize: 24}}>🔻</span>
+      <Triangle size={22} />
       <span style={{fontSize: 12, fontFamily: F.mono, letterSpacing: "0.08em"}}>Select a token from the leaderboard</span>
     </div>
   );

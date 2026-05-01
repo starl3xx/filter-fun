@@ -69,6 +69,10 @@ describe("ArenaTicker rendering", () => {
   });
 
   it("renders the filter-moment headline when forced", () => {
+    // Fixture mirrors the indexer's chat-style event message; the indexer
+    // emits 🔻 emoji on the wire because SSE strings can't host SVG. The
+    // brand surface uses ▼/Triangle (spec §32.4); this 🔻 is intentional
+    // and matches `packages/indexer/src/api/events/message.ts`.
     const events: TickerEvent[] = [
       makeFixtureEvent({type: "FILTER_FIRED", message: "🔻 $RUG has been filtered"}),
     ];

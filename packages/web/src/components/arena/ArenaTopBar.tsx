@@ -14,6 +14,7 @@
 
 import {useEffect, useRef, useState} from "react";
 
+import {Triangle} from "@/components/Triangle";
 import {fmtCutCountdown, fmtEth, secondsUntil, weekLabel} from "@/lib/arena/format";
 import type {SeasonResponse} from "@/lib/arena/api";
 import {C, F} from "@/lib/tokens";
@@ -81,8 +82,8 @@ export function ArenaTopBar({season, liveStatus}: ArenaTopBarProps) {
 function Brand() {
   return (
     <span style={{display: "flex", alignItems: "center", gap: 6}}>
-      <span aria-hidden style={{fontSize: 18, filter: `drop-shadow(0 0 6px ${C.red}88)`}}>
-        🔻
+      <span aria-hidden style={{display: "inline-flex", filter: `drop-shadow(0 0 6px ${C.red}88)`}}>
+        <Triangle size={18} />
       </span>
       <span style={{fontFamily: F.display, fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em"}}>filter.fun</span>
     </span>

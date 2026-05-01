@@ -1,7 +1,8 @@
 /// Always-visible filter mechanic info card (spec §19.9).
 ///
-///   🔻 The filter — Top 6 survive. Bottom 6 get cut. Their liquidity funds the winner.
+///   ▼ The filter — Top 6 survive. Bottom 6 get cut. Their liquidity funds the winner.
 
+import {Triangle} from "@/components/Triangle";
 import {C, F} from "@/lib/tokens";
 
 export function ArenaFilterMechanic() {
@@ -18,7 +19,7 @@ export function ArenaFilterMechanic() {
       }}
     >
       <div style={{display: "flex", alignItems: "center", gap: 8, marginBottom: 6}}>
-        <span aria-hidden style={{fontSize: 16}}>🔻</span>
+        <Triangle size={14} />
         <span style={{fontFamily: F.display, fontWeight: 800, fontSize: 13, letterSpacing: "0.04em", color: C.red}}>
           The filter
         </span>
