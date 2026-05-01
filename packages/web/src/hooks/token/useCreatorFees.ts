@@ -57,19 +57,22 @@ export function useCreatorFees(token: Address | null): UseCreatorFeesResult {
     query: {enabled, refetchInterval: 15_000},
   });
 
-  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError, reset} = useWriteContract();
+  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError} = useWriteContract();
   const {isLoading: isMining, isSuccess: isMined} = useWaitForTransactionReceipt({hash: txHash});
 
   // After mining, refetch — claim() drains the balance, so the UI flips to
-  // "claimed" without the user having to refresh the page.
+  // "claimed" without the user having to refresh the page. Do NOT reset the
+  // wagmi write here: that clears `txHash`, which makes
+  // `useWaitForTransactionReceipt` flip `isSuccess` back to false on the
+  // very next render. Consumers branching on `isMined` (e.g.
+  // ClaimFeesPanel's "Claim confirmed.") would see the message for a single
+  // frame and lose it. The next `writeContract()` call resets state on its
+  // own when the user claims again.
   useEffect(() => {
     if (isMined) {
       void pending.refetch();
-      // Reset the wagmi write so the user can claim again next epoch without
-      // a stuck txHash from the prior tx.
-      reset();
     }
-    // pending.refetch is stable; reset is stable; no other deps fire.
+    // pending.refetch is stable; no other deps fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMined]);
 

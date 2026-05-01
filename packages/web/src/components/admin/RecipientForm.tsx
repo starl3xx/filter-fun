@@ -26,15 +26,14 @@ const REGISTRY_ADDRESS = deployment.addresses.creatorRegistry as Address;
 
 export function RecipientForm({token, currentRecipient, canEdit}: RecipientFormProps) {
   const [value, setValue] = useState("");
-  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError, reset} =
+  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError} =
     useWriteContract();
   const {isLoading: isMining, isSuccess: isMined} = useWaitForTransactionReceipt({hash: txHash});
 
   useEffect(() => {
-    if (isMined) {
-      setValue("");
-      reset();
-    }
+    // Clear the input only — see MetadataForm for why we don't call reset()
+    // here (would erase txHash and flicker the success message).
+    if (isMined) setValue("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMined]);
 

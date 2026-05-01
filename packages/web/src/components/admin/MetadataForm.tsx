@@ -28,17 +28,18 @@ const REGISTRY_ADDRESS = deployment.addresses.creatorRegistry as Address;
 
 export function MetadataForm({token, currentUri, canEdit}: MetadataFormProps) {
   const [uri, setUri] = useState("");
-  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError, reset} =
+  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError} =
     useWriteContract();
   const {isLoading: isMining, isSuccess: isMined} = useWaitForTransactionReceipt({hash: txHash});
 
   useEffect(() => {
     // Once the tx mines, clear the input so the user sees a fresh form
     // (the read of `currentUri` will refresh on the next refetch tick).
-    if (isMined) {
-      setUri("");
-      reset();
-    }
+    // Do NOT call wagmi's `reset()` here: that clears `txHash`, which makes
+    // `useWaitForTransactionReceipt` flip `isSuccess` back to false on the
+    // very next render — the "Updated ✓" message would only paint for a
+    // single frame. wagmi's next `writeContract()` resets state on its own.
+    if (isMined) setUri("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMined]);
 

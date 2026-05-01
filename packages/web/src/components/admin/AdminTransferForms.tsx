@@ -77,15 +77,16 @@ export const AdminTransferForms = forwardRef<HTMLDivElement, AdminTransferFormsP
 
 function NominateForm({token, currentAdmin}: {token: Address; currentAdmin: Address | null}) {
   const [value, setValue] = useState("");
-  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError, reset} =
+  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError} =
     useWriteContract();
   const {isLoading: isMining, isSuccess: isMined} = useWaitForTransactionReceipt({hash: txHash});
 
   useEffect(() => {
-    if (isMined) {
-      setValue("");
-      reset();
-    }
+    // Clear input only — do NOT call wagmi's reset() here. Resetting clears
+    // txHash, which makes useWaitForTransactionReceipt flip isSuccess back
+    // to false on the next render (success message would only paint for a
+    // single frame). The next writeContract() call resets state on its own.
+    if (isMined) setValue("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMined]);
 
@@ -160,14 +161,12 @@ function NominateForm({token, currentAdmin}: {token: Address; currentAdmin: Addr
 // ============================================================ Step 1.5 — cancel pending
 
 function CancelForm({token, pendingAdmin}: {token: Address; pendingAdmin: Address}) {
-  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError, reset} =
+  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError} =
     useWriteContract();
   const {isLoading: isMining, isSuccess: isMined} = useWaitForTransactionReceipt({hash: txHash});
 
-  useEffect(() => {
-    if (isMined) reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMined]);
+  // No reset on mine — see NominateForm. The next writeContract() handles
+  // it; resetting here flickers the success message away after one frame.
 
   function submit() {
     writeContract({
@@ -208,14 +207,12 @@ function CancelForm({token, pendingAdmin}: {token: Address; pendingAdmin: Addres
 // ============================================================ Step 2 — accept
 
 function AcceptForm({token, pendingAdmin}: {token: Address; pendingAdmin: Address}) {
-  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError, reset} =
+  const {writeContract, data: txHash, isPending: isSubmitting, error: submitError} =
     useWriteContract();
   const {isLoading: isMining, isSuccess: isMined} = useWaitForTransactionReceipt({hash: txHash});
 
-  useEffect(() => {
-    if (isMined) reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMined]);
+  // No reset on mine — see NominateForm. The next writeContract() handles
+  // it; resetting here flickers the success message away after one frame.
 
   function submit() {
     writeContract({
