@@ -58,7 +58,7 @@ contract CreatorFeeDistributor {
     event TokenRegistered(address indexed token, uint256 indexed seasonId);
     event CreatorFeeAccrued(address indexed token, address indexed creator, uint256 amount);
     event CreatorFeeRedirected(address indexed token, uint256 amount);
-    event CreatorFeeClaimed(address indexed token, address indexed creator, uint256 amount);
+    event CreatorFeeClaimed(address indexed token, address indexed recipient, uint256 amount);
     event CreatorFeeDisabled(address indexed token);
 
     error NotLauncher();
