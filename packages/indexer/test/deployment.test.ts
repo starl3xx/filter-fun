@@ -36,6 +36,7 @@ const SAMPLE: Record<string, unknown> = {
     filterFactory: "0x8888888888888888888888888888888888888888",
     creatorRegistry: "0x9999999999999999999999999999999999999999",
     creatorFeeDistributor: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    creatorCommitments: "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
     tournamentRegistry: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     tournamentVault: "0xcccccccccccccccccccccccccccccccccccccccc",
     v4PoolManager: "0xdddddddddddddddddddddddddddddddddddddddd",
@@ -96,6 +97,7 @@ describe("readDeployment — manifest path", () => {
     expect(d.addresses.filterFactory).toBe("0x8888888888888888888888888888888888888888");
     expect(d.addresses.bonusDistributor).toBe("0x3333333333333333333333333333333333333333");
     expect(d.addresses.creatorRegistry).toBe("0x9999999999999999999999999999999999999999");
+    expect(d.addresses.creatorCommitments).toBe("0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1");
     expect(d.addresses.tournamentVault).toBe("0xcccccccccccccccccccccccccccccccccccccccc");
     expect(d.addresses.v4PoolManager).toBe("0xdddddddddddddddddddddddddddddddddddddddd");
     expect(d.addresses.weth).toBe("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
@@ -160,6 +162,7 @@ describe("manifest schema", () => {
       "filterFactory",
       "creatorRegistry",
       "creatorFeeDistributor",
+      "creatorCommitments",
       "tournamentRegistry",
       "tournamentVault",
       "v4PoolManager",

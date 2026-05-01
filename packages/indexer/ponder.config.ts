@@ -36,17 +36,24 @@ console.log(`[ponder]   factory:  ${factoryAddr}`);
 console.log(`[ponder]   tournament registry: ${tournamentRegistryAddr}`);
 console.log(`[ponder]   v4 pool manager:     ${v4PoolManagerAddr}`);
 
-/// `CreatorCommitments` is deployed by `FilterLauncher` in its constructor, so the address
-/// isn't on the deploy manifest's flat `addresses` block (it lives in the launcher's
-/// constructor args / runtime view). For now the operator surfaces it via env var so the
-/// indexer can subscribe to its `Committed` events; the eventual wiring is to extend the
-/// deploy manifest writer with this address. Falls back to the launcher's address as a
-/// non-functional sentinel if missing — the launcher never emits `Committed`, so the
-/// subscription is inert in that case (we'd see no rows, not crash).
-const creatorCommitmentsAddr = creatorCommitmentsAddrEnv ?? launcherAddr;
-if (!creatorCommitmentsAddrEnv) {
+/// `CreatorCommitments` is deployed by `FilterLauncher` in its constructor (the launcher
+/// owns it for `setUnlock` / `transferGate` calls). The deploy script reads it back off
+/// the launcher and writes it into the manifest's flat `addresses` block, so the manifest
+/// path is the canonical source. The env var is kept as an operator override for cases
+/// where the manifest isn't on disk (Docker / Railway with a shimmed env-only deploy).
+/// Falls back to the launcher's address as a non-functional sentinel if both are unset —
+/// the launcher never emits `Committed`, so the subscription is inert in that case (we'd
+/// see no rows, not crash).
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+const creatorCommitmentsFromManifest = deployment.addresses.creatorCommitments;
+const creatorCommitmentsAddr =
+  creatorCommitmentsAddrEnv ??
+  (creatorCommitmentsFromManifest && creatorCommitmentsFromManifest !== ZERO_ADDR
+    ? creatorCommitmentsFromManifest
+    : launcherAddr);
+if (creatorCommitmentsAddr === launcherAddr) {
   console.warn(
-    `[ponder]   creator commitments: <unset, set CREATOR_COMMITMENTS_ADDRESS> — falling back to ${creatorCommitmentsAddr} (no events will match)`,
+    `[ponder]   creator commitments: <unset in manifest + env> — falling back to ${creatorCommitmentsAddr} (no events will match). Set CREATOR_COMMITMENTS_ADDRESS or supply a manifest with addresses.creatorCommitments populated.`,
   );
 } else {
   console.log(`[ponder]   creator commitments: ${creatorCommitmentsAddr}`);

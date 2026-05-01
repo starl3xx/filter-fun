@@ -31,6 +31,13 @@ export interface DeploymentAddresses {
   filterFactory: `0x${string}`;
   creatorRegistry: `0x${string}`;
   creatorFeeDistributor: `0x${string}`;
+  /// `CreatorCommitments` is deployed by `FilterLauncher`'s constructor (the launcher
+  /// owns it for `setUnlock` / `transferGate` calls). The deploy script reads it back
+  /// off the launcher and writes it into the manifest's flat addresses block —
+  /// `address(launcher.creatorCommitments())` in `DeploySepolia.s.sol`. The indexer
+  /// reads it here so its Ponder factory can subscribe to `Committed` without an
+  /// explicit `CREATOR_COMMITMENTS_ADDRESS` env override.
+  creatorCommitments: `0x${string}`;
   tournamentRegistry: `0x${string}`;
   tournamentVault: `0x${string}`;
   v4PoolManager: `0x${string}`;
@@ -136,6 +143,7 @@ function loadFromEnv(network: ChainNetwork): Deployment {
       filterFactory: factory,
       creatorRegistry: ZERO,
       creatorFeeDistributor: ZERO,
+      creatorCommitments: (process.env.CREATOR_COMMITMENTS_ADDRESS ?? ZERO) as `0x${string}`,
       tournamentRegistry: ZERO,
       tournamentVault: ZERO,
       v4PoolManager: ZERO,
