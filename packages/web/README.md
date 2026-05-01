@@ -1,12 +1,12 @@
 # @filter-fun/web
 
-Next.js (App Router) + wagmi v2 + viem. Broadcast leaderboard + claim app for filter.fun. Tagline: _Most get filtered. One gets funded. 🔻_
+Next.js (App Router) + wagmi v2 + viem. Live spectator surface + launch on-ramp + claim app for filter.fun. Tagline: _Get filtered or get funded ▼_
 
 ## Pages
 
-- **`/arena`** — main spectator surface (Epic 1.4 + 1.8 web). Live leaderboard with cut line between rank 6 / 7, SSE-powered ticker with five visual states (normal / high-activity / pre-filter / filter-moment / post-filter), top bar with countdown + Champion Pool + Champion Backing Pool, token detail panel with HP component breakdown using spec §6.6 labels, activity feed, and a Trade $TICKER deep-link to the Uniswap interface. Reads `/season`, `/tokens`, `/events` from the indexer (`NEXT_PUBLIC_INDEXER_URL`). Honors `?token=0x…` to pre-select a row (used by `/launch` after a successful launch).
+- **`/`** — main spectator surface (Epic 1.4 + 1.8 web). Live leaderboard with cut line between rank 6 / 7, SSE-powered ticker with five visual states (normal / high-activity / pre-filter / filter-moment / post-filter), top bar with countdown + Champion Pool + Champion Backing Pool, token detail panel with HP component breakdown using spec §6.6 labels, activity feed, and a Trade $TICKER deep-link to the Uniswap interface. Reads `/season`, `/tokens`, `/events` from the indexer (`NEXT_PUBLIC_INDEXER_URL`). Honors `?token=0x…` to pre-select a row (used by `/launch` after a successful launch).
 - **`/launch`** — public launch page (Epic 1.5). 12-card slot grid (filled vs `Claim now` vs `Almost gone` vs closed), launch form with name / ticker / description / image URL / optional socials, live cost panel (slot cost + refundable stake), creator-incentives module, and the locked acknowledgment checkbox. Reads `getLaunchSlots` / `getLaunchStatus` / `canLaunch` / `launchesByWallet` directly from `FilterLauncher` (deploy manifest provides the address) and merges with `/tokens` for ticker / HP / status. Submits via `FilterLauncher.launchToken(name, symbol, metadataURI)` with `value = launchCost + refundableStake`. Metadata is pinned via `/api/metadata` before the wallet is touched (see _Metadata pinning_ below).
-- **`/`** — broadcast home: live leaderboard, ticker tape, featured #1 token, finalist quests, filter line, countdown to next cut, activity feed. Uses local simulation data (`useLiveTokens` / `useCountdown` / `useActivityFeed`) for now; swaps to indexer-driven data when the GraphQL surface is wired.
+- **`/arena`** — 302 redirect to `/`. The arena IS the homepage; this redirect preserves external links and muscle memory. Query strings (e.g. `?token=…` from `/launch`) are forwarded by Next's redirect handling.
 - **`/claim/rollover`** — paste the oracle's per-user settlement entry (`{seasonId, vault, share, proof}`), submit `SeasonVault.claimRollover(share, proof)`.
 - **`/claim/bonus`** — paste the oracle's per-user bonus entry (`{seasonId, distributor, amount, proof}`), submit `BonusDistributor.claim(seasonId, amount, proof)`.
 
@@ -26,40 +26,39 @@ Stack:
 - Workspace-imports `@filter-fun/scheduler` for ABI + call builders, so the contract surface stays in lockstep with the on-chain ABI.
 - Responsive — three-column broadcast grid on ≥1100px viewports, single-column below. `prefers-reduced-motion` disables the marquee, pulse, twinkle, and shake animations.
 
-Component layout (broadcast home):
+Component layout:
 
 ```
 src/
-├── components/broadcast/   TopBar, TickerTape, Featured, Missions,
-│                           Countdown, Leaderboard (+ FilterLine),
-│                           ActivityFeed, Stars, Sparkline, StatBar
-├── hooks/                  useLiveTokens, useCountdown, useActivityFeed
-└── lib/                    tokens (color/font), format, sparkline, seed
-```
-
-Component layout (arena):
-
-```
-src/
-├── app/arena/page.tsx                  client-rendered, polling + SSE
+├── app/page.tsx                        homepage — arena spectator surface
+├── app/launch/page.tsx                 public launch on-ramp (Epic 1.5)
+├── app/api/metadata/                   POST + GET — IPFS pin + fs fallback
+├── app/claim/{rollover,bonus}/         paste-and-submit Merkle claim forms
+├── components/Stars.tsx                shared decorative twinkles
 ├── components/arena/                   ArenaTopBar, ArenaTicker, ArenaLeaderboard,
 │                                       ArenaTokenDetail, ArenaActivityFeed,
 │                                       ArenaFilterMechanic, StatusBadge, HpBar
-├── hooks/arena/                        useSeason (3-5s poll), useTokens (5-10s poll),
+├── components/launch/                  LaunchHero, FilterStrip, SlotGrid,
+│                                       LaunchForm, CostPanel, CreatorIncentives,
+│                                       Triangle (gradient ▼ SVG)
+├── hooks/arena/                        useSeason (4s poll), useTokens (6s poll),
 │                                       useTickerEvents (SSE + dedupe + backoff),
 │                                       useTrendBuffers (rolling HP samples)
-└── lib/arena/                          api (types + fetch + Uniswap deep-link),
-                                        format (Ξ/% helpers), hpLabels (§6.6)
+├── hooks/launch/                       useLauncherSeason, useLaunchSlots,
+│                                       useEligibility, useLaunchToken
+├── lib/arena/                          api (types + fetch + Uniswap deep-link),
+│                                       format (Ξ/% helpers), hpLabels (§6.6)
+└── lib/launch/                         abi (FilterLauncher fragment), validation,
+                                        storage (Pinata + fs), format
 ```
 
 Out of scope (next PRs):
 
-1. Wire the broadcast home (`/`) to live indexer data (replace the three simulation hooks).
-2. Custom V4 swap UI inside the Arena detail panel — currently links out to the Uniswap interface (slippage / approval / FilterHook routing is its own scope).
-3. Filter-moment dramatic overlay (Epic 1.9 — pre-filter countdown screen, dramatic reveal animation, post-filter recap card). The ticker's filter-moment state is in scope today.
-4. Profile + graveyard links from rows (Epic 3.1 / 3.2).
-5. Finals + season-history views.
-6. Auto-fetched claim entries (no paste required).
+1. Custom V4 swap UI inside the homepage detail panel — currently links out to the Uniswap interface (slippage / approval / FilterHook routing is its own scope).
+2. Filter-moment dramatic overlay (Epic 1.9 — pre-filter countdown screen, dramatic reveal animation, post-filter recap card). The ticker's filter-moment state is in scope today.
+3. Profile + graveyard links from rows (Epic 3.1 / 3.2).
+4. Finals + season-history views.
+5. Auto-fetched claim entries (no paste required).
 
 ## Setup
 

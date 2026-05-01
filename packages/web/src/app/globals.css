@@ -49,9 +49,10 @@ body {
   background-attachment: fixed;
 }
 
-/* Default <main> layout for the legacy claim pages. The broadcast home opts out
-   via its own class so this rule doesn't constrain it. */
-main:not(.ff-grid) {
+/* Default <main> layout for the legacy claim pages. The arena home + launch
+   page opt out via their own classes (`.ff-arena-grid`, `.ff-launch-page`)
+   so these rules don't constrain them. */
+main:not(.ff-arena-grid):not(.ff-launch-page) {
   max-width: 720px;
   margin: 0 auto;
   padding: 64px 24px;
@@ -79,9 +80,9 @@ button:disabled {
   opacity: 0.6;
 }
 
-/* Legacy claim-page button defaults (broadcast home buttons all carry inline
-   styles, so they don't get this). */
-main:not(.ff-grid) button {
+/* Legacy claim-page button defaults. Home + launch pages carry inline styles,
+   so they're explicitly excluded. */
+main:not(.ff-arena-grid):not(.ff-launch-page) button {
   background: var(--pink);
   color: #fff;
   border: none;
@@ -91,7 +92,7 @@ main:not(.ff-grid) button {
   cursor: pointer;
 }
 
-main:not(.ff-grid) button.secondary {
+main:not(.ff-arena-grid):not(.ff-launch-page) button.secondary {
   background: transparent;
   color: var(--text);
   border: 1px solid var(--line);
@@ -155,28 +156,9 @@ code {
   }
 }
 
-/* Responsive layout: 3-column on wide screens, single column below 1100px.
-   The reference is 1440 fixed; production reflows. */
-.ff-grid {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 320px;
-  gap: 16px;
-  padding: 14px 18px 18px;
-}
-
-@media (max-width: 1100px) {
-  .ff-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .ff-grid > .ff-col-left,
-  .ff-grid > .ff-col-right {
-    max-width: 100%;
-  }
-}
-
-/* Arena page layout (Epic 1.4). 3-column on wide; stacks below 1100px with the
-   leaderboard above the detail panel. Below 700px the right column is hidden
-   in-flow and re-rendered via the bottom-sheet on row tap. */
+/* Homepage / arena layout (Epic 1.4). 3-column on wide; stacks below 1100px
+   with the leaderboard above the detail panel. Below 700px the right column
+   is hidden in-flow and re-rendered via the bottom-sheet on row tap. */
 .ff-arena-grid {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) 340px;

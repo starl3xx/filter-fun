@@ -132,7 +132,7 @@ function FilledCard({slot, slotLabel}: {slot: LaunchSlot; slotLabel: string}) {
 
   return (
     <a
-      href={t ? `/arena?token=${t.token}` : "/arena"}
+      href={t ? `/?token=${t.token}` : "/"}
       style={{
         textDecoration: "none",
         color: "inherit",

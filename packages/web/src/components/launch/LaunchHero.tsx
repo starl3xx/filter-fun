@@ -113,7 +113,7 @@ export function LaunchHero({season, slots, status, onScrollToForm}: LaunchHeroPr
             Launch Token →
           </button>
           <a
-            href="/arena"
+            href="/"
             style={{
               background: "transparent",
               color: C.text,

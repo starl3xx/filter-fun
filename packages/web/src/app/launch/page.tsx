@@ -22,7 +22,7 @@ import {useCallback, useMemo, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
-import {Stars} from "@/components/broadcast/Stars";
+import {Stars} from "@/components/Stars";
 import {LaunchHero} from "@/components/launch/LaunchHero";
 import {FilterStrip} from "@/components/launch/FilterStrip";
 import {SlotGrid} from "@/components/launch/SlotGrid";
@@ -105,10 +105,11 @@ export default function LaunchPage() {
     [launch, nextCostWei, stakeWei],
   );
 
-  // On success, redirect to /arena with the new token selected. The arena
-  // page reads `?token=` and pre-selects the row.
+  // On success, redirect to the homepage (the arena IS the homepage as of
+  // PR #39 follow-up) with the new token selected. The page reads `?token=`
+  // and pre-selects the row.
   if (phase === "success" && launchedToken) {
-    router.replace(`/arena?token=${launchedToken}`);
+    router.replace(`/?token=${launchedToken}`);
   }
 
   const reasonForBlock =

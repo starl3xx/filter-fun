@@ -24,6 +24,14 @@ const nextConfig = {
     };
     return config;
   },
+  // The arena IS the homepage. /arena 302s to / so external links and
+  // muscle-memory still resolve. Query strings (e.g. `?token=…` from /launch)
+  // are preserved by Next's redirect handling.
+  async redirects() {
+    return [
+      {source: "/arena", destination: "/", permanent: false},
+    ];
+  },
 };
 
 export default nextConfig;
