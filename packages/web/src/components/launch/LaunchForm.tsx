@@ -31,8 +31,6 @@ export type LaunchFormProps = {
   stakeWei: bigint;
   /// Used for ticker collision check.
   cohort: TokenResponse[];
-  /// True if the form should disable submit because eligibility failed.
-  disabledReason?: string;
   /// Tx phase from useLaunchToken — drives button copy and lock.
   phase: LaunchPhase;
   /// Server-side error from pin or chain reverts.
@@ -46,7 +44,6 @@ export function LaunchForm({
   launchCostWei,
   stakeWei,
   cohort,
-  disabledReason,
   phase,
   error,
   onSubmit,
@@ -69,7 +66,6 @@ export function LaunchForm({
 
   const submitDisabled =
     !isConnected ||
-    Boolean(disabledReason) ||
     Object.keys(fieldErrors).length > 0 ||
     tickerCollision !== null ||
     !acknowledged ||
@@ -130,8 +126,6 @@ export function LaunchForm({
           SLOT #{String(slotIndex + 1).padStart(2, "0")}
         </span>
       </div>
-
-      {disabledReason && <Notice variant="info">{disabledReason}</Notice>}
 
       <Field
         label="Token name"
@@ -229,9 +223,9 @@ export function LaunchForm({
         />
       </fieldset>
       {(showError("website") || showError("twitter") || showError("farcaster")) && (
-        <Notice variant="error">
+        <ErrorNotice>
           {showError("website") || showError("twitter") || showError("farcaster")}
-        </Notice>
+        </ErrorNotice>
       )}
 
       <CreatorIncentives />
@@ -281,17 +275,16 @@ export function LaunchForm({
           boxShadow: submitDisabled ? "none" : "0 8px 24px rgba(255, 58, 161, 0.4)",
         }}
       >
-        {buttonCopy(phase, !isConnected, Boolean(disabledReason))}
+        {buttonCopy(phase, !isConnected)}
       </button>
 
-      {error && <Notice variant="error">{error}</Notice>}
+      {error && <ErrorNotice>{error}</ErrorNotice>}
     </form>
   );
 }
 
-function buttonCopy(phase: LaunchPhase, notConnected: boolean, blocked: boolean): string {
+function buttonCopy(phase: LaunchPhase, notConnected: boolean): string {
   if (notConnected) return "Connect wallet to launch";
-  if (blocked) return "Launch unavailable";
   switch (phase) {
     case "pinning":
       return "Pinning metadata…";
@@ -354,16 +347,15 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
 };
 
-function Notice({variant, children}: {variant: "info" | "error"; children: React.ReactNode}) {
-  const color = variant === "error" ? C.red : C.cyan;
+function ErrorNotice({children}: {children: React.ReactNode}) {
   return (
     <div
       style={{
         padding: 10,
         borderRadius: 8,
-        border: `1px solid ${color}55`,
-        background: `${color}10`,
-        color: variant === "error" ? C.red : C.text,
+        border: `1px solid ${C.red}55`,
+        background: `${C.red}10`,
+        color: C.red,
         fontSize: 12,
         lineHeight: 1.45,
       }}

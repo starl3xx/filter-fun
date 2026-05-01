@@ -11,14 +11,14 @@
 ///   ├──────────────────────────────────────────────────────────────┤
 ///   │ FilterStrip (▼ THE FILTER · Top 6 survive · Bottom 6 cut)    │
 ///   ├──────────────────────────────────────┬───────────────────────┤
-///   │ SlotGrid (12 cards)                  │ LaunchForm            │
+///   │ SlotGrid (12 cards)                  │ LaunchForm OR notice  │
 ///   │                                      │  + CostPanel          │
 ///   │                                      │  + Creator incentives │
 ///   └──────────────────────────────────────┴───────────────────────┘
 ///
 /// Below 1100px: form moves below the slot grid; 4-col → 2-col grid.
 
-import {useCallback, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
@@ -38,6 +38,7 @@ import {useReadContract} from "wagmi";
 import {contractAddresses, isDeployed} from "@/lib/addresses";
 import {FilterLauncherLaunchAbi, MAX_LAUNCHES} from "@/lib/launch/abi";
 import type {LaunchFormFields} from "@/lib/launch/validation";
+import {C, F} from "@/lib/tokens";
 
 export default function LaunchPage() {
   const router = useRouter();
@@ -80,6 +81,16 @@ export default function LaunchPage() {
   const nextCostWei = status?.nextLaunchCostWei ?? 0n;
   const stakeWei = stakeOn ? nextCostWei : 0n;
 
+  // Keep the live cost in a ref so the async `onSubmit` reads the LATEST
+  // value at write-contract time rather than whatever was current when the
+  // callback was first bound. Without this, a slot claim that lands during
+  // our pin step (which can take seconds against IPFS) leaves the closure
+  // sending a stale `nextCostWei`, which the contract rejects with
+  // `InsufficientPayment`. Refs update synchronously on every render so the
+  // closure's read is the freshest value the page has seen.
+  const costRef = useRef({nextCostWei, stakeWei});
+  costRef.current = {nextCostWei, stakeWei};
+
   const onSubmit = useCallback(
     async (fields: LaunchFormFields) => {
       setPinError(null);
@@ -95,29 +106,33 @@ export default function LaunchPage() {
           throw new Error(json.error ?? `Pin failed (${res.status})`);
         }
         setPinning(false);
+        // Read the latest cost AT submit time — see costRef commentary above.
+        const {nextCostWei: liveCost, stakeWei: liveStake} = costRef.current;
         launch({
           name: fields.name.trim(),
           symbol: fields.ticker,
           metadataURI: json.uri,
-          valueWei: nextCostWei + stakeWei,
+          valueWei: liveCost + liveStake,
         });
       } catch (e) {
         setPinError(e instanceof Error ? e.message : String(e));
         setPinning(false);
       }
     },
-    [launch, nextCostWei, stakeWei],
+    // Cost values are NOT in deps — they're read via ref. `launch` is the
+    // only value the closure pulls from the outer scope.
+    [launch],
   );
 
   // On success, redirect to the homepage (the arena IS the homepage as of
-  // PR #39 follow-up) with the new token selected. The page reads `?token=`
-  // and pre-selects the row.
-  if (phase === "success" && launchedToken) {
-    router.replace(`/?token=${launchedToken}`);
-  }
-
-  const reasonForBlock =
-    eligibility.state === "eligible" ? undefined : eligibility.message;
+  // PR #39 follow-up) with the new token selected. Run inside an effect so
+  // navigation is a side effect, not a render-phase action — the latter
+  // double-fires under React Strict Mode and breaks the React rules.
+  useEffect(() => {
+    if (phase === "success" && launchedToken) {
+      router.replace(`/?token=${launchedToken}`);
+    }
+  }, [phase, launchedToken, router]);
 
   const phaseForButton = pinning ? "pinning" : phase;
   const combinedError = pinError ?? txError;
@@ -136,17 +151,22 @@ export default function LaunchPage() {
           <SlotGrid slots={slots} />
           <div style={{display: "flex", flexDirection: "column", gap: 14}}>
             {seasonId === null ? (
-              <PlaceholderCard message="Connecting to launcher…" />
-            ) : (
+              <NoticeCard tone="info" title="Connecting to launcher…" body="Reading current season state from the contract." />
+            ) : eligibility.formVisible ? (
               <LaunchForm
                 slotIndex={nextSlotIndex}
                 launchCostWei={nextCostWei}
                 stakeWei={stakeWei}
                 cohort={cohort}
-                disabledReason={reasonForBlock}
                 phase={phaseForButton}
                 error={combinedError}
                 onSubmit={onSubmit}
+              />
+            ) : (
+              <NoticeCard
+                tone={eligibility.state === "loading" ? "info" : "warn"}
+                title={titleFor(eligibility.state)}
+                body={eligibility.message}
               />
             )}
           </div>
@@ -156,19 +176,50 @@ export default function LaunchPage() {
   );
 }
 
-function PlaceholderCard({message}: {message: string}) {
+type EligibilityNoticeState = ReturnType<typeof useEligibility>["state"];
+
+function titleFor(state: EligibilityNoticeState): string {
+  switch (state) {
+    case "not-connected":
+      return "Connect to launch";
+    case "already-launched":
+      return "You've already launched this week";
+    case "window-closed":
+      return "Launch window closed";
+    case "loading":
+      return "Checking eligibility…";
+    default:
+      return "Launch unavailable";
+  }
+}
+
+function NoticeCard({tone, title, body}: {tone: "info" | "warn"; title: string; body: string}) {
+  const accent = tone === "warn" ? C.red : C.cyan;
   return (
-    <div
+    <section
+      aria-live="polite"
       style={{
         padding: 18,
         borderRadius: 14,
-        border: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(255,255,255,0.03)",
-        color: "rgba(255,235,255,0.62)",
-        fontSize: 13,
+        border: `1px solid ${accent}55`,
+        background: `${accent}0d`,
+        color: C.text,
       }}
     >
-      {message}
-    </div>
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10,
+          letterSpacing: "0.16em",
+          fontWeight: 800,
+          color: accent,
+          textTransform: "uppercase",
+          marginBottom: 6,
+        }}
+      >
+        {title}
+      </div>
+      <p style={{margin: 0, fontSize: 13, color: C.dim, lineHeight: 1.5}}>{body}</p>
+    </section>
   );
 }

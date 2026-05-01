@@ -36,11 +36,6 @@ describe("LaunchForm", () => {
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("renders the disabled reason when supplied", () => {
-    render(<LaunchForm {...baseProps} disabledReason="You've already launched a token this week." />);
-    expect(screen.getByText(/already launched a token this week/i)).toBeTruthy();
-  });
-
   it("enables the launch button only after fields + ack are valid", () => {
     render(<LaunchForm {...baseProps} />);
     const name = screen.getByPlaceholderText(/Filtermaxx/i);

@@ -10,6 +10,11 @@ import {MetadataStorageError, readFsMetadata} from "@/lib/launch/storage";
 
 export const dynamic = "force-dynamic";
 
+// Next 14 (this project, pinned to 14.2.35) passes `params` synchronously.
+// Next 15 changed the signature to `Promise<Params>`; if/when we upgrade,
+// the type below changes to `{params: Promise<{slug: string}>}` and the
+// access becomes `(await ctx.params).slug`. The contract test suite + the
+// upgrade-time typecheck will surface the change.
 export async function GET(_req: Request, ctx: {params: {slug: string}}) {
   try {
     const json = await readFsMetadata(ctx.params.slug);
