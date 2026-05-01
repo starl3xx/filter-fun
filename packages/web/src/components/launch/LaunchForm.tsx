@@ -71,7 +71,11 @@ export function LaunchForm({
     !acknowledged ||
     phase === "pinning" ||
     phase === "signing" ||
-    phase === "broadcasting";
+    phase === "broadcasting" ||
+    // After a successful launch the page redirects via useEffect; the button
+    // briefly shows "Launched ▼" until that redirect commits. Disable it so
+    // a fast double-click in that window can't kick off a second pin + tx.
+    phase === "success";
 
   function update<K extends keyof LaunchFormFields>(key: K, value: LaunchFormFields[K]) {
     setFields((f) => ({...f, [key]: value}));
