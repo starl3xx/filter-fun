@@ -80,4 +80,38 @@ describe("CORS origin allow-list (Audit H-6)", () => {
     expect(originAllowed("https://filter.fun", cfg)).toBe("https://filter.fun");
     expect(originAllowed("https://filter.fun", cfg)).not.toBe("*");
   });
+
+  describe("exposeHeaders allow-list (Bugbot PR #61, Medium)", () => {
+    // The CORS middleware is wired in src/api/index.ts (not in cors.ts — `index.ts`
+    // owns the cors() call because it composes the route layer). This test grep's the
+    // source for the exposeHeaders config so a regression that drops a header surfaces
+    // as a test failure.
+    //
+    // Why custom headers need explicit exposure: per the Fetch spec, only CORS-
+    // safelisted response headers (Cache-Control / Content-Language / Content-Length /
+    // Content-Type / Expires / Last-Modified / Pragma) are readable by browser JS on
+    // cross-origin responses. Without exposeHeaders, `RateLimit-Remaining` /
+    // `Retry-After` / `X-Cache` are silently stripped from browser-visible responses,
+    // breaking the rate-limit feedback loop.
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const SOURCE_PATH = path.resolve(__dirname, "../../../src/api/index.ts");
+    const source: string = fs.readFileSync(SOURCE_PATH, "utf8");
+
+    it("CORS config exposes RateLimit-Remaining (used by every GET response)", () => {
+      expect(source).toContain('"RateLimit-Remaining"');
+    });
+
+    it("CORS config exposes Retry-After (used on 429 responses)", () => {
+      expect(source).toContain('"Retry-After"');
+    });
+
+    it("CORS config exposes X-Cache (used on cached endpoint responses)", () => {
+      expect(source).toContain('"X-Cache"');
+    });
+
+    it("exposeHeaders config block exists in the cors() call", () => {
+      expect(source).toMatch(/exposeHeaders:\s*\[/);
+    });
+  });
 });

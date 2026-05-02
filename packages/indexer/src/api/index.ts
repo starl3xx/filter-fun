@@ -100,6 +100,16 @@ import {
 /// Mounted via `ponder.use("*", ...)` so every route + the SSE endpoint share the
 /// same policy. `originAllowed` returns the matched origin (not `*`) so cached
 /// responses stay scoped to the specific allowed origin that requested them.
+///
+/// Bugbot finding #3 on PR #61 (Medium): `exposeHeaders` MUST list every custom
+/// response header the middleware sets. Per the Fetch spec, only CORS-safelisted
+/// response headers (Cache-Control, Content-Language, Content-Length, Content-Type,
+/// Expires, Last-Modified, Pragma) are visible to browser JS by default — `RateLimit-
+/// Remaining`/`Retry-After`/`X-Cache` would be silently stripped from the cross-origin
+/// response, breaking the rate-limit feedback loop and the cache-status header for
+/// browser clients on filter.fun. SSE-side `Last-Event-ID` is safelisted; nothing else
+/// the indexer emits needs explicit exposure today, but extend this list whenever a
+/// new custom header lands.
 const corsCfg = loadCorsConfigFromEnv();
 ponder.use(
   "*",
@@ -107,6 +117,7 @@ ponder.use(
     origin: (origin) => originAllowed(origin, corsCfg),
     allowMethods: ["GET", "OPTIONS"],
     allowHeaders: ["Content-Type"],
+    exposeHeaders: ["RateLimit-Remaining", "Retry-After", "X-Cache"],
     maxAge: 600,
   }),
 );
