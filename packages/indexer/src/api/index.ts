@@ -189,10 +189,17 @@ ponder.get("/tokens/:address/history", async (c) => {
 /// when the indexer has at least one season indexed AND the live-event pipeline is
 /// running, 503 otherwise. Wire to deployer readiness probe (separate from liveness).
 ponder.get("/readiness", async (c) => {
-  const mw = toMwContext(c);
   // No rate limit on readiness — probes hit it at infrastructure cadence (every few
   // seconds from the load balancer) and rate-limiting them would make a healthy
   // indexer look unhealthy under normal probe pressure.
+  //
+  // Bugbot finding on PR #61: this handler intentionally skips `toMwContext(c)`. Every
+  // other route validates Context shape via the adapter (audit H-3) but readiness must
+  // not — a shape-drift throw here would surface as a 500 on the load-balancer probe,
+  // making a healthy indexer look broken until the LB deregistered the instance.
+  // Probes need to read `c.db` (for the season query) and `c.json` only; both are
+  // direct-property accesses with no middleware-style assumptions, so the adapter's
+  // assertions are pure downside on this endpoint.
   const r = await getReadinessHandler({
     latestSeasonId: async () => {
       const rows = await c.db.select().from(season).orderBy(desc(season.id)).limit(1);
