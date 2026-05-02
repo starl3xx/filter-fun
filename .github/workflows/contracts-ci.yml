@@ -60,8 +60,23 @@ jobs:
       # Both flags are also wired into `package.json`'s `test` script so `pnpm test` from
       # the contracts package matches CI; matching `foundry.toml` fields (`threads`,
       # `isolate`) are silently ignored by `forge test` in stable 1.5.1.
-      - name: Test
-        run: forge test -vv --isolate --threads 1
+      #
+      # Unit tests run first — they're fast and fail-fast on regressions. The invariant
+      # suite below runs separately so its slower fuzz cycles don't block early failure
+      # signals on a unit-test-level bug.
+      - name: Unit tests
+        run: forge test --no-match-test "^invariant_" -vv --isolate --threads 1
+
+      # Property-based invariant suite per spec §42.2 (audit-prep). The 8 settlement +
+      # 10 tournament invariants are the contractual guarantees the protocol must hold
+      # under any sequence of valid operations. Failure here MUST block merge — the
+      # required-status-check rule on `main` should include this step's job-name.
+      #
+      # Runs with the default `[invariant]` profile (256 runs × 500 depth, see
+      # `foundry.toml`). Local pre-audit sweeps can use `forge test --profile deep` for
+      # 1024 runs.
+      - name: Invariant tests (spec §42.2)
+        run: forge test --match-test "^invariant_" -vv --isolate --threads 1
 
       - name: Format check
         run: forge fmt --check
