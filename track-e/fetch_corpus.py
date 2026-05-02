@@ -79,6 +79,14 @@ BASE_BLOCK_TIME_S = 2.0
 BLOCKS_PER_DAY = int(86400 / BASE_BLOCK_TIME_S)
 BLOCKS_PER_HOUR = int(3600 / BASE_BLOCK_TIME_S)
 
+# Pilot-mode "live token" thresholds. Clanker V4 auto-deploys generate ~80%
+# dead-on-arrival tokens (no swaps, no holders); without filtering, the corpus
+# is dominated by zero-row tokens and every input field looks degenerate.
+LIVE_MIN_BUY_ETH = 0.05  # at least 0.05 ETH bought in t+96h window
+LIVE_MIN_BUYERS = 2      # at least 2 distinct buyer wallets
+# Scan up to this many candidates per pilot slot to find live tokens.
+OVERFETCH_MULTIPLIER = 8
+
 
 # ---------------------------------------------------------------------------
 # Clanker V4 factory + event ABI
@@ -496,6 +504,28 @@ class TokenExtraction:
     outcome_90d_volume_slope: int = 0
     outcome_90d_composite: int = 0
     notes: str = ""
+    # Cache-schema fingerprint. Bump when extraction semantics change so stale
+    # caches written by an earlier code version get re-extracted instead of
+    # silently producing degenerate values in the corpus.
+    cache_schema: int = 3
+
+
+CACHE_SCHEMA = 3
+
+
+def v4_full_range_weth_wei(liquidity: int, sqrtPriceX96: int, target_is_token0: bool) -> float:
+    """V4 full-range proxy: convert (L, sqrtP) → WETH-side amount in wei.
+
+    Picks the correct currency side based on which token in the pair is WETH.
+    When the meme-coin is token0 (target_is_token0=True), WETH is token1 and
+    amount1 ≈ L · sqrtP / 2^96. When the meme-coin is token0=False, WETH is
+    token0 and amount0 ≈ L · 2^96 / sqrtP. Mixing these up gives the meme-coin
+    amount instead of WETH — off by ~price (often many orders of magnitude).
+    """
+    Q96 = 2 ** 96
+    if target_is_token0:
+        return (liquidity * sqrtPriceX96) / Q96
+    return (liquidity * Q96) / sqrtPriceX96
 
 
 def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> TokenExtraction | None:
@@ -505,7 +535,9 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
         try:
             with open(cache_path) as f:
                 cached = json.load(f)
-            return TokenExtraction(**cached)
+            if cached.get("cache_schema") == CACHE_SCHEMA:
+                return TokenExtraction(**cached)
+            cache_path.unlink()  # stale → re-extract
         except Exception:
             cache_path.unlink()
 
@@ -568,9 +600,14 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
     buyer_volumes: dict[str, float] = defaultdict(float)
     total_buy = 0.0
     decayed_buy = 0.0
-    velocity_72_96 = 0.0
-    velocity_48_72 = 0.0
-    net_weth_inflow_to_t96h = 0.0  # for lp_depth_eth proxy
+    # Per spec §6.4.5: rate-of-change of buy velocity in two overlapping 48h
+    # windows ending at t+72h and t+96h. Captures whether interest is decaying
+    # or accelerating across the second half of the t+96h horizon.
+    blk_24_72 = (blk_24h, blk_72h)         # [t+24h, t+72h)  → velocity_at_t72h
+    blk_48_96 = (blk_24h + 24 * BLOCKS_PER_HOUR, blk_96h)   # [t+48h, t+96h)
+    velocity_24_72 = 0.0
+    velocity_48_96 = 0.0
+    last_swap_in_window: dict | None = None  # for V4 LP-depth proxy
 
     for sw in swaps:
         if sw["block"] > blk_96h:
@@ -584,21 +621,35 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             total_buy += eth_signed
             days_before_t96 = (blk_96h - sw["block"]) / BLOCKS_PER_DAY
             decayed_buy += eth_signed * math.exp(-0.5 * max(0.0, days_before_t96))
-            if blk_72h <= sw["block"] < blk_96h:
-                velocity_72_96 += eth_signed
-            elif blk_24h + 24 * BLOCKS_PER_HOUR <= sw["block"] < blk_72h:
-                velocity_48_72 += eth_signed
-        # Net WETH flow into pool: positive eth_signed = WETH in, negative = WETH out
-        net_weth_inflow_to_t96h += eth_signed
+            if blk_24_72[0] <= sw["block"] < blk_24_72[1]:
+                velocity_24_72 += eth_signed
+            if blk_48_96[0] <= sw["block"] < blk_48_96[1]:
+                velocity_48_96 += eth_signed
+        if last_swap_in_window is None or sw["block"] > last_swap_in_window["block"]:
+            last_swap_in_window = sw
 
     ext.total_buy_volume_eth = round(total_buy, 6)
     ext.total_buy_volume_eth_decayed = round(decayed_buy, 6)
     ext.unique_buyers = len(buyer_volumes)
     ext.buyer_volumes_eth_json = json.dumps([round(v, 6) for v in sorted(buyer_volumes.values(), reverse=True)])
-    ext.lp_depth_eth = round(max(0.0, net_weth_inflow_to_t96h), 6)
 
-    if velocity_48_72 + velocity_72_96 > 0:
-        delta = (velocity_72_96 - velocity_48_72) / max(velocity_48_72 + velocity_72_96, 1e-9)
+    # V4 LP-depth proxy: post-swap pool liquidity from the latest swap before t+96h,
+    # mapped to the WETH side via the full-range identity (see v4_full_range_weth_wei).
+    # NB: net swap flow ≈ 0 by design (price discovery is roughly symmetric); the
+    # quantity that actually represents "depth" is the locked pool liquidity, which
+    # V4 emits with every Swap event in the `liquidity` field.
+    if last_swap_in_window and last_swap_in_window["liquidity"] > 0 and last_swap_in_window["sqrtPriceX96"] > 0:
+        weth_wei = v4_full_range_weth_wei(
+            last_swap_in_window["liquidity"],
+            last_swap_in_window["sqrtPriceX96"],
+            target_is_token0,
+        )
+        ext.lp_depth_eth = round(weth_wei / 1e18, 6)
+
+    # hp_delta_recent: (velocity_at_t96h - velocity_at_t72h) / max(velocity_at_t72h, 1e-9),
+    # clipped to [-1, 1]. Pipeline.py applies the spec §6.4.5 cap when scoring.
+    if velocity_24_72 > 0 or velocity_48_96 > 0:
+        delta = (velocity_48_96 - velocity_24_72) / max(velocity_24_72, 1e-9)
         ext.hp_delta_recent = round(max(-1.0, min(1.0, delta)), 4)
 
     # ----- ModifyLiquidity (LP) events 72-96h -----
@@ -607,7 +658,7 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
         topics=[topic0(MODIFY_LIQ_SIG), pool_id],
         from_block=blk_72h, to_block=blk_96h,
     )
-    # Approximate WETH-side of liquidity removal: liquidity * sqrtPrice / 2^96, divided by 1e18
+    # Approximate WETH-side of liquidity removal via v4_full_range_weth_wei.
     lp_removed_eth = 0.0
     if mod_logs and swaps:
         # For each negative-delta event, find nearest swap's sqrtPriceX96 to estimate WETH side.
@@ -615,12 +666,12 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             ev = decode_modify_liquidity(log)
             if ev["liquidityDelta"] >= 0:
                 continue
-            # Closest swap by block
             nearest = min(swaps, key=lambda s: abs(s["block"] - ev["block"]))
             sqrtP = nearest["sqrtPriceX96"]
+            if sqrtP <= 0:
+                continue
             removed_liq = -ev["liquidityDelta"]
-            # WETH-side amount ~= L * sqrtP / 2^96 / 1e18 (full-range approx)
-            weth_amt = (removed_liq * sqrtP) / (2 ** 96) / 1e18
+            weth_amt = v4_full_range_weth_wei(removed_liq, sqrtP, target_is_token0) / 1e18
             lp_removed_eth += weth_amt
     ext.lp_removed_24h_eth = round(lp_removed_eth, 6)
 
@@ -861,32 +912,44 @@ def main():
     discovered = discover_tokens(rpc, from_block=start_block, to_block=end_block, state=state)
     save_state(state)
 
+    # Pilot mode: over-fetch candidates from the recent end of the window and
+    # accept only those with non-trivial trading activity, until we hit `pilot`
+    # live tokens. Clanker V4 auto-deploys ~80% dead tokens (no swaps ever);
+    # the original "most-recent N" pick produced a corpus where every aggregate
+    # input field was uniformly zero.
     if args.pilot is not None:
-        # Most-recent N — they all have ≥ 90d history (window cap is at end-days-ago).
-        discovered = discovered[-args.pilot:]
-        print(f"  pilot mode: capping to {len(discovered)} most-recent tokens")
+        candidates = discovered[-(args.pilot * OVERFETCH_MULTIPLIER):]
+        candidates.reverse()  # most-recent first → we walk back until we have N live
+        print(f"  pilot mode: scanning up to {len(candidates)} candidates "
+              f"to assemble {args.pilot} live tokens (≥ {LIVE_MIN_BUY_ETH} ETH "
+              f"buy volume, ≥ {LIVE_MIN_BUYERS} unique buyers)")
+    else:
+        candidates = list(discovered)
 
     # Resolve timestamps only for the tokens we'll actually process.
-    resolve_launch_timestamps(rpc, discovered)
+    resolve_launch_timestamps(rpc, candidates)
 
     with open(DISCOVERED_PATH, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["token_address", "ticker", "platform", "version",
                     "launch_block", "launch_ts", "factory_address"])
-        for t in discovered:
+        for t in candidates:
             # `tokenSymbol` in V4 stores arbitrary JSON; the readable label is
             # in `tokenName` (matches the corpus.csv ticker column).
             ticker = (t.get("name") or "")[:32]
             w.writerow([t["token_address"], ticker, "clanker", t["version"],
                         t["launch_block"], t["launch_ts"], CLANKER_V4_ADDRESS])
-    print(f"  wrote {len(discovered)} discovered tokens → {DISCOVERED_PATH}")
+    print(f"  wrote {len(candidates)} discovered tokens → {DISCOVERED_PATH}")
 
-    print(f"\nPhase 2: extracting features + outcomes for {len(discovered)} tokens…")
+    target = args.pilot if args.pilot is not None else len(candidates)
+    print(f"\nPhase 2: extracting features + outcomes; target {target} live tokens…")
     CACHE_DIR.mkdir(exist_ok=True)
     extractions: list[TokenExtraction] = []
-    for i, tok in enumerate(discovered):
+    n_dead = 0
+    for i, tok in enumerate(candidates):
         symbol = (tok.get("symbol") or "")[:12]
-        print(f"  [{i+1}/{len(discovered)}] {symbol:<12} {tok['token_address']}…", end="", flush=True)
+        print(f"  [{i+1}/{len(candidates)}] {symbol:<12} {tok['token_address']}…",
+              end="", flush=True)
         t0 = time.monotonic()
         try:
             ext = extract_token_features(rpc, tok, head_block=head_block)
@@ -896,13 +959,27 @@ def main():
         if ext is None:
             print(" skipped (non-WETH paired or invalid pool)")
             continue
-        extractions.append(ext)
+        is_live = (
+            ext.total_buy_volume_eth >= LIVE_MIN_BUY_ETH
+            and ext.unique_buyers >= LIVE_MIN_BUYERS
+        )
         dt = time.monotonic() - t0
-        print(f" ✓ ({dt:.1f}s, {ext.unique_buyers} buyers, {ext.holder_count} holders)")
+        if not is_live:
+            n_dead += 1
+            ext.notes = (ext.notes + ";" if ext.notes else "") + "dead-on-arrival"
+            print(f" dead ({dt:.1f}s, {ext.unique_buyers} buyers, "
+                  f"{ext.total_buy_volume_eth:.4f} ETH bought)")
+            continue
+        extractions.append(ext)
+        print(f" ✓ ({dt:.1f}s, {ext.unique_buyers} buyers, {ext.holder_count} holders, "
+              f"lp_depth={ext.lp_depth_eth:.3f} ETH)")
+        if len(extractions) >= target:
+            break
 
     save_state(state)
 
-    print(f"\nPhase 3: writing corpus.csv ({len(extractions)} tokens)…")
+    print(f"\nPhase 3: writing corpus.csv "
+          f"({len(extractions)} live, {n_dead} dead-on-arrival skipped)…")
     write_corpus(extractions, CORPUS_PATH)
 
 

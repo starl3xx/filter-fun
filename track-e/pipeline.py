@@ -341,6 +341,175 @@ def rank_stability(
 # Report generation
 # ============================================================================
 
+# Fields that drive the 6 HP components — used by the data-quality section to
+# surface degenerate inputs before the reader looks at any findings that
+# depend on them.
+INPUT_FIELDS = [
+    "total_buy_volume_eth",
+    "total_buy_volume_eth_decayed",
+    "unique_buyers",
+    "buyer_volumes_eth_json",
+    "lp_depth_eth",
+    "lp_removed_24h_eth",
+    "early_holders_count",
+    "early_holders_still_holding",
+    "hp_delta_recent",
+    "holder_count",
+    "holder_balances_json",
+]
+
+# Map each HP component to the raw input field whose same-name outcome
+# would indicate input/outcome leakage if the Spearman correlation is high.
+COMPONENT_TO_OUTCOME_LABEL = {
+    "retention": "holder_retention",
+    "velocity": "price_floor",
+    "stickyLiquidity": "price_floor",
+}
+
+
+def _data_quality_section(df: pd.DataFrame, components_df: pd.DataFrame,
+                          outcomes_df: pd.DataFrame) -> list[str]:
+    """Build the Data Quality section. Surfaces degenerate fields BEFORE any
+    finding depends on them. Flags >50% zero-rate inputs and any same-named
+    input/outcome correlation above 0.85 (suggesting leakage)."""
+    n = len(df)
+    out: list[str] = ["## Data quality", ""]
+    out.append(
+        "Field-level non-zero rate, distribution stats, and outcome-label "
+        "true-rates. Reading order matters: anomalies here invalidate findings "
+        "below — components built on uniformly-zero inputs cannot be evaluated."
+    )
+    out.append("")
+    out.append("| Field | % nonzero | % non-empty | Min | Median | Max | Notes |")
+    out.append("|---|---:|---:|---:|---:|---:|---|")
+
+    flags: list[str] = []
+    for c in INPUT_FIELDS:
+        if c not in df.columns:
+            out.append(f"| `{c}` | n/a | n/a | n/a | n/a | n/a | column missing |")
+            flags.append(f"input field `{c}` is missing from the corpus")
+            continue
+        if c.endswith("_json"):
+            s = df[c].fillna("").astype(str)
+            non_empty = (s.str.strip().str.len() > 2).sum()  # ignore "[]" and ""
+            nz_pct = ne_pct = 100.0 * non_empty / max(n, 1)
+            note = "JSON list of per-wallet balances/volumes"
+            if non_empty < 0.5 * n:
+                flags.append(
+                    f"`{c}` is empty for {n - non_empty}/{n} tokens "
+                    f"({100 * (n - non_empty) / max(n, 1):.0f}%)"
+                )
+            out.append(
+                f"| `{c}` | {nz_pct:.0f}% | {ne_pct:.0f}% | n/a | n/a | n/a | {note} |"
+            )
+            continue
+        col = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+        nz = (col != 0).sum()
+        nz_pct = 100.0 * nz / max(n, 1)
+        ne_pct = nz_pct  # for numeric fields these are equivalent
+        mn, md, mx = float(col.min()), float(col.median()), float(col.max())
+        note = ""
+        if nz < 0.5 * n:
+            flags.append(
+                f"`{c}` is zero for {n - nz}/{n} tokens "
+                f"({100 * (n - nz) / max(n, 1):.0f}%) — components depending on "
+                "this field will be uninformative"
+            )
+            note = "⚠️ majority zero"
+        out.append(
+            f"| `{c}` | {nz_pct:.0f}% | {ne_pct:.0f}% | {mn:.4g} | {md:.4g} | {mx:.4g} | {note} |"
+        )
+
+    out.append("")
+    out.append("### Outcome label true-rates")
+    out.append("")
+    out.append("| Outcome | True | False | True rate |")
+    out.append("|---|---:|---:|---:|")
+    for h in OUTCOME_HORIZONS:
+        for lab in OUTCOME_LABELS:
+            col = f"outcome_{h}_{lab}"
+            if col not in outcomes_df.columns:
+                out.append(f"| `{col}` | — | — | column missing |")
+                flags.append(f"outcome label `{col}` missing")
+                continue
+            t = int(outcomes_df[col].astype(int).sum())
+            f_ = n - t
+            rate = 100.0 * t / max(n, 1)
+            out.append(f"| `{col}` | {t} | {f_} | {rate:.0f}% |")
+            if t == 0 or t == n:
+                flags.append(
+                    f"`{col}` is uniformly {'True' if t == n else 'False'} — "
+                    "any model fit against this label is degenerate"
+                )
+
+    # Same-name input/outcome leakage check: if the HP component built from a
+    # raw field is near-perfectly Spearman-correlated with a similarly-named
+    # outcome, the outcome may be implicitly derived from the same data.
+    out.append("")
+    out.append("### Input → same-name outcome leakage check")
+    out.append("")
+    out.append(
+        "Spearman ρ between an HP component score and the like-named outcome "
+        "label. ρ ≥ 0.85 across all horizons is a leakage signal: the "
+        "outcome may be a deterministic function of the input rather than an "
+        "independent quality measure."
+    )
+    out.append("")
+    out.append("| Component | Outcome label | ρ@30d | ρ@60d | ρ@90d | Flag |")
+    out.append("|---|---|---:|---:|---:|---|")
+    for comp, lab in COMPONENT_TO_OUTCOME_LABEL.items():
+        comp_col = f"comp_{comp}"
+        if comp_col not in components_df.columns:
+            continue
+        rhos = []
+        any_high = False
+        for h in OUTCOME_HORIZONS:
+            oc = f"outcome_{h}_{lab}"
+            if oc not in outcomes_df.columns:
+                rhos.append(("n/a", None))
+                continue
+            x = pd.to_numeric(components_df[comp_col], errors="coerce")
+            y = pd.to_numeric(outcomes_df[oc], errors="coerce")
+            mask = x.notna() & y.notna()
+            if mask.sum() < 3 or x[mask].nunique() < 2 or y[mask].nunique() < 2:
+                rhos.append(("n/a", None))
+                continue
+            from scipy.stats import spearmanr as _sr
+            rho_val, _ = _sr(x[mask], y[mask])
+            if rho_val is None or pd.isna(rho_val):
+                rhos.append(("n/a", None))
+                continue
+            rhos.append((f"{rho_val:+.2f}", float(rho_val)))
+            if abs(rho_val) >= 0.85:
+                any_high = True
+        flag_cell = "⚠️ leakage suspect" if any_high else ""
+        if any_high:
+            flags.append(
+                f"component `{comp}` shows |ρ| ≥ 0.85 with outcome `{lab}` "
+                "across at least one horizon — verify the outcome is not derived "
+                "from the same field"
+            )
+        out.append(
+            f"| `{comp}` | `{lab}` | {rhos[0][0]} | {rhos[1][0]} | {rhos[2][0]} | {flag_cell} |"
+        )
+
+    out.append("")
+    if flags:
+        out.append("### Flags")
+        out.append("")
+        for f_ in flags:
+            out.append(f"- {f_}")
+        out.append("")
+        out.append(
+            "_If any flag fires, treat the corresponding correlation/weight-fit "
+            "results below as unreliable and discard them from the recommendation._"
+        )
+    else:
+        out.append("_No data-quality flags raised._")
+    out.append("")
+    return out
+
+
 def render_report(
     df: pd.DataFrame,
     components_df: pd.DataFrame,
@@ -388,6 +557,10 @@ def render_report(
         for w, count in windows.items():
             out.append(f"  - {w}h: {count:,}")
     out.append("")
+
+    # Data quality runs FIRST so the reader sees degenerate inputs before the
+    # findings that depend on them.
+    out.extend(_data_quality_section(df, components_df, outcomes_df))
 
     # Component-by-outcome correlations
     out.append("## Component → outcome correlations")
