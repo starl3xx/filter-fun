@@ -852,13 +852,16 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
     # one swap in the trailing 24h. Pure on-chain — no thresholds vs. peak.
     if blk_168h <= head_block:
         snap_168h = filtered(snapshots.get(blk_168h, {}))
-        # 168h LP depth: latest swap ≤ blk_168h (recompute since snap loop above stops at blk_96h)
+        # 168h LP depth: first swap of the highest block ≤ blk_168h. Uses
+        # the same strict-`>` convention as last_swap_in_window and the
+        # trajectory loop so survived_to_day_7's depth check is consistent
+        # with the rest of the fetcher's LP-depth reads.
         last_sw_168 = None
         for sw in swaps_sorted:
-            if sw["block"] <= blk_168h:
-                last_sw_168 = sw
-            else:
+            if sw["block"] > blk_168h:
                 break
+            if last_sw_168 is None or sw["block"] > last_sw_168["block"]:
+                last_sw_168 = sw
         depth_168 = 0.0
         if last_sw_168 and last_sw_168["liquidity"] > 0 and last_sw_168["sqrtPriceX96"] > 0:
             depth_168 = v4_full_range_weth_wei(
@@ -1120,21 +1123,15 @@ def main():
         targets = [per_bin + (1 if i < rem else 0) for i in range(3)]
         candidates: list[dict] = []
         carry = 0
+        # Forward-carry pass: any bin's shortfall flows to the next bin's
+        # quota. Provably zero residual after the third bin given the outer
+        # `args.pilot < len(discovered)` guard (sum of bin sizes ≥ pilot, so
+        # bin 2 always has enough headroom to absorb upstream carry).
         for i in range(3):
             want = targets[i] + carry
             actually = min(want, len(shuffled[i]))
             candidates.extend(shuffled[i][:actually])
             carry = want - actually
-        # Final pass: any remaining carry walks back across bins with leftover
-        # capacity (so trailing-bin shortfall finds room in earlier bins).
-        if carry > 0:
-            for i in range(3):
-                room = shuffled[i][targets[i]:]  # unused suffix of bin i
-                take = min(carry, len(room))
-                candidates.extend(room[:take])
-                carry -= take
-                if carry == 0:
-                    break
         print(f"  pilot mode: time-stratified sample of {len(candidates)} tokens "
               f"across the window (3 bins of ~{per_bin} each, seed=42)")
     else:
