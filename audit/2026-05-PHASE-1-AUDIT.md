@@ -9,6 +9,7 @@ This PR ships the **report only** — no behaviour-changing code is included. Fi
 | Finding | Severity | Status | PR |
 |---|---|---|---|
 | C-1: BonusDistributor missing `nonReentrant` on `fundBonus` / `postRoot` (extended to `claim`) | Critical | ✅ Fixed | audit-remediation PR (BonusDistributor reentrancy + invariant suite extension) |
+| C-2: `FilterLauncher.maxLaunchesPerWallet` default = `2` contradicts spec §4.6 lock (= `1`) | Critical | ✅ Fixed | audit-remediation PR (introduce `SPEC_LOCK_MAX_LAUNCHES_PER_WALLET` constant + reproduction test) |
 
 ---
 
