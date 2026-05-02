@@ -31,7 +31,7 @@ contract SettlementInvariantsTest is StdInvariant, Test {
         // Restrict the fuzzer to the handler's named entry points. Without this, foundry's
         // selector-discovery picks up every public function on the handler (including views,
         // ghost accessors, and constructor-chain helpers) and wastes runs on no-ops.
-        bytes4[] memory selectors = new bytes4[](9);
+        bytes4[] memory selectors = new bytes4[](10);
         selectors[0] = SettlementHandler.fuzz_processFilterEvent.selector;
         selectors[1] = SettlementHandler.fuzz_submitWinner.selector;
         selectors[2] = SettlementHandler.fuzz_claimRollover.selector;
@@ -41,6 +41,7 @@ contract SettlementInvariantsTest is StdInvariant, Test {
         selectors[6] = SettlementHandler.fuzz_attemptResubmitWinner.selector;
         selectors[7] = SettlementHandler.fuzz_reentrantClaim.selector;
         selectors[8] = SettlementHandler.fuzz_reentrantBonusClaim.selector;
+        selectors[9] = SettlementHandler.fuzz_rotateLauncherOracle.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
@@ -257,14 +258,56 @@ contract SettlementInvariantsTest is StdInvariant, Test {
     // Spec §42.2.6: only the configured oracle may submit settlements; all other callers revert.
     //
     // The handler exposes adversary variants of each gated entry point. If any of them ever
-    // returns success, `ghostAuthBypass` flips. Defense in depth: also assert vault.oracle()
-    // is unchanged from setUp — there is no setter, so this is a structural property, but
-    // catching a future oracle-mutability bug here is cheap.
+    // returns success, `ghostAuthBypass` flips. Defense in depth: also assert
+    // `launcher.oracle()` (the live source of truth post-H-2) tracks the handler's currently-
+    // expected oracle. Audit H-2 (Phase 1, 2026-05-01): SeasonVault no longer stores its own
+    // oracle field — it reads `launcher.oracle()` on every privileged call — so the assertion
+    // shifted from `vault.oracle()` to `launcher.oracle()`. After H-2 the handler can rotate
+    // the launcher oracle mid-run via `fuzz_rotateLauncherOracle`; this invariant only
+    // checks the rotation is well-defined (current handler.oracle() matches launcher) and the
+    // dedicated `invariant_oracleAuthorityCurrent` covers the "old oracle rejected, new oracle
+    // accepted" property post-rotation.
     function invariant_oracleAuthority() public view {
         assertFalse(handler.ghostAuthBypass(), "oracleAuthority: privileged call escaped guard");
         assertEq(
-            handler.vault().oracle(), handler.oracle(), "oracleAuthority: vault.oracle drifted from setUp"
+            handler.launcher().oracle(),
+            handler.oracle(),
+            "oracleAuthority: launcher.oracle drifted from handler.oracle"
         );
+    }
+
+    // ============================================================ Invariant 6b — oracle currency
+    //
+    // Audit H-2 (Phase 1, 2026-05-01) regression cover. SeasonVault.onlyOracle now reads
+    // `launcher.oracle()` live, so a `setOracle` rotation on the launcher MUST take effect
+    // on every existing per-season vault immediately. Pre-H-2 the vault stored its own
+    // oracle field; rotations on the launcher left old vaults honouring the old oracle
+    // indefinitely — a Sev: High finding because settlement on stale seasons stayed
+    // signable by a presumed-rotated key.
+    //
+    // Handler exposes `fuzz_rotateLauncherOracle` which rotates the launcher's oracle to a
+    // fresh address and remembers the previous one. This invariant asserts:
+    //   1. The previous oracle, if any, has had at least one rejected probe captured
+    //      (`ghostPrevOracleRejected` flips on a probe attempt that reverted with NotOracle)
+    //   2. The current `handler.oracle()` is exactly what `launcher.oracle()` reports
+    //   3. No bypass ever fired through the rotation (covered by the existing
+    //      `ghostAuthBypass`, but re-asserted here for symmetry)
+    function invariant_oracleAuthorityCurrent() public view {
+        assertEq(
+            handler.launcher().oracle(),
+            handler.oracle(),
+            "oracleCurrency: launcher.oracle desynced from handler.oracle"
+        );
+        // If a rotation has happened at any point, the prev-oracle probe must have rejected
+        // at least once. If no rotation, the previous oracle is the original and the probe
+        // never armed (vacuously true).
+        if (handler.ghostOracleRotations() > 0) {
+            assertTrue(
+                handler.ghostPrevOracleRejectedAtLeastOnce(),
+                "oracleCurrency: prev-oracle probe never rejected after rotation"
+            );
+        }
+        assertFalse(handler.ghostAuthBypass(), "oracleCurrency: bypass escaped guard during rotation");
     }
 
     // ============================================================ Invariant 7 — no mid-season POL

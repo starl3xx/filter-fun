@@ -169,6 +169,21 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         IBonusFunding bonusDistributor_,
         address weth_
     ) Ownable(owner_) {
+        // Audit H-4 (Phase 1, 2026-05-01): every immutable/loose-typed address dependency
+        // injected at construction MUST be non-zero. A zero `oracle_` would brick every
+        // privileged operation (every per-season vault would block on its onlyOracle gate);
+        // a zero `treasury_` would silently burn launch fees and forfeitures; zero in any
+        // of the rest would break the wired contracts at first use. Failing closed at
+        // deploy time is cheaper than discovering a bricked deployment post-launch.
+        // `owner_` is validated by Ownable's constructor. We intentionally do NOT validate
+        // `bonusDistributor_` separately because the deploy script wires it as a freshly
+        // deployed BonusDistributor whose address is non-zero by construction; we still
+        // include the check below for defense-in-depth against alternate deploy paths.
+        if (oracle_ == address(0)) revert ZeroAddress();
+        if (treasury_ == address(0)) revert ZeroAddress();
+        if (mechanics_ == address(0)) revert ZeroAddress();
+        if (address(bonusDistributor_) == address(0)) revert ZeroAddress();
+        if (weth_ == address(0)) revert ZeroAddress();
         oracle = oracle_;
         treasury = treasury_;
         mechanics = mechanics_;
@@ -193,9 +208,14 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     /// @notice One-shot wire of the POLManager. Owner-only; reverts if already set or zero.
     ///         Required because POLManager wants the launcher's address in its constructor —
     ///         we deploy POLManager after the launcher and call this to close the loop.
+    /// @dev    Audit H-4 (Phase 1, 2026-05-01): the zero-address gate previously used a
+    ///         string `require` while the rest of the launcher uses the `ZeroAddress()`
+    ///         custom error. Normalised here so all admin-setter zero checks revert with
+    ///         the same selector — important for the off-chain alerter that watches for
+    ///         this selector across the contract surface.
     function setPolManager(IPOLManager polManager_) external onlyOwner {
         require(address(polManager) == address(0), "polManager set");
-        require(address(polManager_) != address(0), "zero polManager");
+        if (address(polManager_) == address(0)) revert ZeroAddress();
         polManager = polManager_;
     }
 
@@ -206,10 +226,21 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
 
     function setFactory(IFilterFactory factory_) external onlyOwner {
         require(address(factory) == address(0), "factory set");
+        // Audit H-4: a zero factory bricks every subsequent `launchToken` call (the call
+        // hits factory.deployToken on a zero address). Failing closed at set-time keeps the
+        // launcher recoverable.
+        if (address(factory_) == address(0)) revert ZeroAddress();
         factory = factory_;
     }
 
+    /// @notice Rotate the oracle authorised to drive season lifecycle + filter events.
+    /// @dev    Audit H-4 (Phase 1, 2026-05-01): a zero oracle would brick every subsequent
+    ///         oracle-gated call (`startSeason`, `processFilterEvent`, `submitWinner`,
+    ///         …). Coupled with H-2's live-read pattern, an accidental zero rotation here
+    ///         would propagate to every existing per-season vault on the very next call —
+    ///         catching it at the setter is the only safe layer.
     function setOracle(address oracle_) external onlyOwner {
+        if (oracle_ == address(0)) revert ZeroAddress();
         oracle = oracle_;
     }
 
@@ -245,11 +276,13 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         seasonId = ++currentSeasonId;
         if (_phase[seasonId] != Phase.Launch && _phase[seasonId] != Phase(0)) revert SeasonAlreadyOpen();
 
+        // Oracle is NOT passed: SeasonVault.onlyOracle reads `launcher.oracle()` live so an
+        // `setOracle` rotation here takes effect on every existing vault immediately
+        // (audit H-2, spec §42.2.6).
         SeasonVault v = new SeasonVault(
             address(this),
             seasonId,
             weth,
-            oracle,
             treasury,
             mechanics,
             polManager,

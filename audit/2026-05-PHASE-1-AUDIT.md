@@ -16,6 +16,10 @@ This PR ships the **report only** — no behaviour-changing code is included. Fi
 | C-6: Claim pages issue `writeContract` with no chain / balance preflight | Critical | ✅ Fixed | audit-remediation PR (extracted pure `computeClaimPreflight` policy + `useSwitchChain` CTA + 6-case unit test) |
 | C-7: Admin console's center column blanks silently when hooks error | Critical | ✅ Fixed | audit-remediation PR (coalesce 4 hook errors → `LiveDataErrorCard` in center column) |
 | C-8: Bricolage Grotesque weights 500 + 600 not loaded (ARENA_SPEC §2.1/§2.2 mandates 5 weights) | Critical | ✅ Fixed | audit-remediation PR (one-line font weight array fix + NatSpec regression note) |
+| H-1: Insufficient NatSpec on `BonusDistributor` `fundBonus`/`postRoot`/`claim` | High | ✅ Fixed | `audit/contracts-high-batch-1` (full `@notice` + per-parameter docs + grep-based `BonusDistributorNatSpec.t.sol` regression test) |
+| H-2: `SeasonVault` stores its own `oracle`; launcher rotation leaves prior vaults honouring stale oracle (spec §42.2.6) | High | ✅ Fixed | `audit/contracts-high-batch-1` (live-read via `ILauncherView.oracle()`; stored field dropped + ctor param removed; `SeasonVaultOracleStaleness.t.sol` deterministic suite + `invariant_oracleAuthorityCurrent` settlement-suite extension with `fuzz_rotateLauncherOracle`) |
+| H-3: `BonusDistributor.setOracle` mis-named revert (`NotOracle` for a launcher-only gate) | High | ✅ Fixed | `audit/contracts-high-batch-1` (`error NotLauncher` + `onlyLauncher` modifier; `BonusDistributorSetOracleNaming.t.sol`) |
+| H-4: `FilterLauncher` admin setters + constructor accept `address(0)` | High | ✅ Fixed | `audit/contracts-high-batch-1` (zero-address checks added to `setOracle`/`setFactory`; `setPolManager` normalised from string-`require` to `revert ZeroAddress`; constructor address params validated; `AdminSetterZeroAddressChecks.t.sol`) |
 
 ---
 

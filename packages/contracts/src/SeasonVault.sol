@@ -21,6 +21,13 @@ interface IPOLManager {
 
 interface ILauncherView {
     function lockerOf(uint256 seasonId, address token) external view returns (address);
+    /// @notice Live oracle address. SeasonVault's `onlyOracle` modifier reads through this
+    ///         on every call so an oracle rotation on the launcher takes effect immediately
+    ///         on every existing per-season vault — no per-vault setter, no rotation script.
+    ///         Audit H-2 (Phase 1, 2026-05-01, spec §42.2.6): a stored oracle on each vault
+    ///         left vaults from prior seasons honouring the old oracle indefinitely after
+    ///         `FilterLauncher.setOracle` rotated.
+    function oracle() external view returns (address);
 }
 
 interface ICreatorFeeDistributor {
@@ -107,7 +114,6 @@ contract SeasonVault is ReentrancyGuard {
     ITournamentRegistry public immutable tournamentRegistry;
 
     // -------- Mutable state
-    address public oracle;
     Phase public phase;
 
     // Accumulators across filter events, denominated in WETH and held by this contract until
@@ -185,8 +191,11 @@ contract SeasonVault is ReentrancyGuard {
     error InvalidProof();
     error NoRollover();
 
+    /// @dev Live-read against `launcher.oracle()` — see `ILauncherView.oracle()` rationale.
+    ///      A modifier read costs one extra view call per privileged entry, well below the
+    ///      gas-budget headroom on these settlement-side functions.
     modifier onlyOracle() {
-        if (msg.sender != oracle) revert NotOracle();
+        if (msg.sender != ILauncherView(launcher).oracle()) revert NotOracle();
         _;
     }
 
@@ -195,11 +204,12 @@ contract SeasonVault is ReentrancyGuard {
         _;
     }
 
+    /// @dev `oracle` is intentionally NOT a constructor param — vault auth reads
+    ///      `launcher.oracle()` live via `onlyOracle`. See audit H-2.
     constructor(
         address launcher_,
         uint256 seasonId_,
         address weth_,
-        address oracle_,
         address treasury_,
         address mechanics_,
         IPOLManager polManager_,
@@ -212,7 +222,6 @@ contract SeasonVault is ReentrancyGuard {
         launcher = launcher_;
         seasonId = seasonId_;
         weth = weth_;
-        oracle = oracle_;
         treasury = treasury_;
         mechanics = mechanics_;
         polManager = polManager_;

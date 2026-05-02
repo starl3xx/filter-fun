@@ -109,6 +109,10 @@ Add full NatSpec comments to all three functions:
 
 **Effort:** S
 
+**Status:** Resolved (2026-05-02, audit/contracts-high-batch-1).
+- Full NatSpec (`@notice` + per-parameter docs + `@dev`) added to `fundBonus`, `postRoot`, and `claim` in `packages/contracts/src/BonusDistributor.sol`.
+- Build-time regression test `test/security/BonusDistributorNatSpec.t.sol` greps the source for the doc-comment block preceding each target function and asserts both a `@notice` tag and per-parameter doc coverage; the test catches a future regression that strips the docs without requiring a NatSpec linter on CI.
+
 ---
 
 ### [Contracts] No validation that SeasonVault oracle equals launcher oracle in submitWinner
@@ -145,6 +149,11 @@ In `SeasonVault.submitWinner()`, read the current oracle from the launcher (via 
 
 **Effort:** M
 
+**Status:** Resolved (2026-05-02, audit/contracts-high-batch-1).
+- `SeasonVault.onlyOracle` now reads `launcher.oracle()` live via the `ILauncherView.oracle()` accessor, mirroring the pattern already used by `TournamentRegistry`/`TournamentVault`. The stored `oracle` field was dropped entirely; constructor no longer takes `oracle_`. A `setOracle` rotation on the launcher takes effect on every existing per-season vault on the very next call.
+- Three call sites updated to drop the `oracle_` argument: `FilterLauncher.startSeason`, `test/SeasonVault.t.sol`, `test/invariant/handlers/SettlementHandler.sol`.
+- Regression coverage: `test/security/SeasonVaultOracleStaleness.t.sol` (5 deterministic tests covering pre/post rotation auth, zero-stored-field, multi-rotation propagation) plus a new fuzz invariant `invariant_oracleAuthorityCurrent` in `test/invariant/SettlementInvariants.t.sol` driven by `fuzz_rotateLauncherOracle` (~12,700 calls/run), asserting prev-oracle is rejected with `NotOracle` and the new oracle gains authority on every existing vault.
+
 ---
 
 ### [Contracts] Missing auth check in BonusDistributor.setOracle()
@@ -171,6 +180,8 @@ Change to `if (msg.sender != launcher) revert NotOracle()` is actually correct (
 Alternatively, if the intent is owner-only (which is more standard for a setter), use `onlyOwner()` from `Ownable`.
 
 **Effort:** S
+
+**Status:** Resolved (2026-05-02, audit/contracts-high-batch-1). Both options 1 + 2 applied: introduced `error NotLauncher()`, added `onlyLauncher` modifier, and changed `BonusDistributor.setOracle` to revert with `NotLauncher` on a non-launcher caller. Off-chain alerters that grep for `NotOracle` events now see only genuine oracle-auth failures, not setOracle misroutes. Regression cover: `test/security/BonusDistributorSetOracleNaming.t.sol` (3 tests: adversary call reverts with the new selector, the configured oracle calling its own rotation entry also reverts with `NotLauncher`, launcher happy-path succeeds).
 
 ---
 
@@ -213,6 +224,11 @@ function setOracle(address oracle_) external onlyOwner {
 ```
 
 **Effort:** S
+
+**Status:** Resolved (2026-05-02, audit/contracts-high-batch-1).
+- `setOracle` and `setFactory` now revert with `ZeroAddress()` on a zero argument. `setPolManager` previously used a string `require("zero polManager")`; normalised to `revert ZeroAddress()` so all admin-setter zero checks share one revert selector — important for the off-chain alerter that watches for it across the contract surface.
+- `FilterLauncher` constructor now validates `oracle_`, `treasury_`, `mechanics_`, `bonusDistributor_`, `weth_` against zero. Coupled with H-2's live-read pattern, an accidental zero `setOracle` rotation would otherwise propagate to every existing per-season vault on the very next call; the setter is the only safe layer to catch it.
+- Regression cover: `test/security/AdminSetterZeroAddressChecks.t.sol` (11 tests covering each constructor address param, each updated setter, plus `setForfeitRecipient` for completeness).
 
 ---
 
