@@ -30,6 +30,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 SCHEMA_VERSION = "1.0"
@@ -92,8 +93,9 @@ def effective_buyers_score(row: pd.Series) -> float:
     total = float(row.get("total_buy_volume_eth", 0.0) or 0.0)
     if n <= 0 or total <= 0:
         return 0.0
+    # Equal-distribution approximation of sum(sqrt(v_i)): n * sqrt(avg) = sqrt(n*total)
     avg = total / n
-    return math.sqrt(n) * math.sqrt(avg)
+    return n * math.sqrt(avg)
 
 
 def sticky_liquidity_score(row: pd.Series, alpha: float = 1.0) -> float:
@@ -307,9 +309,14 @@ def fit_weights_logreg(
     weights_arr = pos / pos.sum()
     weights = {comp: float(weights_arr[i]) for i, comp in enumerate(COMPONENTS_6)}
 
-    # Also report cross-validated AUC for the model
+    # CV uses a Pipeline so the scaler is re-fit within each fold (no leakage from
+    # full-dataset statistics into test partitions).
+    cv_pipeline = Pipeline([
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(C=C, penalty="l2", max_iter=2000, random_state=seed)),
+    ])
     auc_scores = cross_val_score(
-        clf, Xs, y,
+        cv_pipeline, X, y,
         cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=seed),
         scoring="roc_auc",
     )
