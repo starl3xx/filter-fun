@@ -76,9 +76,7 @@ contract BonusDistributorNatSpecTest is Test {
             if (_contains(ln, paramNeedle)) ++paramCount;
         }
 
-        assertGt(
-            noticeCount, 0, string.concat("H-1 regression: missing notice on BonusDistributor.", fnName)
-        );
+        assertGt(noticeCount, 0, string.concat("H-1 regression: missing notice on BonusDistributor.", fnName));
         assertGe(
             paramCount,
             expectedParams,

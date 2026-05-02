@@ -63,16 +63,12 @@ contract AdminSetterZeroAddressChecksTest is Test {
 
     function test_AuditH4_ConstructorRevertsOnZeroTreasury() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        new FilterLauncher(
-            owner, oracle, address(0), mechanics, IBonusFunding(address(bonus)), address(weth)
-        );
+        new FilterLauncher(owner, oracle, address(0), mechanics, IBonusFunding(address(bonus)), address(weth));
     }
 
     function test_AuditH4_ConstructorRevertsOnZeroMechanics() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        new FilterLauncher(
-            owner, oracle, treasury, address(0), IBonusFunding(address(bonus)), address(weth)
-        );
+        new FilterLauncher(owner, oracle, treasury, address(0), IBonusFunding(address(bonus)), address(weth));
     }
 
     function test_AuditH4_ConstructorRevertsOnZeroBonusDistributor() public {
@@ -82,9 +78,7 @@ contract AdminSetterZeroAddressChecksTest is Test {
 
     function test_AuditH4_ConstructorRevertsOnZeroWeth() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        new FilterLauncher(
-            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(0)
-        );
+        new FilterLauncher(owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(0));
     }
 
     /// @notice Sanity: a constructor with all-non-zero deps succeeds. Pinned so a
