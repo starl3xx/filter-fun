@@ -7,6 +7,8 @@ filter.fun web — non-Arena pages and cross-cutting concerns
 ## CRITICAL
 
 ### [Web] Missing error boundary on `/` and `/launch`
+**Status:** ✅ **FIXED** in audit-remediation PR (Audit Finding C-5). Two layers added per route: (1) Next.js convention `app/error.tsx` + `app/launch/error.tsx` boundaries that catch any thrown render-tree error and present a recoverable card with a `reset()` CTA + `digest` for log correlation; (2) inline `DataErrorBanner` component on both pages that surfaces the polling hooks' captured `.error` (the actual finding — fetch failures don't throw, they just sit in state). Banner sits between the ticker and the grid so it doesn't displace live UI; auto-clears when the next poll succeeds.
+
 **Severity:** Critical
 **Files:** packages/web/src/app/page.tsx, packages/web/src/app/launch/page.tsx
 **Spec ref:** n/a
@@ -19,6 +21,8 @@ Neither the homepage `/` nor `/launch` has an error boundary or graceful fallbac
 **Effort:** M
 
 ### [Web] Claim pages lack wallet balance / wrong-network preflight
+**Status:** ✅ **FIXED** in audit-remediation PR (Audit Finding C-6). Two-layer preflight gates the claim CTA: (1) chain check — wallet must be on `chain.id` from `lib/wagmi.ts`, with a one-click `useSwitchChain` CTA if not; (2) balance check — `useBalance` for the chain's native asset, must be `> 0n`. Order is load-bearing (chain before balance) so the wrong-chain user gets the actionable fix instead of a misleading "no balance" message. Decision logic extracted as pure `computeClaimPreflight()` and unit-tested at `test/claim/computeClaimPreflight.test.ts` (6 cases, including the load-bearing "loading == fail closed" rule that prevents future refactors from silently flipping the default to permissive).
+
 **Severity:** Critical
 **Files:** packages/web/src/components/ClaimForm.tsx:88-99
 **Spec ref:** §22
@@ -40,6 +44,8 @@ function handleClaim() {
 **Effort:** S
 
 ### [Web] Admin console has no error UI for failed hook reads
+**Status:** ✅ **FIXED** in audit-remediation PR (Audit Finding C-7). Coalesced `useTokenAdmin.error`, `useStakeStatus.error`, `useSeason.error`, `useTokens.error` into a single `liveDataError` chip rendered in the center column above the live panels via the new `LiveDataErrorCard`. The chip keeps the live panels mounted (so partial data is still visible) and surfaces the upstream error message. The polling hooks reset `error` to null on the next successful fetch — the next poll IS the retry, so no manual button is offered (which would risk masking a recurring failure).
+
 **Severity:** Critical
 **Files:** packages/web/src/app/token/[address]/admin/page.tsx:64-70
 **Spec ref:** §38

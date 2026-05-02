@@ -61,14 +61,25 @@ export default function AdminConsolePage() {
 }
 
 function AdminConsole({token}: {token: Address}) {
-  const {info, isLoading: adminLoading} = useTokenAdmin(token);
+  const {info, isLoading: adminLoading, error: adminError} = useTokenAdmin(token);
   const auth = useAdminAuth(info);
-  const {data: season} = useSeason();
-  const {data: tokens} = useTokens();
+  const {data: season, error: seasonError} = useSeason();
+  const {data: tokens, error: tokensError} = useTokens();
   const {context} = useSeasonContext();
   const {stats} = useTokenStats(token);
-  const {status: stakeStatus} = useStakeStatus(token, context.seasonId);
+  const {status: stakeStatus, error: stakeError} = useStakeStatus(token, context.seasonId);
   const {connect, connectors} = useConnect();
+
+  // Phase 1 audit C-7 (Phase 1 audit 2026-05-01): the four data hooks above
+  // each return null/undefined on RPC failure, which previously left the
+  // center column rendering an empty/broken state with no signal that
+  // anything went wrong. Coalesce the errors and render a single error card
+  // in the center column so the user sees what's failing and can retry.
+  // adminError + stakeError signal RPC reads (the wagmi multi-read pipeline);
+  // seasonError + tokensError signal indexer-poll fetch failures. Either
+  // class blanks the same UI panels — center column is where users look for
+  // live state, so that's where the error chip lives.
+  const liveDataError = adminError ?? stakeError ?? seasonError ?? tokensError ?? null;
 
   const acceptAnchorRef = useRef<HTMLDivElement | null>(null);
 
@@ -169,6 +180,7 @@ function AdminConsole({token}: {token: Address}) {
           className="ff-col-center"
           style={{display: "flex", flexDirection: "column", gap: 0, minWidth: 0}}
         >
+          {liveDataError && <LiveDataErrorCard error={liveDataError} />}
           {tokenStats ? (
             <>
               <HpPanel token={tokenStats} />
@@ -220,6 +232,52 @@ function AdminConsole({token}: {token: Address}) {
         </div>
       </main>
     </div>
+  );
+}
+
+/// Audit C-7 (Phase 1 audit 2026-05-01) error card for the admin console's
+/// center column. Renders ABOVE the live panels so it appears whether the
+/// hook returned partial data (chip + degraded panels) or no data
+/// (chip + empty state). Uses the same red accent + ▼ glyph as the other
+/// failure surfaces. The polling hooks reset `error` on the next successful
+/// fetch — no manual retry control is provided because the next poll is the
+/// retry, and adding one would risk masking a recurring failure.
+function LiveDataErrorCard({error}: {error: Error}) {
+  return (
+    <Card label="Live data error">
+      <div
+        role="alert"
+        aria-live="polite"
+        style={{display: "flex", flexDirection: "column", gap: 6}}
+      >
+        <div
+          style={{
+            color: C.red,
+            fontFamily: F.mono,
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+          }}
+        >
+          ▼ Read failed
+        </div>
+        <p style={{margin: 0, fontSize: 13, color: C.dim, fontFamily: F.display, lineHeight: 1.5}}>
+          We couldn't load on-chain or indexer state for this token. Live HP, rank, stake, and
+          settlement panels below may be stale or empty until the next poll succeeds.
+        </p>
+        <code
+          style={{
+            fontFamily: F.mono,
+            fontSize: 11,
+            color: C.faint,
+            wordBreak: "break-all",
+          }}
+        >
+          {error.message}
+        </code>
+      </div>
+    </Card>
   );
 }
 

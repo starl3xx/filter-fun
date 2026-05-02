@@ -49,9 +49,16 @@ import {fmtEth} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
 
 export default function HomePage() {
-  const {data: season} = useSeason();
-  const {data: tokens, isLoading: tokensLoading} = useTokens();
+  const {data: season, error: seasonError} = useSeason();
+  const {data: tokens, isLoading: tokensLoading, error: tokensError} = useTokens();
   const {events, status: liveStatus} = useTickerEvents();
+  // Phase 1 audit C-5 (2026-05-01): the polling hooks capture fetch errors in
+  // state but the page previously dropped them silently. We surface a single
+  // non-blocking banner whenever EITHER /season or /tokens is failing — the
+  // grid still renders with stale-or-empty data underneath, so users can see
+  // the prior cohort while we explain why it isn't refreshing. The banner
+  // auto-clears the moment the next poll succeeds (`error` resets to null).
+  const dataError = tokensError ?? seasonError ?? null;
   const trendBuffers = useTrendBuffers(tokens);
 
   // Memoize the empty-fallback so `cohort` keeps a stable identity while
@@ -200,6 +207,7 @@ export default function HomePage() {
       <Stars />
       <ArenaTopBar season={season} liveStatus={liveStatus} />
       <ArenaTicker events={events} season={season} />
+      {dataError && <DataErrorBanner error={dataError} />}
 
       <main className="ff-arena-grid" style={{position: "relative", zIndex: 1}}>
         <div className="ff-arena-col-left" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>
@@ -273,6 +281,46 @@ export default function HomePage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/// Audit C-5 (Phase 1 audit 2026-05-01): non-blocking banner shown above the
+/// arena grid when /season or /tokens has errored. Sits between the ticker
+/// and the grid so it doesn't push the live ticker out of sight, and uses the
+/// same red accent as the rest of the failure surfaces (status:FILTERED,
+/// inline form errors). The banner clears itself as soon as the next poll
+/// succeeds — this is intentional: the polling hooks reset `error` to null on
+/// the next successful fetch, so we don't need (and don't want) a manual
+/// dismiss control that would mask a recurring failure.
+function DataErrorBanner({error}: {error: Error}) {
+  return (
+    <div
+      role="alert"
+      aria-live="polite"
+      style={{
+        position: "relative",
+        zIndex: 1,
+        margin: "8px 16px 0",
+        padding: "8px 14px",
+        borderRadius: 10,
+        border: `1px solid ${C.red}55`,
+        background: `${C.red}14`,
+        color: C.text,
+        fontFamily: F.mono,
+        fontSize: 11,
+        letterSpacing: "0.05em",
+        display: "flex",
+        gap: 10,
+        alignItems: "center",
+      }}
+    >
+      <span style={{color: C.red, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase"}}>
+        ▼ Live data error
+      </span>
+      <span style={{color: C.dim}}>
+        Indexer call failed — showing cached state. Will retry on the next poll. ({error.message})
+      </span>
     </div>
   );
 }

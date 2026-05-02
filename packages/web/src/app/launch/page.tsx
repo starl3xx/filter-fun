@@ -43,9 +43,13 @@ import {C, F} from "@/lib/tokens";
 export default function LaunchPage() {
   const router = useRouter();
 
-  const {data: season} = useSeason();
-  const {data: tokens} = useTokens();
+  const {data: season, error: seasonError} = useSeason();
+  const {data: tokens, error: tokensError} = useTokens();
   const {status: liveStatus} = useTickerEvents();
+  // Phase 1 audit C-5 (2026-05-01): surface fetch errors instead of dropping
+  // them silently. The launch page can still render the slot grid + form on
+  // stale data, so the banner is a non-blocking informational chip.
+  const dataError = tokensError ?? seasonError ?? null;
 
   const cohort = useMemo(() => tokens ?? [], [tokens]);
   const {slots, status} = useLaunchSlots(cohort);
@@ -173,6 +177,7 @@ export default function LaunchPage() {
     <div style={{position: "relative", minHeight: "100vh", overflow: "hidden"}}>
       <Stars />
       <ArenaTopBar season={season} liveStatus={liveStatus} />
+      {dataError && <DataErrorBanner error={dataError} />}
 
       <main className="ff-launch-page" style={{position: "relative", zIndex: 1}}>
         <LaunchHero season={season} slots={slots} status={status} onScrollToForm={scrollToForm} />
@@ -223,6 +228,42 @@ function titleFor(state: EligibilityNoticeState): string {
     default:
       return "Launch unavailable";
   }
+}
+
+/// Audit C-5 (Phase 1 audit 2026-05-01): mirrors the arena page's banner so
+/// fetch errors on /season or /tokens are visible to the user instead of
+/// silently leaving the slot grid frozen on stale data. See `app/page.tsx`
+/// for the full rationale.
+function DataErrorBanner({error}: {error: Error}) {
+  return (
+    <div
+      role="alert"
+      aria-live="polite"
+      style={{
+        position: "relative",
+        zIndex: 1,
+        margin: "8px 16px 0",
+        padding: "8px 14px",
+        borderRadius: 10,
+        border: `1px solid ${C.red}55`,
+        background: `${C.red}14`,
+        color: C.text,
+        fontFamily: F.mono,
+        fontSize: 11,
+        letterSpacing: "0.05em",
+        display: "flex",
+        gap: 10,
+        alignItems: "center",
+      }}
+    >
+      <span style={{color: C.red, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase"}}>
+        ▼ Live data error
+      </span>
+      <span style={{color: C.dim}}>
+        Indexer call failed — showing cached state. Will retry on the next poll. ({error.message})
+      </span>
+    </div>
+  );
 }
 
 function NoticeCard({tone, title, body}: {tone: "info" | "warn"; title: string; body: string}) {
