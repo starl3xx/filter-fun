@@ -44,7 +44,8 @@ These feed the 5 existing components + holderConcentration (per spec §6.4 + §4
 ### Momentum inputs
 | Column | Type | Description |
 |---|---|---|
-| `hp_delta_recent` | float | Recent HP change (raw, before cap). E.g. delta in last 6h. Capped per spec §6.4.5 implementation. |
+| `hp_delta_recent` | float | Rate-of-change of the 5-component raw HP between t+72h and t+96h: `(hp@96h − hp@72h) / max(hp@72h, ε)`, clipped to [−1, 1]. Pipeline.py applies the §6.4.5 cap when scoring. |
+| `hp_trajectory_json` | str (JSON) | 5-component raw HP at `[t+24h, t+48h, t+72h, t+96h]` as a list of 4 floats, e.g. `"[2.586, 2.380, 2.357, 2.342]"`. Empty list `"[]"` for tokens with no swap activity. Computed in the fetcher with default §6.5 weights (renormalized to sum to 1.0 over the 5 non-momentum components). Useful for follow-up analyses of intra-window HP shape; not consumed by the v3 analysis pipeline. |
 
 ### Holder concentration inputs (per spec §41)
 | Column | Type | Description |
@@ -59,11 +60,15 @@ For each of three horizons (`30d`, `60d`, `90d`), four candidate labels per spec
 | Column pattern | Type | Description |
 |---|---|---|
 | `outcome_{horizon}_holder_retention` | bool/int (0/1) | True if `current_holder_count > 0.5 * peak_holder_count` (still has meaningful holder base) |
-| `outcome_{horizon}_price_floor` | bool/int (0/1) | True if `current_price >= 0.30 * peak_price` (didn't catastrophically collapse) |
-| `outcome_{horizon}_volume_slope` | bool/int (0/1) | True if `7d_trailing_volume_at_horizon > 0.20 * peak_7d_volume` (sustained activity) |
+| `outcome_{horizon}_price_floor` | bool/int (0/1) | True if `current_price >= 0.50 * peak_price` (≤50% drawdown from peak — v3 retune from 0.30 after v2 hit 100% True) |
+| `outcome_{horizon}_volume_slope` | bool/int (0/1) | True if `7d_trailing_volume_at_horizon >= 0.01 ETH` (absolute weekly-volume floor — v3 retune from peak-relative 0.20 after v2 hit 0% True) |
 | `outcome_{horizon}_composite` | bool/int (0/1) | All three above are True (strict "good token" definition) |
 
-So twelve outcome columns total: 4 labels × 3 horizons.
+So twelve outcome columns total: 4 labels × 3 horizons. Plus the v3 primary outcome:
+
+| Column | Type | Description |
+|---|---|---|
+| `survived_to_day_7` | bool/int (0/1) | True if at t+168h the token has `holder_count ≥ 5` AND `lp_depth_eth ≥ 0.5` AND any swap volume in the trailing 24h. On-chain only — no thresholds vs peaks. Closest retrospective proxy to "would have made the filter.fun h96 cut." |
 
 ## Optional metadata (helpful but not required)
 
