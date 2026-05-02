@@ -118,7 +118,9 @@ contract BonusDistributorReentrancyTest is Test {
         bonus.fundBonus(SEASON_ID, WINNER_TOKEN, block.timestamp + 14 days, TOTAL_BONUS);
 
         assertTrue(attacker.reentryFired(), "fundBonus attack surface did not fire");
-        assertFalse(attacker.reentrySucceeded(), "fundBonus REENTRY SUCCEEDED -- accounting corruption path is live");
+        assertFalse(
+            attacker.reentrySucceeded(), "fundBonus REENTRY SUCCEEDED -- accounting corruption path is live"
+        );
         assertEq(
             attacker.reentryRevertSelector(),
             ReentrancyGuard.ReentrancyGuardReentrantCall.selector,
@@ -145,12 +147,16 @@ contract ClaimReentrant is IMaliciousReceiverHook {
     bool public reentrySucceeded;
     bytes4 public reentryRevertSelector;
 
-    function arm(BonusDistributor bonus_, uint256 seasonId_, uint256 amount_, bytes32[] memory proof_) external {
+    function arm(BonusDistributor bonus_, uint256 seasonId_, uint256 amount_, bytes32[] memory proof_)
+        external
+    {
         bonus = bonus_;
         seasonId = seasonId_;
         amount = amount_;
         delete _proof;
-        for (uint256 i = 0; i < proof_.length; ++i) _proof.push(proof_[i]);
+        for (uint256 i = 0; i < proof_.length; ++i) {
+            _proof.push(proof_[i]);
+        }
     }
 
     function onTokenHook() external override {

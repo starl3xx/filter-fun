@@ -123,11 +123,11 @@ contract SettlementHandler is Test {
     bytes32 internal _bonusReentryAttackerProof;
     bool public ghostBonusReentryAttempted;
     bool public ghostBonusReentryBypassed;
-    /// @notice Flips true if the inner re-entry was blocked but by a layer OTHER than the
-    ///         OZ ReentrancyGuard. Catches a future regression where the guard is removed and
-    ///         the contract's CEI ordering becomes the only defense (spec §42.2.5 demands the
-    ///         guard layer specifically).
-    bool public ghostBonusReentryWrongDefenseLayer;
+    // Note: the "which defense layer fired" check (CEI vs OZ ReentrancyGuard) lives in the
+    // deterministic exploit-reproduction at test/security/BonusDistributorReentrancy.t.sol,
+    // which inspects the inner call's revert selector directly. The fuzz invariant here only
+    // asserts the broader bypass-never-succeeds property; capturing per-call revert data
+    // through MaliciousReceiver would require extending the shared harness for marginal value.
 
     // ============================================================ Ghost variables
     //
@@ -286,7 +286,9 @@ contract SettlementHandler is Test {
         vm.prank(bonusReentryFunder);
         bonusReentryWeth.approve(address(bonusReentry), BONUS_REENTRY_RESERVE);
         vm.prank(bonusReentryFunder);
-        bonusReentry.fundBonus(BONUS_REENTRY_SEASON, address(0xDEAD), block.timestamp + 1, BONUS_REENTRY_RESERVE);
+        bonusReentry.fundBonus(
+            BONUS_REENTRY_SEASON, address(0xDEAD), block.timestamp + 1, BONUS_REENTRY_RESERVE
+        );
 
         // Build the size-2 Merkle root: attacker + normal user, each entitled to half.
         bytes32 leafA = keccak256(abi.encodePacked(address(attacker), BONUS_REENTRY_RESERVE / 2));
