@@ -75,10 +75,14 @@ function fixtureQueries(opts: {
 // ============================================================ /season
 
 describe("/season", () => {
-  it("returns 404 when no season has been indexed yet", async () => {
+  // Audit H-2 (2026-05-01): /season returns 200 with `{status, season}` envelope
+  // instead of 404 when no season is indexed. Behaviour pinned in
+  // test/api/security/endpointStatusContract.test.ts; the assertions here cover
+  // the envelope shape end-to-end.
+  it("returns 200 with status=not-ready when no season has been indexed yet", async () => {
     const r = await getSeasonHandler(fixtureQueries({season: null}));
-    expect(r.status).toBe(404);
-    expect(r.body).toEqual({error: "no season indexed yet"});
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({status: "not-ready", season: null});
   });
 
   it("empty season — launch phase, no launches yet", async () => {
@@ -86,7 +90,9 @@ describe("/season", () => {
       fixtureQueries({season: mkSeason({phase: "Launch"}), publicLaunchCount: 0}),
     );
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({
+    const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+    expect(env.status).toBe("ready");
+    expect(env.season).toMatchObject({
       seasonId: 1,
       phase: "launch",
       launchCount: 0,
@@ -95,8 +101,8 @@ describe("/season", () => {
       polReserve: "0",
     });
     // nextCutAt is start + 96h (Day 4 hard cut) while in launch/competition.
-    const cutAt = (r.body as {nextCutAt: string}).nextCutAt;
-    const settleAt = (r.body as {finalSettlementAt: string}).finalSettlementAt;
+    const cutAt = env.season.nextCutAt as string;
+    const settleAt = env.season.finalSettlementAt as string;
     expect(new Date(cutAt).getTime() / 1000).toBe(Number(STARTED_AT + 4n * DAY));
     expect(new Date(settleAt).getTime() / 1000).toBe(Number(STARTED_AT + 7n * DAY));
   });
@@ -113,7 +119,9 @@ describe("/season", () => {
       }),
     );
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({
+    const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+    expect(env.status).toBe("ready");
+    expect(env.season).toMatchObject({
       phase: "competition",
       launchCount: 12,
       championPool: "25", // 30 - 5
@@ -124,9 +132,11 @@ describe("/season", () => {
     const r = await getSeasonHandler(
       fixtureQueries({season: mkSeason({phase: "Finals"})}),
     );
-    expect((r.body as {phase: string}).phase).toBe("finals");
-    const cutAt = (r.body as {nextCutAt: string}).nextCutAt;
-    expect(new Date(cutAt).getTime() / 1000).toBe(Number(STARTED_AT + 7n * DAY));
+    const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+    expect(env.status).toBe("ready");
+    expect(env.season.phase).toBe("finals");
+    expect(new Date(env.season.nextCutAt as string).getTime() / 1000)
+      .toBe(Number(STARTED_AT + 7n * DAY));
   });
 
   it("settlement / closed phases collapse to 'settled'", async () => {
@@ -134,7 +144,8 @@ describe("/season", () => {
       const r = await getSeasonHandler(
         fixtureQueries({season: mkSeason({phase: p})}),
       );
-      expect((r.body as {phase: string}).phase).toBe("settled");
+      const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+      expect(env.season.phase).toBe("settled");
     }
   });
 });

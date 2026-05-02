@@ -195,5 +195,12 @@ export class TickEngine {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
+
+  /// Audit H-4 (Phase 1, 2026-05-01): the /readiness probe reads this to gate "is the
+  /// indexer actually serving real-time data?" The engine is healthy iff `start()` has
+  /// been called AND `stop()` hasn't been; the timer field is the canonical signal.
+  isRunning(): boolean {
+    return this.timer !== null;
+  }
 }
 

@@ -4,6 +4,26 @@
 /// the small `ApiQueries` shape below. Everything else — composition, scoring, response
 /// shaping, error responses — lives here, behind the queries interface, so vitest can drive
 /// it with hand-rolled fixture queries instead of a running Ponder.
+///
+/// === Endpoint status convention (Audit H-2, Phase 1, 2026-05-01) ===
+///
+/// Every endpoint in this file (and `profile.ts`) follows one rule, picked deliberately to
+/// keep uptime monitors + SDK consumers honest:
+///
+///   - Collections + season/status endpoints  → 200 with empty/null/sentinel payload
+///   - Named singletons (`/token/:address`)   → 404 for unknown identifiers
+///   - `/profile/:address`                    → 200/empty (privacy-driven exception, §22)
+///
+/// Concretely:
+///   /season              200 + {status: "not-ready", season: null}  when no season indexed
+///   /tokens              200 + []                                   when no season exists
+///   /token/:address      404                                        when address unknown
+///   /profile/:address    200 + empty profile                        always (privacy)
+///
+/// Why the 200/`status: "not-ready"` shape on `/season`: pre-mainnet there will be windows
+/// where no season is indexed yet (post-deploy, between weeks). A 404 there confuses uptime
+/// checks (they can't distinguish "indexer down" from "no season yet") and forces every
+/// consumer to special-case a 404. The status field gives clients a single field to gate on.
 
 import {
   buildSeasonResponse,
@@ -64,13 +84,26 @@ export function err(status: number, message: string): ApiResult<never> {
 
 // ============================================================ /season
 
+/// Audit H-2: discriminated-union response. `status: "ready"` carries the full
+/// SeasonResponse; `status: "not-ready"` carries `season: null` and signals "no season
+/// indexed yet" without a 404. Web app gates on `status` before reading `season`.
+export type SeasonEnvelope =
+  | {status: "ready"; season: SeasonResponse}
+  | {status: "not-ready"; season: null};
+
 export async function getSeasonHandler(
   q: ApiQueries,
-): Promise<ApiResult<SeasonResponse>> {
+): Promise<ApiResult<SeasonEnvelope>> {
   const row = await q.latestSeason();
-  if (!row) return err(404, "no season indexed yet");
+  if (!row) {
+    // Audit H-2 (Phase 1, 2026-05-01): pre-fix this returned 404 "no season indexed yet".
+    // 404 confuses uptime monitors (looks like the endpoint is missing) and forces every
+    // SDK consumer to special-case 404 → empty. 200 with the {status, season} envelope
+    // gives clients a single field to gate on while keeping the endpoint observably alive.
+    return ok({status: "not-ready", season: null});
+  }
   const launchCount = await q.publicLaunchCount(row.id);
-  return ok(buildSeasonResponse(row, launchCount));
+  return ok({status: "ready", season: buildSeasonResponse(row, launchCount)});
 }
 
 // ============================================================ /tokens
@@ -142,3 +175,52 @@ export async function getTokenDetailHandler(
 /// Re-export the centralized validator so `import {isAddressLike} from "./handlers.js"`
 /// (used in tests) keeps working without sprawling import-path churn.
 export {isAddressLike} from "./builders.js";
+
+// ============================================================ /readiness (Audit H-4)
+
+/// Audit H-4 (Phase 1, 2026-05-01): readiness probe distinct from Ponder's /health.
+/// `/health` returns 200 as soon as the HTTP server is up — useful for liveness checks
+/// (Railway uses it) but blind to indexer sync state. `/readiness` returns 200 only when
+/// the indexer has at least one season indexed AND the live-event pipeline (TickEngine)
+/// is running.
+///
+/// The route returns 503 (Service Unavailable) on a `false` ready state so a Kubernetes-
+/// style readiness gate routes traffic away during startup / between sync drops without
+/// killing the process.
+
+export interface ReadinessChecks {
+  latestSeason: boolean;
+  tickEngine: boolean;
+  latestSeasonId: number | null;
+}
+
+export interface ReadinessResponse {
+  ready: boolean;
+  checks: ReadinessChecks;
+}
+
+/// Probes that drive the readiness verdict. Kept abstract so vitest can drive the handler
+/// with synthetic states (no season, season + tick stopped, season + tick running) without
+/// needing a live Ponder DB or SSE engine.
+export interface ReadinessProbes {
+  latestSeasonId: () => Promise<number | null>;
+  tickEngineRunning: () => boolean;
+}
+
+export async function getReadinessHandler(p: ReadinessProbes): Promise<ApiResult<ReadinessResponse>> {
+  const seasonId = await p.latestSeasonId();
+  const hasSeason = seasonId !== null;
+  const tickRunning = p.tickEngineRunning();
+  const ready = hasSeason && tickRunning;
+  const body: ReadinessResponse = {
+    ready,
+    checks: {
+      latestSeason: hasSeason,
+      tickEngine: tickRunning,
+      latestSeasonId: seasonId,
+    },
+  };
+  // 503 on not-ready is the load-balancer-friendly status. A 200/false combo tempts
+  // probes to ignore the body and route traffic anyway.
+  return {status: ready ? 200 : 503, body};
+}

@@ -124,6 +124,16 @@ function ensureEngineStarted(db: ApiContext["db"]): void {
   engine.start();
 }
 
+/// Audit H-4 (Phase 1, 2026-05-01): /readiness reads this to gate "indexer is serving
+/// real-time data". The engine is started lazily on the first SSE request, so a freshly-
+/// booted indexer with zero clients will always report `false` here — that is correct:
+/// readiness asks whether the live-event pipeline is up, not whether the process is up
+/// (Ponder's /health covers liveness). Treat the lazy-start as expected; a
+/// long-running indexer with no SSE clients is a degraded state, not a healthy one.
+export function eventsEngineRunning(): boolean {
+  return engine?.isRunning() ?? false;
+}
+
 function buildQueries(db: ApiContext["db"]): EventsQueries {
   return {
     latestSeason: async () => {
