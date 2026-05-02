@@ -7,6 +7,8 @@ filter.fun indexer (packages/indexer)
 ## CRITICAL
 
 ### [Indexer] Missing /tokens/:address/holders endpoint
+**Status:** ✅ **DEFERRED to Phase 2** (Audit Finding C-4) — explicitly documented per the audit's recommended path. The data layer (`holderBalance` + `holderSnapshot` tables) is already populated; only the HTTP surface waits. Rationale and Phase-2 design constraints (cursor pagination, dust cutoff aligned with `HOLDER_SNAPSHOT_DUST_WEI`, bag-locked-creator flag) live in `packages/indexer/README.md` ("Known gaps" + "Outstanding"). The route docstring at `packages/indexer/src/api/index.ts:1-23` also lists the deferral inline so developers see it where they look first. Closing as deferred (not implemented) — promotion to Phase 2 follow-up requires the §41.3 concentration filter to land alongside it so the count and the list agree by construction.
+
 **Severity:** Critical
 **Files:** packages/indexer/src/api/index.ts
 **Spec ref:** §26.4 / §41.3
@@ -19,6 +21,8 @@ Spec §41.3 describes address-based concentration filtering, which presumes a ho
 **Effort:** M
 
 ### [Indexer] Cache TTL bug for /tokens/:address/history (60× under-cache)
+**Status:** ✅ **FIXED** in audit-remediation PR (Audit Finding C-3). One-line wiring fix at `packages/indexer/src/api/middleware.ts:96` — `cacheCfg.tokensTtlMs` → `cacheCfg.profileTtlMs`, aligning the runtime behaviour with the surrounding comment's documented intent. Also exposed `LruTtlCache.ttlMs` as a public readonly so the regression test can introspect the wired TTL. Regression covered by `test/api/cache.test.ts` describe block "response-cache TTL wiring (audit finding C-3)" — pre-fix `historyResponseCache.ttlMs === tokensResponseCache.ttlMs` (5_000ms, NOT profile's 30_000ms); post-fix `historyResponseCache.ttlMs === profileResponseCache.ttlMs` and the bug-shape (history === tokens) is explicitly negated.
+
 **Severity:** Critical
 **Files:** packages/indexer/src/api/middleware.ts:96
 **Spec ref:** §26 (cache TTLs)

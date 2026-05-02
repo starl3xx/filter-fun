@@ -50,7 +50,10 @@ interface Entry<V> {
 
 export class LruTtlCache<V> implements Cache<V> {
   private readonly store = new Map<string, Entry<V>>();
-  private readonly ttlMs: number;
+  /// Public so callers can introspect the wired TTL — used by `middleware.test.ts`
+  /// to regression-guard the C-3 audit finding (history cache wired to the wrong
+  /// TTL knob, masked by the cache's opacity at the type level).
+  readonly ttlMs: number;
   private readonly maxEntries: number;
   private readonly now: () => number;
 
