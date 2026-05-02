@@ -38,6 +38,7 @@ import {ArenaTicker} from "@/components/arena/ArenaTicker";
 import {ArenaTokenDetail} from "@/components/arena/ArenaTokenDetail";
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
 import {FilterMomentOverlay} from "@/components/arena/filterMoment/FilterMomentOverlay";
+import {DataErrorBanner} from "@/components/DataErrorBanner";
 import {Stars} from "@/components/Stars";
 import {useFilterMoment} from "@/hooks/arena/useFilterMoment";
 import {useSeason} from "@/hooks/arena/useSeason";
@@ -49,9 +50,16 @@ import {fmtEth} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
 
 export default function HomePage() {
-  const {data: season} = useSeason();
-  const {data: tokens, isLoading: tokensLoading} = useTokens();
+  const {data: season, error: seasonError} = useSeason();
+  const {data: tokens, isLoading: tokensLoading, error: tokensError} = useTokens();
   const {events, status: liveStatus} = useTickerEvents();
+  // Phase 1 audit C-5 (2026-05-01): the polling hooks capture fetch errors in
+  // state but the page previously dropped them silently. We surface a single
+  // non-blocking banner whenever EITHER /season or /tokens is failing — the
+  // grid still renders with stale-or-empty data underneath, so users can see
+  // the prior cohort while we explain why it isn't refreshing. The banner
+  // auto-clears the moment the next poll succeeds (`error` resets to null).
+  const dataError = tokensError ?? seasonError ?? null;
   const trendBuffers = useTrendBuffers(tokens);
 
   // Memoize the empty-fallback so `cohort` keeps a stable identity while
@@ -200,6 +208,7 @@ export default function HomePage() {
       <Stars />
       <ArenaTopBar season={season} liveStatus={liveStatus} />
       <ArenaTicker events={events} season={season} />
+      {dataError && <DataErrorBanner error={dataError} />}
 
       <main className="ff-arena-grid" style={{position: "relative", zIndex: 1}}>
         <div className="ff-arena-col-left" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>

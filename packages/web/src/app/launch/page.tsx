@@ -22,6 +22,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
+import {DataErrorBanner} from "@/components/DataErrorBanner";
 import {Stars} from "@/components/Stars";
 import {LaunchHero} from "@/components/launch/LaunchHero";
 import {FilterStrip} from "@/components/launch/FilterStrip";
@@ -43,9 +44,13 @@ import {C, F} from "@/lib/tokens";
 export default function LaunchPage() {
   const router = useRouter();
 
-  const {data: season} = useSeason();
-  const {data: tokens} = useTokens();
+  const {data: season, error: seasonError} = useSeason();
+  const {data: tokens, error: tokensError} = useTokens();
   const {status: liveStatus} = useTickerEvents();
+  // Phase 1 audit C-5 (2026-05-01): surface fetch errors instead of dropping
+  // them silently. The launch page can still render the slot grid + form on
+  // stale data, so the banner is a non-blocking informational chip.
+  const dataError = tokensError ?? seasonError ?? null;
 
   const cohort = useMemo(() => tokens ?? [], [tokens]);
   const {slots, status} = useLaunchSlots(cohort);
@@ -173,6 +178,7 @@ export default function LaunchPage() {
     <div style={{position: "relative", minHeight: "100vh", overflow: "hidden"}}>
       <Stars />
       <ArenaTopBar season={season} liveStatus={liveStatus} />
+      {dataError && <DataErrorBanner error={dataError} />}
 
       <main className="ff-launch-page" style={{position: "relative", zIndex: 1}}>
         <LaunchHero season={season} slots={slots} status={status} onScrollToForm={scrollToForm} />

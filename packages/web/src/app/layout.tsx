@@ -5,9 +5,15 @@ import type {ReactNode} from "react";
 import {Providers} from "./providers";
 import "./globals.css";
 
+/// ARENA_SPEC §2.1 / §2.2 mandates 5 Bricolage Grotesque weights — 400, 500, 600,
+/// 700, 800. Phase 1 audit C-8 caught that 500 + 600 were missing here, causing
+/// type roles T2 / T4 (and any other request for medium/semibold) to silently
+/// fall back to the nearest loaded weight (likely 400 or 700) and break visual
+/// hierarchy across every page that uses the display font. Add ALL 5 — removing
+/// any of the spec-mandated weights from this array is a regression.
 const display = Bricolage_Grotesque({
   subsets: ["latin"],
-  weight: ["400", "700", "800"],
+  weight: ["400", "500", "600", "700", "800"],
   display: "swap",
   variable: "--font-display",
 });

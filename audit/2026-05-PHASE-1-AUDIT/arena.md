@@ -7,6 +7,8 @@ filter.fun web — Arena page
 ## CRITICAL
 
 ### [Arena] Bricolage Grotesque — weights 500 + 600 not loaded
+**Status:** ✅ **FIXED** in audit-remediation PR (Audit Finding C-8). `weight` array on the `Bricolage_Grotesque` `next/font/google` import in `app/layout.tsx` updated from `["400", "700", "800"]` to the spec-mandated `["400", "500", "600", "700", "800"]`. NatSpec block above the import now flags removing any of the 5 weights as a regression so a future "trim unused" pass can't silently drop them again.
+
 **Severity:** Critical
 **Files:** packages/web/src/app/layout.tsx:8-13
 **Spec ref:** ARENA_SPEC §2.1, §2.2
