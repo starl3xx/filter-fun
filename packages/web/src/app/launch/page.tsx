@@ -28,6 +28,7 @@ import {LaunchHero} from "@/components/launch/LaunchHero";
 import {FilterStrip} from "@/components/launch/FilterStrip";
 import {SlotGrid} from "@/components/launch/SlotGrid";
 import {LaunchForm} from "@/components/launch/LaunchForm";
+import {RoiCalculator} from "@/components/launch/RoiCalculator";
 import {useEligibility} from "@/hooks/launch/useEligibility";
 import {useLaunchSlots} from "@/hooks/launch/useLaunchSlots";
 import {useLaunchToken} from "@/hooks/launch/useLaunchToken";
@@ -174,6 +175,12 @@ export default function LaunchPage() {
   const phaseForButton = pinning ? "pinning" : phase;
   const combinedError = pinError ?? txError;
 
+  // Champion pool drives the calculator's "typical bounty" range. /season
+  // returns it as a decimal-ETH string; the calculator wants a number. Pass
+  // null when no season is loaded so the panels fall back to heuristics
+  // rather than rendering "0 ETH bounty" which would mislead.
+  const championPoolEth = season?.championPool ? Number(season.championPool) : null;
+
   return (
     <div style={{position: "relative", minHeight: "100vh", overflow: "hidden"}}>
       <Stars />
@@ -199,6 +206,7 @@ export default function LaunchPage() {
                 phase={phaseForButton}
                 error={combinedError}
                 onSubmit={onSubmit}
+                championPoolEth={championPoolEth}
               />
             ) : (
               <NoticeCard
@@ -209,6 +217,11 @@ export default function LaunchPage() {
             )}
           </div>
         </div>
+
+        {/* ROI calculator (Epic 2.10 / spec §45). Always rendered — visible
+            even when the form is locked (already-launched, window-closed)
+            so creators can still model future-week scenarios. */}
+        <RoiCalculator slotCostWei={nextCostWei} stakeWei={stakeWei} />
       </main>
     </div>
   );

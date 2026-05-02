@@ -39,6 +39,12 @@ export type LaunchFormProps = {
   /// (the page's handler awaits a metadata pin before the launch tx); the
   /// form fires-and-forgets and lets the parent surface errors via `error`.
   onSubmit: (fields: LaunchFormFields) => void | Promise<void>;
+  /// ETH/USD rate for the cost-panel USD column. Optional — falls back to
+  /// `ETH_USD_FALLBACK` when omitted.
+  ethUsd?: number;
+  /// Live champion pool (decimal-ETH from /season). Drives the bounty range
+  /// display. Optional — falls back to a quiet-week heuristic.
+  championPoolEth?: number | null;
 };
 
 export function LaunchForm({
@@ -49,6 +55,8 @@ export function LaunchForm({
   phase,
   error,
   onSubmit,
+  ethUsd,
+  championPoolEth,
 }: LaunchFormProps) {
   const {isConnected} = useAccount();
   const [fields, setFields] = useState<LaunchFormFields>({
@@ -240,7 +248,13 @@ export function LaunchForm({
 
       <CreatorIncentives />
 
-      <CostPanel slotIndex={slotIndex} launchCostWei={launchCostWei} stakeWei={stakeWei} />
+      <CostPanel
+        slotIndex={slotIndex}
+        launchCostWei={launchCostWei}
+        stakeWei={stakeWei}
+        ethUsd={ethUsd}
+        championPoolEth={championPoolEth}
+      />
 
       <FilterMechanicHint />
 
