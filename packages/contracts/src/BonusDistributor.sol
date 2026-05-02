@@ -44,12 +44,25 @@ contract BonusDistributor is ReentrancyGuard {
     event BonusClaimed(uint256 indexed seasonId, address indexed user, uint256 amount);
 
     error NotOracle();
+    /// @notice Caller of `setOracle` is not the configured launcher. Audit H-3 (Phase 1,
+    ///         2026-05-01) flagged that the prior implementation reused `NotOracle()` for the
+    ///         setOracle authorisation check, which mis-signaled the failure cause: the
+    ///         caller wasn't expected to BE the oracle, they needed to be the LAUNCHER.
+    error NotLauncher();
     error NotVaultOf();
     error AlreadyFunded();
     error NotFinalized();
     error NotUnlocked();
     error AlreadyClaimed();
     error InvalidProof();
+
+    /// @dev Wraps the launcher-only check used by `setOracle`. Audit H-3 (Phase 1,
+    ///      2026-05-01) extracted this into a named modifier so the auth gate is greppable
+    ///      and any future launcher-gated entry inherits the canonical revert reason.
+    modifier onlyLauncher() {
+        if (msg.sender != launcher) revert NotLauncher();
+        _;
+    }
 
     constructor(address launcher_, address weth_, address oracle_) {
         launcher = launcher_;
@@ -61,9 +74,29 @@ contract BonusDistributor is ReentrancyGuard {
         return _bonuses[seasonId];
     }
 
-    /// @notice Vault calls this during `SeasonVault.finalize`. Pulls `amount` WETH.
-    /// @dev    `nonReentrant` per spec §42.2.5 -- a malicious vault could otherwise re-enter
-    ///         via the WETH transferFrom hook to fund a different seasonId mid-call.
+    /// @notice Vault calls this during `SeasonVault.submitWinner` to seed the season's
+    ///         hold-bonus pool. Pulls `amount` WETH from `msg.sender` (the calling vault)
+    ///         and stamps the season's bonus record with the winner token + unlock time.
+    /// @param  seasonId    The season this bonus pool belongs to. Must not have been funded
+    ///                     before — re-funding the same season reverts with `AlreadyFunded`.
+    /// @param  winnerToken The settlement winner for the season. Recorded for indexer use
+    ///                     and so the eligibility root committed later via `postRoot` is
+    ///                     unambiguously bound to this winner.
+    /// @param  unlockTime  Earliest block timestamp at which `postRoot` may be called.
+    ///                     Vault sets this to `submitWinner.timestamp + bonusUnlockDelay`
+    ///                     so the eligibility window can run before the oracle commits the
+    ///                     Merkle root.
+    /// @param  amount      WETH transferred in from the caller. Must equal the amount the
+    ///                     caller has approved on this contract; transfer reverts on shortfall.
+    /// @dev    `nonReentrant` per spec §42.2.5 — a malicious vault could otherwise re-enter
+    ///         via the WETH transferFrom hook to fund a different seasonId mid-call. Audit
+    ///         finding C-1 (Phase 1, PR #52) is the regression record; do not remove the
+    ///         guard without re-reading `audit/2026-05-PHASE-1-AUDIT/contracts.md`.
+    /// @dev    Permissionless by design — the season's vault address is stamped from
+    ///         `msg.sender` as the source of authority for `postRoot`'s `b.vault` lookup.
+    ///         Anyone can fund a fresh season, but only the funder's address gets recorded
+    ///         as the season's vault. In practice, only the legitimate `SeasonVault` ever
+    ///         calls this because the WETH approval needs to come from the same account.
     function fundBonus(uint256 seasonId, address winnerToken, uint256 unlockTime, uint256 amount)
         external
         nonReentrant
@@ -78,8 +111,18 @@ contract BonusDistributor is ReentrancyGuard {
         emit BonusFunded(seasonId, msg.sender, amount, unlockTime);
     }
 
-    /// @notice Oracle posts the eligibility Merkle root after the hold window concludes.
-    /// @dev    `nonReentrant` per spec §42.2.5 -- defense-in-depth. postRoot has no in-call
+    /// @notice Oracle posts the eligibility Merkle root for `seasonId` after the hold-window
+    ///         unlock time has elapsed. Each leaf encodes `(user, bonusAmount)` and the
+    ///         oracle has already enforced the "≥80% balance across N snapshots" criterion
+    ///         off-chain when assembling the tree.
+    /// @param  seasonId The season whose bonus eligibility tree is being committed. Must
+    ///                  have been funded by a prior `fundBonus` call; calling on an unfunded
+    ///                  season reverts with `AlreadyFunded` (the sentinel for "not funded").
+    /// @param  root     The Merkle root of the eligibility set. Subsequent `claim` calls
+    ///                  verify proofs against this root.
+    /// @dev    Oracle-only (`if (msg.sender != oracle) revert NotOracle()`) — the oracle is
+    ///         configured at construction and rotated through `setOracle` by the launcher.
+    /// @dev    `nonReentrant` per spec §42.2.5 — defense in depth. `postRoot` has no in-call
     ///         external callback today, but the guard prevents a future maintainer from
     ///         reordering operations into a vulnerable state.
     function postRoot(uint256 seasonId, bytes32 root) external nonReentrant {
@@ -92,7 +135,17 @@ contract BonusDistributor is ReentrancyGuard {
         emit BonusRootPosted(seasonId, root);
     }
 
-    /// @notice Claim the precomputed bonus amount for `msg.sender`.
+    /// @notice Claim the precomputed bonus amount for `msg.sender` from the season's funded
+    ///         pool. Single-shot per (seasonId, user); a second call after a successful
+    ///         claim reverts with `AlreadyClaimed`.
+    /// @param  seasonId The season whose bonus is being claimed. Root must already be
+    ///                  posted (`finalized == true`) — calling pre-finalize reverts with
+    ///                  `NotFinalized`.
+    /// @param  amount   The caller's eligible bonus amount, in WETH wei. Must match the
+    ///                  amount encoded in the Merkle leaf (`keccak256(user, amount)`);
+    ///                  any divergence fails proof verification.
+    /// @param  proof    Merkle proof binding `(msg.sender, amount)` to the season's posted
+    ///                  root. Verified via OpenZeppelin's `MerkleProof.verifyCalldata`.
     /// @dev    `nonReentrant` per spec §42.2.5. CEI is also satisfied (state set before the
     ///         WETH transfer) but the guard is the primary defense layer the spec mandates.
     function claim(uint256 seasonId, uint256 amount, bytes32[] calldata proof) external nonReentrant {
@@ -107,8 +160,16 @@ contract BonusDistributor is ReentrancyGuard {
         emit BonusClaimed(seasonId, msg.sender, amount);
     }
 
-    function setOracle(address newOracle) external {
-        if (msg.sender != launcher) revert NotOracle();
+    /// @notice Rotate the oracle authorised to call `postRoot`. Launcher-gated.
+    /// @param  newOracle Replacement oracle address. Audit H-4 zero-address checks live on
+    ///                   the launcher's `setOracle`; here we trust the launcher's check
+    ///                   rather than re-validating.
+    /// @dev    Audit H-3 (Phase 1, 2026-05-01): the prior implementation reverted with
+    ///         `NotOracle()` when a non-launcher caller tried this, mis-signaling the
+    ///         actual auth requirement (caller must be the LAUNCHER, not the oracle).
+    ///         Renamed to `NotLauncher()` and routed through the `onlyLauncher` modifier so
+    ///         the revert reason matches the failed predicate.
+    function setOracle(address newOracle) external onlyLauncher {
         oracle = newOracle;
     }
 }

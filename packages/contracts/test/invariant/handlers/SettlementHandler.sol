@@ -188,6 +188,31 @@ contract SettlementHandler is Test {
     ///         post-finalize (claim*, etc).
     bool public ghostWinnerSubmitted;
 
+    // ============================================================ Audit H-2 — oracle rotation
+    //
+    // Audit H-2 (Phase 1, 2026-05-01) regression cover. SeasonVault.onlyOracle now reads
+    // `launcher.oracle()` live; every rotation on the launcher must take effect immediately
+    // on every existing per-season vault. This harness rotates the launcher's oracle to a
+    // fresh address, remembers the previous one, then probes BOTH endpoints:
+    //   - the previous oracle attempting `processFilterEvent` MUST revert
+    //   - the new oracle attempting `processFilterEvent` MUST succeed (or no-op-revert with
+    //     a non-auth reason like AlreadyLiquidated, but NOT NotOracle)
+    //
+    // The invariant `invariant_oracleAuthorityCurrent` reads these ghosts to assert the
+    // post-rotation state is sound. Without this harness an H-2-style regression (storing
+    // oracle on the vault again) would silently re-introduce the staleness.
+
+    /// @notice Number of times the handler has rotated `launcher.oracle()` to a fresh address.
+    uint256 public ghostOracleRotations;
+    /// @notice Most-recent prior oracle (the one that was just rotated AWAY from). Probes
+    ///         use this address to confirm it loses authority.
+    address public ghostPrevOracle;
+    /// @notice True once a probe with the prev-oracle has reverted with NotOracle. The
+    ///         currency invariant requires this to be true if any rotation has happened —
+    ///         otherwise we'd be running a "rotation regression cover" that never actually
+    ///         exercises the rejection path.
+    bool public ghostPrevOracleRejectedAtLeastOnce;
+
     // ============================================================ Construction
 
     constructor() {
@@ -199,6 +224,10 @@ contract SettlementHandler is Test {
 
         weth = new MockWETH();
         launcher = new MockLauncherView();
+        // Live-read oracle: SeasonVault.onlyOracle reads `launcher.oracle()` per audit H-2.
+        // Wire it BEFORE constructing the vault so the bounded-action sequence has a valid
+        // oracle on day zero.
+        launcher.setOracle(oracle);
         bonus = new BonusDistributor(address(launcher), address(weth), oracle);
         polManager = new MockPOLManager(IERC20(address(weth)));
         polManager.setMintRate(MINT_RATE);
@@ -211,7 +240,6 @@ contract SettlementHandler is Test {
             address(launcher),
             SEASON_ID,
             address(weth),
-            oracle,
             treasury,
             mechanics,
             IPOLManager(address(polManager)),
@@ -637,6 +665,90 @@ contract SettlementHandler is Test {
         if (attacker.reentrySucceeded()) ghostBonusReentryBypassed = true;
 
         attacker.disarm();
+    }
+
+    /// @notice Audit H-2 regression cover: rotate `launcher.oracle()` to a fresh address and
+    ///         immediately probe both the prev-oracle (must reject) and the new oracle (must
+    ///         keep authority). The vault's `onlyOracle` reads `launcher.oracle()` live, so a
+    ///         post-rotation prev-oracle call MUST revert with NotOracle on every existing
+    ///         per-season vault — that is the H-2 fix's load-bearing property.
+    ///
+    ///         Probe target: `processFilterEvent` against an empty losers array. The vault
+    ///         hits the auth modifier BEFORE the EmptyEvent check, so an authorised caller
+    ///         reverts with EmptyEvent (NOT NotOracle) and an unauthorised caller reverts
+    ///         with NotOracle. Distinguishing those two reverts is what gives this probe its
+    ///         teeth — `try {} catch (bytes memory err)` inspects the selector to tell the
+    ///         two apart.
+    ///
+    ///         Skip rotation post-finalize: the bounded-action sequence settles on
+    ///         `submitWinner`, after which an oracle rotation has no further auth surface to
+    ///         exercise (every onlyOracle entry point is also phase-gated to Phase.Active).
+    ///         Rotating then would be wasted fuzz steps; the regression cover focuses on the
+    ///         pre-finalize window where rotation is operationally relevant.
+    function fuzz_rotateLauncherOracle(uint256 newOracleSeed) external {
+        if (ghostWinnerSubmitted) return;
+
+        address newOracle = address(uint160(uint256(keccak256(abi.encode("oracle.rotate", newOracleSeed)))));
+        // Avoid trivial rotations to address(0) (would bypass the auth check via msg.sender ==
+        // address(0)) or to the current oracle (no-op).
+        if (newOracle == address(0) || newOracle == oracle) return;
+
+        address prev = oracle;
+        launcher.setOracle(newOracle);
+        oracle = newOracle;
+        ghostPrevOracle = prev;
+        ++ghostOracleRotations;
+
+        // Probe 1: prev-oracle MUST be rejected with NotOracle.
+        address[] memory empty = new address[](0);
+        uint256[] memory emptyOuts = new uint256[](0);
+        vm.prank(prev);
+        try vault.processFilterEvent(empty, emptyOuts) {
+            // Authority did not flip — H-2 regression. Surfaces via ghostAuthBypass so the
+            // existing oracle-authority invariant ALSO fires, double-flagging the bug.
+            ghostAuthBypass = true;
+        } catch (bytes memory err) {
+            // Inspect the revert selector. NotOracle (the vault's selector) is what we need
+            // to see; any OTHER revert (e.g. EmptyEvent) means auth passed and the prev
+            // oracle still has power — also a regression.
+            bytes4 sel;
+            if (err.length >= 4) {
+                assembly {
+                    sel := mload(add(err, 32))
+                }
+            }
+            if (sel == SeasonVault.NotOracle.selector) {
+                ghostPrevOracleRejectedAtLeastOnce = true;
+            } else {
+                // Auth passed (revert was for a non-auth reason) — prev oracle still
+                // privileged → H-2 regression.
+                ghostAuthBypass = true;
+            }
+        }
+
+        // Probe 2: new oracle MUST keep authority. Same empty-event probe; expected revert
+        // is EmptyEvent (auth passed, body rejected). NotOracle here would mean the
+        // launcher rotation didn't propagate.
+        vm.prank(newOracle);
+        try vault.processFilterEvent(empty, emptyOuts) {
+            // Empty arrays should always revert with EmptyEvent; a success here is a
+            // separate invariant violation but unrelated to H-2 — record it loudly anyway.
+            ghostAuthBypass = true;
+        } catch (bytes memory err) {
+            bytes4 sel;
+            if (err.length >= 4) {
+                assembly {
+                    sel := mload(add(err, 32))
+                }
+            }
+            if (sel == SeasonVault.NotOracle.selector) {
+                // The new oracle was rejected — launcher rotation did NOT propagate to the
+                // vault. This is the exact H-2 regression. Flag via the same ghost so both
+                // invariants light up.
+                ghostAuthBypass = true;
+            }
+            // Otherwise (EmptyEvent or any non-NotOracle revert): auth passed as expected.
+        }
     }
 
     // ============================================================ Views (for invariants)

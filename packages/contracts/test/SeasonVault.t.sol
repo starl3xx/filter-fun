@@ -58,6 +58,10 @@ contract SeasonVaultTest is Test {
     function setUp() public {
         weth = new MockWETH();
         launcher = new MockLauncherView();
+        // Wire the launcher's oracle BEFORE constructing the vault: SeasonVault now reads
+        // `launcher.oracle()` live (audit H-2) so an unset launcher oracle would make every
+        // privileged entry revert with NotOracle.
+        launcher.setOracle(oracle);
         bonus = new BonusDistributor(address(launcher), address(weth), oracle);
         polManager = new MockPOLManager(weth);
         // 100_000 winner-tokens per 1 WETH, matching the winner-locker mintRate so the test
@@ -71,7 +75,6 @@ contract SeasonVaultTest is Test {
             address(launcher),
             1,
             address(weth),
-            oracle,
             treasury,
             mechanics,
             IPOLManager(address(polManager)),
