@@ -804,13 +804,16 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
                 v_decayed += eth_signed * math.exp(-0.5 * max(0.0, days_before))
         sum_sqrt = sum(math.sqrt(max(0.0, v)) for v in buyers_at.values())
 
-        # LP depth at snap_b: latest swap ≤ snap_b
+        # LP depth at snap_b: first swap of the highest block ≤ snap_b. The
+        # strict `>` matches `last_swap_in_window` above (used to populate
+        # ext.lp_depth_eth) so trajectory@96h's stickyLiquidity component
+        # reads the same pool state as the published lp_depth_eth field.
         last_sw_pre = None
         for sw in swaps_sorted:
-            if sw["block"] <= snap_b:
-                last_sw_pre = sw
-            else:
+            if sw["block"] > snap_b:
                 break
+            if last_sw_pre is None or sw["block"] > last_sw_pre["block"]:
+                last_sw_pre = sw
         depth_at = 0.0
         if last_sw_pre and last_sw_pre["liquidity"] > 0 and last_sw_pre["sqrtPriceX96"] > 0:
             depth_at = v4_full_range_weth_wei(

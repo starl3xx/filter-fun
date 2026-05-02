@@ -15,7 +15,7 @@ import sys
 import pandas as pd
 
 from pipeline import hhi_score
-from fetch_corpus import v4_full_range_weth_wei
+from fetch_corpus import v4_full_range_weth_wei, hhi_score_from_balances
 
 
 WETH = "0x4200000000000000000000000000000000000006"
@@ -114,6 +114,34 @@ def test_v4_lp_depth_branches_yield_similar_weth_at_unit_price():
     assert abs(a - L) < 1.0, a
     assert abs(b - L) < 1.0, b
     assert abs(a - b) < 1.0, (a, b)
+
+
+def test_hhi_fetcher_matches_pipeline():
+    """fetch_corpus.hhi_score_from_balances and pipeline.hhi_score must
+    produce identical outputs for the same distribution. Locks the two
+    duplicated implementations against silent divergence — bumping one
+    without the other would break HP trajectory consistency vs. the
+    corpus-relative HHI score the pipeline computes.
+    """
+    fixtures = [
+        [1.0],                       # 1 holder
+        [50.0, 50.0],                # 2 equal
+        [1.0] * 10,                  # 10 equal → HHI 1000
+        [1.0] * 100,                 # 100 equal → HHI 100
+        [1.0] * 10000,               # 10000 equal → HHI 1
+        [90.0] + [1.111] * 9,        # whale-dominated
+        [],                          # empty
+        [1, 2, 3, 5, 8, 13, 21],     # fibonacci-ish
+    ]
+    for balances in fixtures:
+        from_pipeline = hhi_score(_row(balances))
+        # fetch_corpus expects pre-sorted balances list (matching how the
+        # extractor calls it from `sorted(snap_at_filt.values(), reverse=True)`).
+        from_fetcher = hhi_score_from_balances(sorted(balances, reverse=True))
+        assert abs(from_pipeline - from_fetcher) < 1e-9, (
+            f"divergence on {balances}: pipeline={from_pipeline}, "
+            f"fetcher={from_fetcher}"
+        )
 
 
 def test_v4_lp_depth_token0_bug_regression():
