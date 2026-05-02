@@ -98,6 +98,37 @@ contract SettlementHandler is Test {
     MaliciousReceiver public attacker;
     uint256 public attackerHolderIdx;
 
+    // ============================================================ Bonus-claim re-entry harness
+    //
+    // Audit Finding C-1 (PR #52) closed the BonusDistributor reentrancy gap. The
+    // production-flow `bonus` instance is wired to the regular `weth` (no transfer hook), so
+    // the standard fuzz cycle can't actually fire a transfer-hook re-entry against it. The
+    // harness below deploys a SECOND BonusDistributor instance backed by a `MaliciousERC20`
+    // bonus-WETH so the attacker's transfer hook fires inside `claim()`. The new invariant
+    // (`invariant_bonusDistributor_reentrancySafe`) asserts that across every fuzz run the
+    // attacker's inner re-entry is blocked AND the bonus accounting stays consistent.
+
+    MaliciousERC20 public bonusReentryWeth;
+    BonusDistributor public bonusReentry;
+    /// @notice Synthetic seasonId for the re-entry harness; isolated from the production-flow
+    ///         `bonus` instance which uses `SEASON_ID = 1`.
+    uint256 public constant BONUS_REENTRY_SEASON = 9999;
+    /// @notice Total reserve funded into the harness distributor. Two equal claims of
+    ///         `BONUS_REENTRY_AMOUNT / 2` are eligible (attacker + a benign normal user).
+    uint256 public constant BONUS_REENTRY_RESERVE = 0.5 ether;
+    address public bonusReentryFunder;
+    address public bonusReentryNormalUser;
+    /// @notice Pre-built proof for the attacker's leaf (size-2 tree, sibling is the normal
+    ///         user's leaf).
+    bytes32 internal _bonusReentryAttackerProof;
+    bool public ghostBonusReentryAttempted;
+    bool public ghostBonusReentryBypassed;
+    // Note: the "which defense layer fired" check (CEI vs OZ ReentrancyGuard) lives in the
+    // deterministic exploit-reproduction at test/security/BonusDistributorReentrancy.t.sol,
+    // which inspects the inner call's revert selector directly. The fuzz invariant here only
+    // asserts the broader bypass-never-succeeds property; capturing per-call revert data
+    // through MaliciousReceiver would require extending the shared harness for marginal value.
+
     // ============================================================ Ghost variables
     //
     // Updated only by handler entry points. The invariant suite reads these to verify the
@@ -236,6 +267,41 @@ contract SettlementHandler is Test {
         attackerHolderIdx = HOLDER_COUNT - 1;
         holders[attackerHolderIdx] = address(attacker);
         winner.setHook(address(attacker));
+
+        // ====== Bonus-claim re-entry harness (Audit C-1 regression cover)
+        //
+        // Separate BonusDistributor instance backed by a MaliciousERC20 bonus-WETH so the
+        // attacker's transfer hook fires inside `claim()` (the production `bonus` uses the
+        // standard MockWETH which has no hook). One funder, two eligible claimants
+        // (attacker + a benign normal user) so the Merkle root is non-trivial.
+        bonusReentryWeth = new MaliciousERC20("BonusWETH", "bWETH");
+        bonusReentry = new BonusDistributor(address(launcher), address(bonusReentryWeth), oracle);
+        bonusReentryWeth.setHook(address(attacker));
+        bonusReentryFunder = makeAddr("bonusReentry.funder");
+        bonusReentryNormalUser = makeAddr("bonusReentry.normal");
+
+        // Fund. Mint + approve from `bonusReentryFunder`, call `fundBonus`. The hook will
+        // fire on the transferFrom but `armed == false` here so it's a no-op.
+        bonusReentryWeth.mint(bonusReentryFunder, BONUS_REENTRY_RESERVE);
+        vm.prank(bonusReentryFunder);
+        bonusReentryWeth.approve(address(bonusReentry), BONUS_REENTRY_RESERVE);
+        vm.prank(bonusReentryFunder);
+        bonusReentry.fundBonus(
+            BONUS_REENTRY_SEASON, address(0xDEAD), block.timestamp + 1, BONUS_REENTRY_RESERVE
+        );
+
+        // Build the size-2 Merkle root: attacker + normal user, each entitled to half.
+        bytes32 leafA = keccak256(abi.encodePacked(address(attacker), BONUS_REENTRY_RESERVE / 2));
+        bytes32 leafN = keccak256(abi.encodePacked(bonusReentryNormalUser, BONUS_REENTRY_RESERVE / 2));
+        bytes32 root = leafA < leafN
+            ? keccak256(abi.encodePacked(leafA, leafN))
+            : keccak256(abi.encodePacked(leafN, leafA));
+        _bonusReentryAttackerProof = leafN;
+
+        // Warp past unlock and post the root.
+        vm.warp(block.timestamp + 2);
+        vm.prank(oracle);
+        bonusReentry.postRoot(BONUS_REENTRY_SEASON, root);
     }
 
     // ============================================================ Helpers
@@ -511,6 +577,13 @@ contract SettlementHandler is Test {
 
         bytes32[] memory proof = _proofForHolder(attackerHolderIdx);
 
+        // Clear the attacker's outcome flags so this cycle's reads reflect *this* call only.
+        // `attacker` is shared with `fuzz_reentrantBonusClaim` and the flags are sticky --
+        // without this reset, an earlier bonus-surface fire would set
+        // `ghostReentryAttemptedAtLeastOnce` here even when this cycle's claim surface
+        // didn't fire, weakening the anti-vacuousness signal. The handler-level ghosts
+        // remain sticky across calls; only the per-cycle observation window is reset.
+        attacker.clear();
         attacker.arm(
             address(vault),
             abi.encodeWithSelector(vault.claimRollover.selector, holderShares[attackerHolderIdx], proof)
@@ -526,7 +599,66 @@ contract SettlementHandler is Test {
         attacker.disarm();
     }
 
+    /// @notice Audit C-1 regression cover: drives a re-entrant `claim()` against the dedicated
+    ///         `bonusReentry` instance (backed by `bonusReentryWeth`, a hook-firing
+    ///         MaliciousERC20). The attacker's transfer hook attempts to re-enter `claim()`
+    ///         with the same proof while the outer claim is still in flight; the invariant
+    ///         `invariant_bonusDistributor_reentrancySafe` asserts that across every fuzz run:
+    ///           - re-entry never returns success
+    ///           - bonus accounting (`claimedTotal <= reserve`) holds
+    ///           - the attacker can't claim more than once
+    ///         Once-claimed (sticky) — repeated calls become no-ops, which is the legitimate
+    ///         post-claim state we want the fuzzer to also exercise.
+    function fuzz_reentrantBonusClaim() external {
+        if (bonusReentry.claimed(BONUS_REENTRY_SEASON, address(attacker))) return;
+
+        bytes32[] memory proof = new bytes32[](1);
+        proof[0] = _bonusReentryAttackerProof;
+
+        // Clear before arming so `ghostBonusReentryAttempted` only flips when *this* cycle's
+        // bonus-claim surface actually fires the hook. `attacker` is shared with
+        // `fuzz_reentrantClaim` and `MaliciousReceiver`'s flags are sticky -- without this
+        // reset, a prior `fuzz_reentrantClaim` fire would contaminate the bonus-surface
+        // anti-vacuousness signal. Handler-level ghosts (`ghostBonusReentryAttempted`,
+        // `ghostBonusReentryBypassed`) remain sticky across calls; this only refreshes the
+        // per-cycle observation window on the underlying attacker.
+        attacker.clear();
+        attacker.arm(
+            address(bonusReentry),
+            abi.encodeWithSelector(
+                bonusReentry.claim.selector, BONUS_REENTRY_SEASON, BONUS_REENTRY_RESERVE / 2, proof
+            )
+        );
+
+        vm.prank(address(attacker));
+        try bonusReentry.claim(BONUS_REENTRY_SEASON, BONUS_REENTRY_RESERVE / 2, proof) {} catch {}
+
+        if (attacker.reentryAttempted()) ghostBonusReentryAttempted = true;
+        if (attacker.reentrySucceeded()) ghostBonusReentryBypassed = true;
+
+        attacker.disarm();
+    }
+
     // ============================================================ Views (for invariants)
+
+    /// @notice View into the bonus-reentry harness's current accounting state. Exposed so
+    ///         the invariant suite can assert `claimedTotal <= reserve` without needing to
+    ///         re-encode the storage layout.
+    function bonusReentryClaimedTotal() external view returns (uint256) {
+        return bonusReentry.bonusOf(BONUS_REENTRY_SEASON).claimedTotal;
+    }
+
+    function bonusReentryReserve() external view returns (uint256) {
+        return bonusReentry.bonusOf(BONUS_REENTRY_SEASON).reserve;
+    }
+
+    function bonusReentryClaimedByAttacker() external view returns (bool) {
+        return bonusReentry.claimed(BONUS_REENTRY_SEASON, address(attacker));
+    }
+
+    function bonusReentryAttackerWethBalance() external view returns (uint256) {
+        return bonusReentryWeth.balanceOf(address(attacker));
+    }
 
     function totalSlicesAccrued() external view returns (uint256) {
         return ghostBountyAccrued + ghostRolloverAccrued + ghostBonusAccrued + ghostMechanicsAccrued

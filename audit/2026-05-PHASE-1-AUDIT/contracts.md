@@ -8,6 +8,8 @@ filter.fun Smart Contracts
 ## CRITICAL
 
 ### [Contracts] BonusDistributor missing ReentrancyGuard on fundBonus and postRoot
+**Status:** ✅ **FIXED** in audit-remediation PR (Audit Finding C-1). `BonusDistributor` now inherits `ReentrancyGuard`; `fundBonus`, `postRoot`, and `claim` all carry `nonReentrant`. Regression covered by `test/security/BonusDistributorReentrancy.t.sol` (deterministic exploit-reproduction — pre-fix it failed with `AlreadyClaimed.selector` on claim re-entry and a SUCCEEDED inner re-entry on `fundBonus`) plus a new fuzz invariant `invariant_bonusDistributor_reentrancySafe` + its companion deterministic surface test in `test/invariant/SettlementInvariants.t.sol`.
+
 **Severity:** Critical
 **Files:** packages/contracts/src/BonusDistributor.sol:57-77
 **Spec ref:** §42 (Settlement Invariant 5 — reentrancy safe)
