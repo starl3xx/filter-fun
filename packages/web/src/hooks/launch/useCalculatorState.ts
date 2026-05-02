@@ -5,7 +5,7 @@
 /// calculator still works, the creator just doesn't get the "remember my
 /// last hypothetical" affordance.
 
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 
 import {PRESETS, type Outcome, type Preset} from "@/lib/launch/economics";
 
@@ -73,12 +73,23 @@ export function useCalculatorState(): UseCalculatorState {
   // Without this guard Next's hydration check yells at a mismatch.
   const [state, setState] = useState<CalculatorState>(DEFAULT_STATE);
 
+  // Hydration guard. The write effect would otherwise fire on first mount
+  // with `DEFAULT_STATE` *before* the read effect's setState lands — that
+  // sequence stomps the user's saved scenario in localStorage. Under React
+  // Strict Mode (Next.js dev's default) the second mount cycle then reads
+  // back the just-stomped DEFAULT_STATE and the user's preference is lost
+  // permanently. A ref-based latch is sync (no extra render) and ensures
+  // `writeStored` only runs once the read attempt has resolved.
+  const hydrated = useRef(false);
+
   useEffect(() => {
     const stored = readStored();
     if (stored) setState(stored);
+    hydrated.current = true;
   }, []);
 
   useEffect(() => {
+    if (!hydrated.current) return;
     writeStored(state);
   }, [state]);
 

@@ -22,6 +22,7 @@ import {useMemo} from "react";
 
 import {C, F} from "@/lib/tokens";
 import {
+  ETH_USD_FALLBACK,
   PEAK_MC_SCALE,
   PRESETS,
   WEEKLY_VOLUME_SCALE,
@@ -54,7 +55,10 @@ const OUTCOME_OPTIONS: ReadonlyArray<{id: Outcome; label: string; sub: string}> 
 
 export function RoiCalculator({slotCostWei, stakeWei, ethUsd: ethUsdProp}: RoiCalculatorProps) {
   const {state, setPeakMc, setWeeklyVolume, setOutcome, applyPreset} = useCalculatorState();
-  const ethUsd = ethUsdProp ?? 3500;
+  // Use the shared ETH_USD_FALLBACK so the calculator and CostPanel agree
+  // on the rate when no live feed is supplied. A literal would silently
+  // diverge from `weiToUsd`'s default if the constant later moves.
+  const ethUsd = ethUsdProp ?? ETH_USD_FALLBACK;
 
   const out = useMemo(
     () =>

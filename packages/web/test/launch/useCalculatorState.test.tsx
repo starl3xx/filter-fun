@@ -45,6 +45,21 @@ describe("useCalculatorState", () => {
     expect(result.current.state.outcome).toBe("wins");
   });
 
+  it("does not stomp stored state with DEFAULT_STATE on mount", () => {
+    // Regression: the write effect used to fire on mount with DEFAULT_STATE
+    // before the read effect's setState landed, overwriting the user's
+    // saved scenario. Strict Mode (Next.js dev default) made it permanent
+    // by re-mounting and re-reading the just-stomped default.
+    const stored = {peakMcUsd: 777_777, weeklyVolumeUsd: 333_333, outcome: "survives"};
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    renderHook(() => useCalculatorState());
+    // After mount the localStorage value must NOT be the default — the
+    // hydration latch should have prevented the initial write.
+    const after = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!);
+    expect(after.peakMcUsd).toBe(777_777);
+    expect(after.outcome).toBe("survives");
+  });
+
   it("falls back to defaults on corrupt JSON", () => {
     window.localStorage.setItem(STORAGE_KEY, "{not json");
     const {result} = renderHook(() => useCalculatorState());
