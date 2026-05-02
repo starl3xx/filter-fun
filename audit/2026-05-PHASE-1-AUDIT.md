@@ -4,6 +4,12 @@ Scope: end-of-Phase-1 internal review across contracts, indexer, web (general + 
 
 This PR ships the **report only** — no behaviour-changing code is included. Findings are documented; remediation happens in follow-up PRs sized appropriately to severity.
 
+## Remediation log
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| C-1: BonusDistributor missing `nonReentrant` on `fundBonus` / `postRoot` (extended to `claim`) | Critical | ✅ Fixed | audit-remediation PR (BonusDistributor reentrancy + invariant suite extension) |
+
 ---
 
 ## Executive summary

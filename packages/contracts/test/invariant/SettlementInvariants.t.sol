@@ -31,7 +31,7 @@ contract SettlementInvariantsTest is StdInvariant, Test {
         // Restrict the fuzzer to the handler's named entry points. Without this, foundry's
         // selector-discovery picks up every public function on the handler (including views,
         // ghost accessors, and constructor-chain helpers) and wastes runs on no-ops.
-        bytes4[] memory selectors = new bytes4[](8);
+        bytes4[] memory selectors = new bytes4[](9);
         selectors[0] = SettlementHandler.fuzz_processFilterEvent.selector;
         selectors[1] = SettlementHandler.fuzz_submitWinner.selector;
         selectors[2] = SettlementHandler.fuzz_claimRollover.selector;
@@ -40,6 +40,7 @@ contract SettlementInvariantsTest is StdInvariant, Test {
         selectors[5] = SettlementHandler.fuzz_adversaryPostBonusRoot.selector;
         selectors[6] = SettlementHandler.fuzz_attemptResubmitWinner.selector;
         selectors[7] = SettlementHandler.fuzz_reentrantClaim.selector;
+        selectors[8] = SettlementHandler.fuzz_reentrantBonusClaim.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
@@ -67,6 +68,30 @@ contract SettlementInvariantsTest is StdInvariant, Test {
 
         // The outer claim still completed — attacker holds the proportional winner-token cut.
         assertTrue(handler.vault().claimed(address(handler.attacker())), "outer claim did not complete");
+    }
+
+    // ============================================================ Audit C-1 surface deterministic
+    //
+    // Companion to `invariant_bonusDistributor_reentrancySafe` — proves the bonus-claim
+    // reentry path is actually live (hook fires, inner call attempted) so the fuzz invariant
+    // has teeth. Without this, a regression that quietly disables the bonus-WETH hook would
+    // let the invariant pass vacuously (no reentry attempted ⇒ trivially no bypass).
+    function test_bonusReentrySurface_fires_and_is_blocked() public {
+        handler.fuzz_reentrantBonusClaim();
+
+        // Attacker hook fired AND the inner re-call was blocked.
+        assertTrue(handler.attacker().reentryAttempted(), "bonus reentry surface did not fire");
+        assertFalse(handler.attacker().reentrySucceeded(), "bonus reentry was NOT blocked");
+        assertTrue(handler.ghostBonusReentryAttempted(), "handler did not record the bonus attempt");
+        assertFalse(handler.ghostBonusReentryBypassed(), "handler recorded a bonus bypass");
+
+        // Outer claim still completed — attacker holds their entitled half of the bonus.
+        assertTrue(handler.bonusReentryClaimedByAttacker(), "outer bonus claim did not complete");
+        assertEq(
+            handler.bonusReentryAttackerWethBalance(),
+            handler.BONUS_REENTRY_RESERVE() / 2,
+            "attacker did not receive entitled bonus"
+        );
     }
 
     // ============================================================ Invariant 1 — conservation
@@ -275,6 +300,39 @@ contract SettlementInvariantsTest is StdInvariant, Test {
     // forwarded" from on-chain reads. These must match exactly modulo the residue-sweep at
     // submitWinner (which sweeps any leftover WETH inside the vault to treasury — accounted
     // for separately via `vault.totalTreasuryPaid` minus the ghost's per-event component).
+    // ============================================================ Audit C-1 — bonus reentrancy
+    //
+    // Spec §42.2.5 (reentrancy safety) applied to BonusDistributor specifically. The Pillar 1
+    // suite (PR #50) covered SeasonVault.claimRollover, but BonusDistributor's three state-
+    // mutating functions had no test for transfer-hook re-entry. The audit (PR #52, finding
+    // C-1) surfaced a real exploit on `fundBonus` (a malicious vault contract acting as both
+    // caller and WETH transfer-hook target could fund a different seasonId mid-call). The fix
+    // applies `nonReentrant` to all three functions; this invariant ensures the regression
+    // can't return.
+    //
+    // The bonus-reentry harness in the handler runs a separate BonusDistributor instance
+    // backed by a hook-firing MaliciousERC20 bonus-WETH so the attacker actually gets a
+    // chance to re-enter `claim()` mid-payout. The invariant asserts:
+    //   1. Across every fuzz sequence, the inner re-entry never returns success
+    //      (`ghostBonusReentryBypassed == false`)
+    //   2. Bonus accounting stays consistent: `claimedTotal <= reserve` at all times
+    //   3. The attacker can claim at most once (idempotency under repeated calls)
+    function invariant_bonusDistributor_reentrancySafe() public view {
+        // 1. Re-entry blocked.
+        assertFalse(handler.ghostBonusReentryBypassed(), "bonusReentry: re-entry succeeded");
+
+        // 2. Accounting consistent.
+        uint256 claimedTotal = handler.bonusReentryClaimedTotal();
+        uint256 reserve = handler.bonusReentryReserve();
+        assertLe(claimedTotal, reserve, "bonusReentry: claimedTotal > reserve");
+
+        // 3. If the attacker claimed (legitimate single-shot success), they hold exactly
+        //    their entitled half. If not yet claimed, balance is 0.
+        bool claimed_ = handler.bonusReentryClaimedByAttacker();
+        uint256 expected = claimed_ ? handler.BONUS_REENTRY_RESERVE() / 2 : 0;
+        assertEq(handler.bonusReentryAttackerWethBalance(), expected, "bonusReentry: attacker balance drift");
+    }
+
     function invariant_dustHandling() public view {
         // Pre-finalize: vault holds rolloverReserve + bonusReserve + bountyReserve in WETH;
         // mechanics + treasury + polReserve received their per-event slices.
