@@ -13,6 +13,7 @@ This folder is the standalone implementation of Track E (HP weights v3 empirical
 | `pyproject.toml` | uv-managed Python deps for both pipeline + fetcher. |
 | `synthetic_corpus.csv` | 500 synthetic tokens with realistic distributions. Generated deterministically (seed=42). For demo / pipeline testing only. |
 | `SYNTHETIC_DEMO_REPORT.md` | The pipeline's output on synthetic data. **Numbers are not real findings — see warning at top of file.** |
+| `test_pipeline.py` | Unit tests for HHI math (spec §41.4–41.5 reference points) and the V4 LP-depth WETH-side helper. Run with `uv run python3 test_pipeline.py`. |
 
 ## What this is for
 
