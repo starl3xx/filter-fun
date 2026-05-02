@@ -392,38 +392,43 @@ def target_amount_signed(swap: dict, target_is_token0: bool) -> int:
 # ---------------------------------------------------------------------------
 
 def discover_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
-    out: list[dict] = []
+    """
+    Scan factory logs for TokenCreated events between [from_block, to_block].
+
+    Discovery is intentionally NOT checkpointed across runs — for the 6-month
+    Clanker V4 window the full re-scan is ~30s + a few k Alchemy CUs, much
+    cheaper than persisting 170k+ token dicts in state. Per-token Phase 2
+    work is what we actually need to resume cleanly, and that lives in
+    `.fetch_cache/<token>.json`.
+    """
     sig_topic = topic0(TOKEN_CREATED_SIG)
-    ckpt_key = "discover.V4.last_block"
-    scan_from = max(from_block, state.get(ckpt_key, from_block))
-    if scan_from > to_block:
-        print(f"  [V4] already discovered through {to_block}")
-    else:
-        print(f"  [V4] crawling {scan_from} → {to_block} ({(to_block - scan_from) // 1000}k blocks)")
-        logs = get_logs(rpc, address=CLANKER_V4_ADDRESS, topics=[sig_topic],
-                        from_block=scan_from, to_block=to_block)
-        print(f"  [V4] {len(logs)} TokenCreated events")
-        for log in logs:
-            try:
-                d = decode_token_created(log)
-            except Exception as e:
-                print(f"    decode fail: {e}")
-                continue
-            block = hex_to_int(log["blockNumber"])
-            out.append({
-                "token_address": d["tokenAddress"],
-                "deployer": d["msgSender"],
-                "version": "V4",
-                "name": d.get("tokenName", ""),
-                "symbol": d.get("tokenSymbol", ""),
-                "pool_id": d.get("poolId", ""),
-                "paired_token": d.get("pairedToken", "").lower() if isinstance(d.get("pairedToken"), str) else "",
-                "locker": d.get("locker", "").lower() if isinstance(d.get("locker"), str) else "",
-                "starting_tick": d.get("startingTick", 0),
-                "launch_block": block,
-                "tx_hash": log["transactionHash"],
-            })
-        state[ckpt_key] = to_block
+
+    print(f"  [V4] crawling {from_block} → {to_block} ({(to_block - from_block) // 1000}k blocks)")
+    logs = get_logs(rpc, address=CLANKER_V4_ADDRESS, topics=[sig_topic],
+                    from_block=from_block, to_block=to_block)
+    print(f"  [V4] {len(logs)} TokenCreated events")
+
+    out: list[dict] = []
+    for log in logs:
+        try:
+            d = decode_token_created(log)
+        except Exception as e:
+            print(f"    decode fail: {e}")
+            continue
+        block = hex_to_int(log["blockNumber"])
+        out.append({
+            "token_address": d["tokenAddress"],
+            "deployer": d["msgSender"],
+            "version": "V4",
+            "name": d.get("tokenName", ""),
+            "symbol": d.get("tokenSymbol", ""),
+            "pool_id": d.get("poolId", ""),
+            "paired_token": d.get("pairedToken", "").lower() if isinstance(d.get("pairedToken"), str) else "",
+            "locker": d.get("locker", "").lower() if isinstance(d.get("locker"), str) else "",
+            "starting_tick": d.get("startingTick", 0),
+            "launch_block": block,
+            "tx_hash": log["transactionHash"],
+        })
 
     out.sort(key=lambda t: t["launch_block"])
     seen: set[str] = set()
@@ -433,6 +438,8 @@ def discover_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: di
             continue
         seen.add(t["token_address"])
         deduped.append(t)
+    state["discover.V4.last_scan_blocks"] = [from_block, to_block]
+    state["discover.V4.last_scan_count"] = len(deduped)
     return deduped
 
 
@@ -867,7 +874,10 @@ def main():
         w.writerow(["token_address", "ticker", "platform", "version",
                     "launch_block", "launch_ts", "factory_address"])
         for t in discovered:
-            w.writerow([t["token_address"], t.get("symbol", ""), "clanker", t["version"],
+            # `tokenSymbol` in V4 stores arbitrary JSON; the readable label is
+            # in `tokenName` (matches the corpus.csv ticker column).
+            ticker = (t.get("name") or "")[:32]
+            w.writerow([t["token_address"], ticker, "clanker", t["version"],
                         t["launch_block"], t["launch_ts"], CLANKER_V4_ADDRESS])
     print(f"  wrote {len(discovered)} discovered tokens → {DISCOVERED_PATH}")
 

@@ -152,7 +152,7 @@ These are mechanical proofs that the pipeline is correct. They tell you NOTHING 
 
 ## Integration with the rest of the project
 
-- Spec source of truth: `/Users/jakebouma/Documents/Claude/Projects/filter.fun/filter_fun_comprehensive_spec.md` §6 + §41
+- Spec source of truth: `filter_fun_comprehensive_spec.md` §6 + §41 (lives in the project's external design docs, not this repo)
 - Implementation reference: `packages/scoring/` in the main filter-fun repo (PR #31 shipped HP v3, PR #32 shipped backtest harness, PR #45 enriched indexer with holder snapshots)
 - Roadmap: Track E in `ROADMAP.md` — execution status updates here
 - Once a real-data report exists, update spec §6.5 with the locked weights

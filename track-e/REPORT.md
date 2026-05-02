@@ -20,23 +20,23 @@ Higher |rho| + AUC > 0.55 indicates a component that meaningfully predicts outco
 
 | Component | 30d ρ | 30d AUC | 60d ρ | 60d AUC | 90d ρ | 90d AUC |
 |---|---:|---:|---:|---:|---:|---:|
-| `velocity` | +0.496 | 0.879 | +0.496 | 0.879 | +0.496 | 0.879 |
-| `effectiveBuyers` | +0.506 | 0.886 | +0.506 | 0.886 | +0.506 | 0.886 |
+| `velocity` | +0.299 | 0.729 | +0.299 | 0.729 | +0.299 | 0.729 |
+| `effectiveBuyers` | +0.299 | 0.729 | +0.299 | 0.729 | +0.299 | 0.729 |
 | `stickyLiquidity` | +0.000 | 0.500 | +0.000 | 0.500 | +0.000 | 0.500 |
-| `retention` | +0.999 | 1.000 | +0.999 | 1.000 | +0.999 | 1.000 |
+| `retention` | +1.000 | 1.000 | +1.000 | 1.000 | +1.000 | 1.000 |
 | `momentum` | +0.000 | 0.500 | +0.000 | 0.500 | +0.000 | 0.500 |
-| `holderConcentration` | +0.553 | 0.667 | +0.553 | 0.667 | +0.553 | 0.667 |
+| `holderConcentration` | +0.000 | 0.500 | +0.000 | 0.500 | +0.000 | 0.500 |
 
 ### Outcome label: `price_floor`
 
 | Component | 30d ρ | 30d AUC | 60d ρ | 60d AUC | 90d ρ | 90d AUC |
 |---|---:|---:|---:|---:|---:|---:|
-| `velocity` | +0.968 | 1.000 | +0.968 | 1.000 | +0.968 | 1.000 |
-| `effectiveBuyers` | +0.968 | 1.000 | +0.968 | 1.000 | +0.968 | 1.000 |
+| `velocity` | +0.901 | 0.917 | +0.901 | 0.917 | +0.901 | 0.917 |
+| `effectiveBuyers` | +0.901 | 0.917 | +0.901 | 0.917 | +0.901 | 0.917 |
 | `stickyLiquidity` | +0.000 | 0.500 | +0.000 | 0.500 | +0.000 | 0.500 |
-| `retention` | +0.492 | 0.667 | +0.492 | 0.667 | +0.492 | 0.667 |
+| `retention` | +0.553 | 0.667 | +0.553 | 0.667 | +0.553 | 0.667 |
 | `momentum` | +0.000 | 0.500 | +0.000 | 0.500 | +0.000 | 0.500 |
-| `holderConcentration` | +0.272 | 0.556 | +0.272 | 0.556 | +0.272 | 0.556 |
+| `holderConcentration` | +0.000 | 0.500 | +0.000 | 0.500 | +0.000 | 0.500 |
 
 ## RandomForest feature importance
 
@@ -44,12 +44,12 @@ Per outcome label, averaged across horizons. Higher values = component is more p
 
 | Component | `holder_retention` | `price_floor` |
 |---|---:|---:|
-| `velocity` | 0.158 | 0.507 |
-| `effectiveBuyers` | 0.158 | 0.437 |
+| `velocity` | 0.157 | 0.417 |
+| `effectiveBuyers` | 0.148 | 0.381 |
 | `stickyLiquidity` | 0.000 | 0.000 |
-| `retention` | 0.585 | 0.043 |
+| `retention` | 0.696 | 0.202 |
 | `momentum` | 0.000 | 0.000 |
-| `holderConcentration` | 0.099 | 0.013 |
+| `holderConcentration` | 0.000 | 0.000 |
 
 ## Fitted weights (L2 logistic regression)
 
@@ -58,12 +58,12 @@ Compare against the spec §6.5 default starting weights.
 
 | Component | Spec §6.5 default | Fitted (holder_retention) | Fitted (price_floor) | Fitted (volume_slope) | Fitted (composite) |
 |---|---:|---:|---:|---:|---:|
-| `velocity` | 30% | 12.3% | 44.7% | — | — |
-| `effectiveBuyers` | 15% | 13.0% | 44.7% | — | — |
+| `velocity` | 30% | 8.2% | 32.7% | — | — |
+| `effectiveBuyers` | 15% | 8.2% | 32.7% | — | — |
 | `stickyLiquidity` | 20% | 0.0% | 0.0% | — | — |
-| `retention` | 15% | 63.8% | 10.1% | — | — |
+| `retention` | 15% | 83.6% | 34.6% | — | — |
 | `momentum` | 10% | 0.0% | 0.0% | — | — |
-| `holderConcentration` | 10% | 10.9% | 0.5% | — | — |
+| `holderConcentration` | 10% | 0.0% | 0.0% | — | — |
 
 ### Cross-validated AUC per fitted model (5-fold)
 
@@ -72,7 +72,7 @@ AUC > 0.65 is meaningful; AUC > 0.75 is strong.
 
 | Outcome label | CV AUC (mean ± std) |
 |---|---:|
-| `holder_retention` | 1.000 ± 0.000 |
+| `holder_retention` | nan ± nan |
 | `price_floor` | 1.000 ± 0.000 |
 | `volume_slope` | — |
 | `composite` | — |
@@ -85,13 +85,13 @@ Spearman rank correlation between the HP rankings produced by two weight sets.
 | Comparison | Rank ρ |
 |---|---:|
 | Current 5-component (35/20/20/15/10) vs Candidate 6-component (30/15/20/15/10/10) | +1.000 |
-| Candidate vs Fitted (holder_retention) | +0.999 |
-| Candidate vs Fitted (price_floor) | +0.993 |
+| Candidate vs Fitted (holder_retention) | +0.997 |
+| Candidate vs Fitted (price_floor) | +0.997 |
 
 ## Recommendation
 
-- Components with low avg importance (< 0.05): ['momentum', 'stickyLiquidity']
-- **Consider dropping or reducing weight on:** momentum, stickyLiquidity
+- Components with low avg importance (< 0.05): ['holderConcentration', 'momentum', 'stickyLiquidity']
+- **Consider dropping or reducing weight on:** holderConcentration, momentum, stickyLiquidity
 - Compare cross-validated AUC across labels: prefer the label with highest AUC for weight-tuning
 - If holderConcentration's importance is meaningful (> 0.10), confirm or raise spec §6.5 weight
 - If holderConcentration's importance is low (< 0.05), spec §41.7 says drop the component
