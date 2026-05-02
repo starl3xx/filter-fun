@@ -119,7 +119,11 @@ function NominateForm({token, currentAdmin}: {token: Address; currentAdmin: Addr
   // User-typed input — use the shared `isZeroAddress` helper rather than a
   // string-literal compare, so case-variants of the zero address are also
   // rejected and the same predicate is used everywhere in the codebase.
-  const isZero = isZeroAddress(trimmed);
+  // Gated on `trimmed.length > 0`: bugbot caught a pristine-input regression
+  // (`isZeroAddress("")` returns true because of the `!addr` short-circuit
+  // in the helper, intended for hook-returned `null`/`undefined`). The guard
+  // preserves the pre-fix behaviour where empty input shows no error.
+  const isZero = trimmed.length > 0 && isZeroAddress(trimmed);
   const isSame = currentAdmin && isValid && addrEq(trimmed, currentAdmin);
   const disabled = !isValid || isZero || Boolean(isSame) || isSubmitting || isMining;
 

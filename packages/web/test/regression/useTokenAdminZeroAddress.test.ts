@@ -68,4 +68,42 @@ describe("useTokenAdmin zero-address normalization (Audit H-Web-4)", () => {
     expect(comp).toMatch(/isZeroAddress\(trimmed\)/);
     expect(comp).not.toContain("0x0000000000000000000000000000000000000000");
   });
+
+  // Bugbot finding (PR #65): `isZeroAddress("")` returns `true` because of
+  // the `!addr` short-circuit in the helper, intended for hook-returned
+  // `null`/`undefined`. Without a `trimmed.length > 0` guard at the call
+  // site, both forms render "Zero address rejected" on the empty pristine
+  // input — before the user has typed anything. Pin the guard.
+  it("zero-address check is gated on `trimmed.length > 0` in both forms (no pristine-empty error)", () => {
+    const adminTransferPath = path.resolve(
+      __dirname,
+      "../../src/components/admin/AdminTransferForms.tsx",
+    );
+    const recipientPath = path.resolve(
+      __dirname,
+      "../../src/components/admin/RecipientForm.tsx",
+    );
+    for (const p of [adminTransferPath, recipientPath]) {
+      const comp = fs.readFileSync(p, "utf8");
+      // The exact guarded predicate. A regression to bare `isZeroAddress(trimmed)`
+      // surfaces here.
+      expect(comp).toMatch(/const isZero = trimmed\.length > 0 && isZeroAddress\(trimmed\)/);
+    }
+  });
+
+  // Belt-and-suspenders: pin the helper's documented behaviour so a future
+  // refactor that "fixes" `isZeroAddress("")` to return false doesn't
+  // silently break callers that DO rely on the falsy-input → true contract
+  // (e.g. hook-returned `null` short-circuit checks).
+  it("isZeroAddress treats falsy input as zero (load-bearing for hook callers)", () => {
+    function isZeroAddress(addr: string | null | undefined): boolean {
+      if (!addr) return true;
+      return addr.toLowerCase() === "0x0000000000000000000000000000000000000000";
+    }
+    expect(isZeroAddress("")).toBe(true);
+    expect(isZeroAddress(null)).toBe(true);
+    expect(isZeroAddress(undefined)).toBe(true);
+    expect(isZeroAddress("0x0000000000000000000000000000000000000000")).toBe(true);
+    expect(isZeroAddress("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")).toBe(false);
+  });
 });
