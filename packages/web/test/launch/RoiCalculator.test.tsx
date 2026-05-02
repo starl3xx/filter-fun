@@ -79,6 +79,17 @@ describe("RoiCalculator", () => {
     expect(screen.getAllByText("$—").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("loading state suppresses the misleading 'profit' framing on Net row", () => {
+    // Regression: bugbot caught that the Net row showed green "Net profit"
+    // accent + hint even when the value rendered as "$—" because accent/hint
+    // were derived from `out.netUsd` regardless of slotCostReady. Now the
+    // hint reads "Loading current slot cost…" while loading.
+    render(<RoiCalculator slotCostWei={0n} stakeWei={0n} />);
+    expect(screen.getByText(/loading current slot cost/i)).toBeTruthy();
+    // The "Net profit across the week" copy must NOT appear during loading.
+    expect(screen.queryByText(/net profit across the week/i)).toBeNull();
+  });
+
   it("uses real <input type='range'> sliders for keyboard accessibility", () => {
     render(<RoiCalculator {...baseProps} />);
     const sliders = document.querySelectorAll('input[type="range"]');

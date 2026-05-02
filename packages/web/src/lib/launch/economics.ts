@@ -56,10 +56,14 @@ export function weiToUsd(wei: bigint, ethUsd: number = ETH_USD_FALLBACK): number
 
 /// "$35" / "$1,234" / "$1.2M". Compact notation kicks in at 10k+ so the
 /// breakeven sentence reads naturally ("$5k in trading volume" not "$5,000").
+///
+/// The M-branch threshold is 999.5k (not 1M exactly) so that values just
+/// below a million — e.g. $999,500 — escalate to "$1.00M" rather than
+/// rounding to "$1000k" via the k-branch's `.toFixed(0)`.
 export function fmtUsd(usd: number): string {
   if (!Number.isFinite(usd)) return "$—";
   const abs = Math.abs(usd);
-  if (abs >= 1_000_000) return `$${(usd / 1_000_000).toFixed(2)}M`;
+  if (abs >= 999_500) return `$${(usd / 1_000_000).toFixed(2)}M`;
   if (abs >= 10_000) return `$${(usd / 1_000).toFixed(0)}k`;
   if (abs >= 1_000) return `$${usd.toLocaleString("en-US", {maximumFractionDigits: 0})}`;
   if (abs >= 1) return `$${usd.toFixed(0)}`;

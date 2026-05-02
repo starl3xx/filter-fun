@@ -76,6 +76,16 @@ describe("USD helpers", () => {
     expect(fmtUsd(50_000)).toBe("$50k");
     expect(fmtUsd(2_500_000)).toBe("$2.50M");
   });
+  it("fmtUsd: million-boundary rounding never produces '$1000k'", () => {
+    // Regression: bugbot caught that values $999,500–$999,999 rounded to
+    // "$1000k" via the k-branch's .toFixed(0). The M-branch threshold is
+    // now 999.5k so those values escalate to "$1.00M".
+    expect(fmtUsd(999_499)).toBe("$999k");
+    expect(fmtUsd(999_500)).toBe("$1.00M");
+    expect(fmtUsd(999_999)).toBe("$1.00M");
+    expect(fmtUsd(1_000_000)).toBe("$1.00M");
+    expect(fmtUsd(-999_999)).toBe("$-1.00M");
+  });
   it("fmtUsdSigned: sign always rendered", () => {
     expect(fmtUsdSigned(120)).toBe("+$120");
     expect(fmtUsdSigned(-45)).toBe("−$45");

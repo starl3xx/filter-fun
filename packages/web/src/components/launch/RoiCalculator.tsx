@@ -179,8 +179,19 @@ export function RoiCalculator({slotCostWei, stakeWei, ethUsd: ethUsdProp}: RoiCa
             <OutputRow
               label="Net out-of-pocket"
               value={slotCostReady ? fmtUsdSigned(out.netUsd) : "$—"}
-              accent={out.netUsd >= 0 ? C.text : C.green}
-              hint={out.netUsd >= 0 ? "Cost across the week (+)" : "Net profit across the week (−)"}
+              // Gate the green/profit accent on slotCostReady. With a 0n
+              // slot cost the math computes a net of `−creatorFees` (a
+              // notional profit) which would render as green + "Net profit"
+              // alongside the placeholder "$—" — a misleading flash before
+              // the contract read settles.
+              accent={!slotCostReady ? C.text : out.netUsd >= 0 ? C.text : C.green}
+              hint={
+                !slotCostReady
+                  ? "Loading current slot cost…"
+                  : out.netUsd >= 0
+                    ? "Cost across the week (+)"
+                    : "Net profit across the week (−)"
+              }
             />
 
             <OutputRow
