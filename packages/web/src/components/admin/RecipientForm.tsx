@@ -7,7 +7,7 @@ import {useWaitForTransactionReceipt, useWriteContract} from "wagmi";
 
 import deployment from "@/lib/deployment.json";
 import {CreatorRegistryAbi} from "@/lib/token/abis";
-import {addrEq, shortAddr} from "@/lib/token/format";
+import {addrEq, isZeroAddress, shortAddr} from "@/lib/token/format";
 import {C, F} from "@/lib/tokens";
 
 import {Card} from "./Card";
@@ -39,7 +39,9 @@ export function RecipientForm({token, currentRecipient, canEdit}: RecipientFormP
 
   const trimmed = value.trim();
   const isValid = isAddress(trimmed);
-  const isZero = trimmed === "0x0000000000000000000000000000000000000000";
+  // Audit H-Web-4 — shared helper instead of string-literal compare. Catches
+  // case variants and uses one predicate across the codebase.
+  const isZero = isZeroAddress(trimmed);
   const isSame = currentRecipient && isValid && addrEq(trimmed, currentRecipient);
   const disabled =
     !canEdit || !isValid || isZero || Boolean(isSame) || isSubmitting || isMining;

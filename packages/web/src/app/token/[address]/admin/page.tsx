@@ -18,7 +18,7 @@
 /// past-season detection is a v2 follow-up once we surface a per-token
 /// `seasonId` from the indexer or registry view.
 
-import {useMemo, useRef} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {useParams} from "next/navigation";
 import type {Address} from "viem";
 import {isAddress} from "viem";
@@ -82,6 +82,24 @@ function AdminConsole({token}: {token: Address}) {
   const liveDataError = adminError ?? stakeError ?? seasonError ?? tokensError ?? null;
 
   const acceptAnchorRef = useRef<HTMLDivElement | null>(null);
+
+  // Audit H-Web-5 (Phase 1, 2026-05-01): auto-scroll the accept form into view
+  // when the admin console mounts (or transitions) into PENDING state. Pre-fix
+  // `onScrollToAccept` only fired on user click of the auth-banner CTA — if
+  // the user landed on the page with auth.state already PENDING (the typical
+  // path: nominator shares the URL via DM), they had to hunt the right column
+  // for the form. Pulse the border for ~2s on the same trigger so the visual
+  // anchor matches the scroll target.
+  const [scrollPulse, setScrollPulse] = useState(false);
+  useEffect(() => {
+    if (auth.state !== "PENDING") return;
+    if (acceptAnchorRef.current) {
+      acceptAnchorRef.current.scrollIntoView({behavior: "smooth", block: "center"});
+    }
+    setScrollPulse(true);
+    const t = setTimeout(() => setScrollPulse(false), 2000);
+    return () => clearTimeout(t);
+  }, [auth.state]);
 
   const chain = (process.env.NEXT_PUBLIC_CHAIN === "base" ? "base" : "base-sepolia") as
     | "base"
@@ -220,6 +238,7 @@ function AdminConsole({token}: {token: Address}) {
             currentAdmin={info.admin}
             pendingAdmin={info.pendingAdmin}
             authState={auth.state}
+            pulseAccept={scrollPulse && auth.state === "PENDING"}
           />
           <BagLockCard
             token={token}

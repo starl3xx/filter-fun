@@ -8,7 +8,7 @@ import {useWaitForTransactionReceipt, useWriteContract} from "wagmi";
 import type {AdminAuthState} from "@/hooks/token/useAdminAuth";
 import deployment from "@/lib/deployment.json";
 import {CreatorRegistryAbi} from "@/lib/token/abis";
-import {addrEq, shortAddr} from "@/lib/token/format";
+import {addrEq, isZeroAddress, shortAddr} from "@/lib/token/format";
 import {C, F} from "@/lib/tokens";
 
 import {Card} from "./Card";
@@ -31,6 +31,11 @@ export type AdminTransferFormsProps = {
   currentAdmin: Address | null;
   pendingAdmin: Address | null;
   authState: AdminAuthState;
+  /// Audit H-Web-5 — pulse the accept-form wrapper border for ~2s when the
+  /// page mounts as PENDING, paired with the auto-scroll. The page owns the
+  /// timing (so the pulse and the scroll fire from the same effect); this
+  /// component just renders the visual.
+  pulseAccept?: boolean;
 };
 
 const REGISTRY_ADDRESS = deployment.addresses.creatorRegistry as Address;
@@ -38,11 +43,30 @@ const REGISTRY_ADDRESS = deployment.addresses.creatorRegistry as Address;
 /// Forwarded ref so the auth banner can scroll the user to this section when
 /// they're the pending nominee.
 export const AdminTransferForms = forwardRef<HTMLDivElement, AdminTransferFormsProps>(
-  function AdminTransferForms({token, currentAdmin, pendingAdmin, authState}, ref) {
-    const hasPending = pendingAdmin !== null && pendingAdmin !== "0x0000000000000000000000000000000000000000";
+  function AdminTransferForms({token, currentAdmin, pendingAdmin, authState, pulseAccept}, ref) {
+    // Audit H-Web-4 (Phase 1, 2026-05-01): the hook normalises zero address →
+    // null, so the duplicate string-literal compare here is dead but masked a
+    // dangerous fallback — if the hook ever stopped normalising, the literal
+    // check would silently keep the UI working on `0x0000…` data. Trust the
+    // hook's contract; a single null-check is the source of truth.
+    const hasPending = pendingAdmin !== null;
 
     return (
-      <div ref={ref}>
+      <div
+        ref={ref}
+        data-pulse-accept={pulseAccept ? "true" : undefined}
+        style={
+          pulseAccept
+            ? {
+                borderRadius: 12,
+                outline: `2px solid ${C.pink}`,
+                outlineOffset: 2,
+                transition: "outline 0.4s ease",
+                animation: "ff-pulse 1s ease-in-out 2",
+              }
+            : undefined
+        }
+      >
         {authState === "ADMIN" && !hasPending && (
           <NominateForm token={token} currentAdmin={currentAdmin} />
         )}
@@ -92,7 +116,10 @@ function NominateForm({token, currentAdmin}: {token: Address; currentAdmin: Addr
 
   const trimmed = value.trim();
   const isValid = isAddress(trimmed);
-  const isZero = trimmed === "0x0000000000000000000000000000000000000000";
+  // User-typed input — use the shared `isZeroAddress` helper rather than a
+  // string-literal compare, so case-variants of the zero address are also
+  // rejected and the same predicate is used everywhere in the codebase.
+  const isZero = isZeroAddress(trimmed);
   const isSame = currentAdmin && isValid && addrEq(trimmed, currentAdmin);
   const disabled = !isValid || isZero || Boolean(isSame) || isSubmitting || isMining;
 
