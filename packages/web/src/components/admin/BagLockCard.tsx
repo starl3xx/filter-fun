@@ -22,7 +22,7 @@
 /// can drive the form. Admin-but-not-creator falls into the read-only branch
 /// with copy explaining the difference.
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useState} from "react";
 import type {Address} from "viem";
 import {useAccount, useWaitForTransactionReceipt, useWriteContract} from "wagmi";
 
@@ -50,7 +50,6 @@ export type BagLockCardProps = {
 };
 
 const COMMITMENTS_ADDRESS = contractAddresses.creatorCommitments;
-const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
 /// Year-from-now ceiling on the date picker. We allow a separate "lock forever"
 /// button for `type(uint256).max`. Long but finite picks (10y+) are uncommon
 /// and a typo at 10 years out is hard to reverse.
@@ -226,24 +225,33 @@ function CommitForm({
   submitError: Error | null;
   reset: () => void;
 }) {
-  // Anchor "minimum picker date" to the live clock OR the current unlock,
-  // whichever is later. Re-evaluated on every render — the input's `min`
-  // prop just becomes the floor; the user's typed value is validated below.
   const [chosenIso, setChosenIso] = useState<string>("");
-  // Minute resolution on the picker → enough for the user, no second-precision
-  // pixel-fiddling. The contract takes uint256 unix-seconds.
-  const minMs = useMemo(() => {
-    const nowFloor = Date.now() + MIN_LOCK_BUFFER_SECONDS * 1000;
+
+  // Tick a clock so the picker's `min` floor and the submit-time gate stay
+  // honest after the page idles. Without this, `Date.now()` would be sampled
+  // once and a user who sat on the page for a few minutes could pass an
+  // already-past timestamp through the client-side check (the contract would
+  // still revert with `LockMustBeFuture`, but we'd burn the gas-estimate /
+  // signing UX before the on-chain catch). 30s resolution is enough — the
+  // datetime-local input is minute-resolution anyway.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Both bounds are cheap arithmetic; recompute every render off `nowMs` and
+  // `currentUnlockMs`. NOT memoized — the prior `useMemo([currentUnlockMs])`
+  // captured `Date.now()` at mount and froze the floor (bugbot finding).
+  const minMs = (() => {
+    const nowFloor = nowMs + MIN_LOCK_BUFFER_SECONDS * 1000;
     if (currentUnlockMs && currentUnlockMs > nowFloor) {
       // Extend mode: minimum is the next minute after current unlock.
       return Math.ceil((currentUnlockMs + 60_000) / 60_000) * 60_000;
     }
     return Math.ceil(nowFloor / 60_000) * 60_000;
-  }, [currentUnlockMs]);
-  const maxMs = useMemo(
-    () => Date.now() + MAX_LOCK_YEARS * 365 * 86_400 * 1000,
-    [],
-  );
+  })();
+  const maxMs = nowMs + MAX_LOCK_YEARS * 365 * 86_400 * 1000;
 
   // Reset the date input once a tx mines so the next interaction starts fresh.
   // Don't call wagmi's `reset()` here — see MetadataForm: clearing txHash
@@ -287,6 +295,16 @@ function CommitForm({
 
   function submit() {
     if (disabled || !hasPick) return;
+    // Re-validate against a freshly-sampled clock at click-time. The 30s tick
+    // keeps the displayed `minMs` close to live, but a click that lands inside
+    // a tick window (or after the tab was throttled / asleep) could otherwise
+    // ship a now-past timestamp. The contract would revert `LockMustBeFuture`,
+    // but we'd burn signing UX before catching it.
+    const liveMin =
+      currentUnlockMs && currentUnlockMs > Date.now() + MIN_LOCK_BUFFER_SECONDS * 1000
+        ? currentUnlockMs + 60_000
+        : Date.now() + MIN_LOCK_BUFFER_SECONDS * 1000;
+    if (chosenMs < liveMin) return;
     // Clear any prior tx state — wagmi otherwise carries the previous hash
     // through and `useWaitForTransactionReceipt` would still report success
     // from the old commit until the new one mines.
@@ -573,9 +591,3 @@ function toLocalDatetimeInputValue(ms: number): string {
   );
 }
 
-// `creator` zero-address check, exposed in case callers want to short-circuit
-// the form rendering for unregistered tokens. Currently the only call site is
-// internal — the admin console only renders the card for valid token routes.
-export function isUnregisteredCreator(creator: Address | null): boolean {
-  return creator === null || addrEq(creator, ZERO_ADDR);
-}
