@@ -22,6 +22,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
+import {DataErrorBanner} from "@/components/DataErrorBanner";
 import {Stars} from "@/components/Stars";
 import {LaunchHero} from "@/components/launch/LaunchHero";
 import {FilterStrip} from "@/components/launch/FilterStrip";
@@ -228,42 +229,6 @@ function titleFor(state: EligibilityNoticeState): string {
     default:
       return "Launch unavailable";
   }
-}
-
-/// Audit C-5 (Phase 1 audit 2026-05-01): mirrors the arena page's banner so
-/// fetch errors on /season or /tokens are visible to the user instead of
-/// silently leaving the slot grid frozen on stale data. See `app/page.tsx`
-/// for the full rationale.
-function DataErrorBanner({error}: {error: Error}) {
-  return (
-    <div
-      role="alert"
-      aria-live="polite"
-      style={{
-        position: "relative",
-        zIndex: 1,
-        margin: "8px 16px 0",
-        padding: "8px 14px",
-        borderRadius: 10,
-        border: `1px solid ${C.red}55`,
-        background: `${C.red}14`,
-        color: C.text,
-        fontFamily: F.mono,
-        fontSize: 11,
-        letterSpacing: "0.05em",
-        display: "flex",
-        gap: 10,
-        alignItems: "center",
-      }}
-    >
-      <span style={{color: C.red, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase"}}>
-        ▼ Live data error
-      </span>
-      <span style={{color: C.dim}}>
-        Indexer call failed — showing cached state. Will retry on the next poll. ({error.message})
-      </span>
-    </div>
-  );
 }
 
 function NoticeCard({tone, title, body}: {tone: "info" | "warn"; title: string; body: string}) {

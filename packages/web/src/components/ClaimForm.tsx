@@ -234,10 +234,13 @@ export function ClaimForm({
 /// useful next action.
 ///
 /// `balanceWei === null` means the read hasn't resolved yet (or wasn't
-/// enabled because the chain is wrong). We treat null as "no balance"
-/// rather than "unknown — allow" because shipping the user into a sign-then-
-/// fail path on a 0-balance wallet is exactly what this guard is here to
-/// prevent. The CTA stays disabled until balance is positive.
+/// enabled because the chain is wrong). We treat null as fail-closed
+/// (`balance-loading` reason) rather than "unknown — allow" because shipping
+/// the user into a sign-then-fail path is exactly what this guard prevents.
+/// `balanceWei === 0n` is a separate `no-balance` reason so the user-facing
+/// copy doesn't claim "Wallet has 0 ETH" during the brief loading window
+/// after a chain switch (bugbot finding on PR #57). The CTA stays disabled
+/// for both reasons; only the message differs.
 export interface ClaimPreflightInputs {
   walletChain: {id: number; name: string} | null;
   expectedChain: {id: number; name: string; nativeCurrencySymbol: string};
@@ -246,7 +249,7 @@ export interface ClaimPreflightInputs {
 
 export type ClaimPreflightResult =
   | {ok: true}
-  | {ok: false; reason: "wrong-chain" | "no-balance"; message: string};
+  | {ok: false; reason: "wrong-chain" | "no-balance" | "balance-loading"; message: string};
 
 export function computeClaimPreflight(input: ClaimPreflightInputs): ClaimPreflightResult {
   const {walletChain, expectedChain: ec, balanceWei} = input;
@@ -257,7 +260,14 @@ export function computeClaimPreflight(input: ClaimPreflightInputs): ClaimPreflig
       message: `Connected to chain ${walletChain?.name ?? walletChain?.id ?? "unknown"}; switch to ${ec.name} to claim.`,
     };
   }
-  if (balanceWei === null || balanceWei === 0n) {
+  if (balanceWei === null) {
+    return {
+      ok: false,
+      reason: "balance-loading",
+      message: `Checking ${ec.nativeCurrencySymbol} balance on ${ec.name}…`,
+    };
+  }
+  if (balanceWei === 0n) {
     return {
       ok: false,
       reason: "no-balance",

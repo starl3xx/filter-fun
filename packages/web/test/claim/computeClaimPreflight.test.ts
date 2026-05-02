@@ -3,10 +3,13 @@
 /// `writeContract` without ANY check; this suite locks the policy:
 ///
 ///   1. wrong chain → wrong-chain (regardless of balance)
-///   2. correct chain + zero balance → no-balance
-///   3. correct chain + null balance (read not resolved) → no-balance
-///      (we MUST NOT default to "ok" while balance is loading — the whole
-///      point of the guard is preventing sign-then-fail flows)
+///   2. correct chain + zero balance → no-balance with "0 ETH" message
+///   3. correct chain + null balance (read not resolved) → balance-loading
+///      with NEUTRAL "checking…" message (we MUST NOT default to "ok" while
+///      balance is loading — the whole point of the guard is preventing
+///      sign-then-fail flows — but we ALSO must not claim "Wallet has 0 ETH"
+///      during the loading window, which would mislead a freshly-switched
+///      user who actually has funds. Bugbot finding on PR #57.)
 ///   4. correct chain + positive balance → ok
 ///
 /// Each `expect(result).toEqual({ok: false, reason: …})` is paired with a
@@ -58,10 +61,16 @@ describe("computeClaimPreflight (audit finding C-6)", () => {
     expect(r.message).toContain("Base Sepolia");
   });
 
-  it("correct chain + null balance (read not resolved) → no-balance, NOT ok", () => {
-    // Load-bearing: the pre-fix bug let claim through whenever a check was
-    // unresolved. This test pins "loading == fail closed" so a future
-    // refactor can't silently flip the default to permissive.
+  it("correct chain + null balance (read not resolved) → balance-loading, NOT ok and NOT no-balance", () => {
+    // Two load-bearing properties pinned here:
+    //   (a) `ok` MUST be false — pre-C-6 the claim button bypassed all
+    //       checks; we must not regress to permissive while balance loads.
+    //   (b) `reason` MUST be `balance-loading`, NOT `no-balance` — bugbot
+    //       finding on PR #57 caught the previous coalesced-message version
+    //       saying "Wallet has 0 ETH" during the loading window, which
+    //       misled freshly-switched users who actually had funds. The
+    //       discriminant separation lets the UI render a neutral
+    //       "checking…" copy here vs. the actionable "top up" copy at zero.
     const r = computeClaimPreflight({
       walletChain: BASE_SEPOLIA,
       expectedChain: BASE_SEPOLIA,
@@ -69,7 +78,10 @@ describe("computeClaimPreflight (audit finding C-6)", () => {
     });
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.reason).toBe("no-balance");
+    expect(r.reason).toBe("balance-loading");
+    // Negative copy assertion: must NOT claim balance is zero.
+    expect(r.message).not.toContain("0 ETH");
+    expect(r.message).not.toContain("top up");
   });
 
   it("correct chain + positive balance → ok", () => {

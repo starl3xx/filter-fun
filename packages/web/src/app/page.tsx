@@ -38,6 +38,7 @@ import {ArenaTicker} from "@/components/arena/ArenaTicker";
 import {ArenaTokenDetail} from "@/components/arena/ArenaTokenDetail";
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
 import {FilterMomentOverlay} from "@/components/arena/filterMoment/FilterMomentOverlay";
+import {DataErrorBanner} from "@/components/DataErrorBanner";
 import {Stars} from "@/components/Stars";
 import {useFilterMoment} from "@/hooks/arena/useFilterMoment";
 import {useSeason} from "@/hooks/arena/useSeason";
@@ -281,46 +282,6 @@ export default function HomePage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-/// Audit C-5 (Phase 1 audit 2026-05-01): non-blocking banner shown above the
-/// arena grid when /season or /tokens has errored. Sits between the ticker
-/// and the grid so it doesn't push the live ticker out of sight, and uses the
-/// same red accent as the rest of the failure surfaces (status:FILTERED,
-/// inline form errors). The banner clears itself as soon as the next poll
-/// succeeds — this is intentional: the polling hooks reset `error` to null on
-/// the next successful fetch, so we don't need (and don't want) a manual
-/// dismiss control that would mask a recurring failure.
-function DataErrorBanner({error}: {error: Error}) {
-  return (
-    <div
-      role="alert"
-      aria-live="polite"
-      style={{
-        position: "relative",
-        zIndex: 1,
-        margin: "8px 16px 0",
-        padding: "8px 14px",
-        borderRadius: 10,
-        border: `1px solid ${C.red}55`,
-        background: `${C.red}14`,
-        color: C.text,
-        fontFamily: F.mono,
-        fontSize: 11,
-        letterSpacing: "0.05em",
-        display: "flex",
-        gap: 10,
-        alignItems: "center",
-      }}
-    >
-      <span style={{color: C.red, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase"}}>
-        ▼ Live data error
-      </span>
-      <span style={{color: C.dim}}>
-        Indexer call failed — showing cached state. Will retry on the next poll. ({error.message})
-      </span>
     </div>
   );
 }
