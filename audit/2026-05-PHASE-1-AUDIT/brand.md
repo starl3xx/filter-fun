@@ -1,6 +1,6 @@
 # Brand Kit Adherence Audit
 **Audit Date:** 2026-05-01
-**Reference:** /Users/jakebouma/Documents/Claude/Projects/filter.fun/filter.fun-brand-kit/
+**Reference:** locked `filter.fun-brand-kit/` (palette.json, tokens.css, wordmark.svg, lockup-tagline.svg) — lives in the operator's design vault outside this repo
 
 ---
 

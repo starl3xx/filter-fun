@@ -248,11 +248,13 @@ Full list in `audit/2026-05-PHASE-1-AUDIT/deps.md`. Summary:
 
 This audit was conducted on branch `starl3xx/phase-1-audit` (cut from `origin/main` at commit `c516e33`). It dispatched five parallel domain agents, each reading the relevant slice of:
 
-- `/Users/jakebouma/Documents/Claude/Projects/filter.fun/filter_fun_comprehensive_spec.md` (3 538 lines, 43 sections)
-- `/Users/jakebouma/Documents/Claude/Projects/filter.fun/ROADMAP.md` (881 lines)
-- `/Users/jakebouma/Documents/Claude/Projects/filter.fun/ARENA_SPEC.md` (848 lines, 14 sections)
-- `/Users/jakebouma/Documents/Claude/Projects/filter.fun/filter.fun-brand-kit/`
+- the comprehensive spec (`filter_fun_comprehensive_spec.md`, 3 538 lines, 43 sections)
+- the roadmap (`ROADMAP.md`, 881 lines)
+- the Arena visual spec (`ARENA_SPEC.md`, 848 lines, 14 sections)
+- the locked brand kit (`filter.fun-brand-kit/` — palette, tokens, marks)
 - AGENTS.md, README.md, docs/
+
+(Spec / roadmap / brand-kit live outside this repo in the operator's design vault; they are not redistributed here. The references above are by name, not path.)
 
 Findings were aggregated under uniform severity rubric (Critical / High / Medium / Low / Info) and finding template (file:line + spec ref + description + evidence + recommendation + effort). The report is read-only — no behaviour-changing code was modified.
 
