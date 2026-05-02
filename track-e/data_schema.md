@@ -1,0 +1,104 @@
+# Track E — Input Data Schema
+
+The pipeline expects a single CSV file with one row per token. Columns mirror what the indexer would compute at the spec's filter-equivalent timing (t+96h for filter.fun's locked cadence).
+
+## Required columns
+
+| Column | Type | Description |
+|---|---|---|
+| `token_address` | str | EVM token address, lowercase 0x... |
+| `ticker` | str | Symbol (no $) |
+| `chain` | str | `base`, `ethereum`, etc. |
+| `platform` | str | Source launchpad: `clanker`, `bankr`, `liquid`, `filterfun`, etc. |
+| `launch_ts` | int | Unix timestamp of token launch |
+| `t_window_hours` | int | Hours from launch at which features are measured (default 96 for filter.fun cadence; 72 for legacy / other launchpads) |
+
+## HP-component inputs (measured at `launch_ts + t_window_hours`)
+
+These feed the 5 existing components + holderConcentration (per spec §6.4 + §41).
+
+### Velocity inputs
+| Column | Type | Description |
+|---|---|---|
+| `total_buy_volume_eth` | float | Cumulative buy-side ETH volume in window |
+| `total_buy_volume_eth_decayed` | float | Same, weighted toward recent activity (exp decay; lambda=0.5/day). If unavailable, set equal to non-decayed. |
+
+### Effective buyers inputs
+| Column | Type | Description |
+|---|---|---|
+| `unique_buyers` | int | Distinct buyer wallet count |
+| `buyer_volumes_eth_json` | str (JSON) | Per-wallet buy volume list, e.g. `"[0.5, 0.001, 12.4, ...]"`. Used for sqrt-dampening per spec §36.1.4. Required for accurate effectiveBuyers; if missing, fall back to `sqrt(unique_buyers) * (total_buy_volume_eth / unique_buyers)` heuristic. |
+
+### Sticky liquidity inputs
+| Column | Type | Description |
+|---|---|---|
+| `lp_depth_eth` | float | LP depth at end-of-window in ETH |
+| `lp_removed_24h_eth` | float | Total LP removed in trailing 24h before end-of-window. Excludes protocol-controlled removals (filter events). |
+
+### Retention inputs
+| Column | Type | Description |
+|---|---|---|
+| `early_holders_count` | int | Distinct holders at t+24h |
+| `early_holders_still_holding` | int | Subset of above still holding at end-of-window |
+
+### Momentum inputs
+| Column | Type | Description |
+|---|---|---|
+| `hp_delta_recent` | float | Recent HP change (raw, before cap). E.g. delta in last 6h. Capped per spec §6.4.5 implementation. |
+
+### Holder concentration inputs (per spec §41)
+| Column | Type | Description |
+|---|---|---|
+| `holder_count` | int | Distinct holder count after excluding protocol/burn/pool addresses (per §41.3) |
+| `holder_balances_json` | str (JSON) | Per-wallet balance list AFTER §41.3 filtering. E.g. `"[1000, 850, 432, ...]"`. Used to compute HHI. Required. |
+
+## Outcome labels (measured at multiple horizons)
+
+For each of three horizons (`30d`, `60d`, `90d`), four candidate labels per spec Track E roadmap:
+
+| Column pattern | Type | Description |
+|---|---|---|
+| `outcome_{horizon}_holder_retention` | bool/int (0/1) | True if `current_holder_count > 0.5 * peak_holder_count` (still has meaningful holder base) |
+| `outcome_{horizon}_price_floor` | bool/int (0/1) | True if `current_price >= 0.30 * peak_price` (didn't catastrophically collapse) |
+| `outcome_{horizon}_volume_slope` | bool/int (0/1) | True if `7d_trailing_volume_at_horizon > 0.20 * peak_7d_volume` (sustained activity) |
+| `outcome_{horizon}_composite` | bool/int (0/1) | All three above are True (strict "good token" definition) |
+
+So twelve outcome columns total: 4 labels × 3 horizons.
+
+## Optional metadata (helpful but not required)
+
+| Column | Type | Description |
+|---|---|---|
+| `name` | str | Human-readable token name |
+| `creator_address` | str | Launcher wallet |
+| `notes` | str | Free-form notes for analyst |
+
+## Example row (CSV)
+
+```
+token_address,ticker,chain,platform,launch_ts,t_window_hours,total_buy_volume_eth,total_buy_volume_eth_decayed,unique_buyers,buyer_volumes_eth_json,lp_depth_eth,lp_removed_24h_eth,early_holders_count,early_holders_still_holding,hp_delta_recent,holder_count,holder_balances_json,outcome_30d_holder_retention,outcome_30d_price_floor,outcome_30d_volume_slope,outcome_30d_composite,outcome_60d_holder_retention,outcome_60d_price_floor,outcome_60d_volume_slope,outcome_60d_composite,outcome_90d_holder_retention,outcome_90d_price_floor,outcome_90d_volume_slope,outcome_90d_composite,name,creator_address,notes
+0xabc...,EXAMPLE,base,clanker,1714521600,96,12.4,8.2,142,"[0.5, 0.1, 2.3, ...]",4.5,0.2,89,71,0.05,124,"[1000, 850, ...]",1,1,0,0,1,0,0,0,0,0,0,0,Example Token,0xdef...,
+```
+
+## Data acquisition
+
+Path 1 — Alchemy + competitor APIs (preferred for production Track E):
+- Crawl `Token Deployed` / `Pool Created` events on launchpad factories
+- For each launched token, replay swaps + LP add/remove + ERC-20 transfers in window
+- Compute features at `launch_ts + 96h`
+- Crawl forward to t+90d to compute outcome labels
+
+Path 2 — Subgraph queries (faster, less granular):
+- Use TheGraph subgraphs for each launchpad if available
+- Pre-aggregated swap + holder data
+- May lose per-wallet granularity needed for sqrt-dampening + HHI
+
+Path 3 — Hybrid:
+- Alchemy for the wallet-level granularity (effectiveBuyers, holder_balances_json)
+- Subgraphs for aggregates (volumes, peak prices)
+
+Whichever path: dump the resulting CSV at `track-e/corpus.csv` (or pass `--input` flag) and rerun the pipeline.
+
+## Schema versioning
+
+Bump `_schema_version` in pipeline.py if columns change. Existing real-data CSVs should explicitly declare their version in a leading comment row.

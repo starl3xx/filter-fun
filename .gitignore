@@ -38,3 +38,12 @@ build/
 # Coverage
 coverage/
 lcov.info
+
+# Track E corpus build artifacts (transient state — corpus.csv + REPORT.md
+# + discovered_tokens.csv are checked in as the deliverable)
+track-e/.env
+track-e/.fetch_state.json
+track-e/.fetch_cache/
+track-e/.venv/
+track-e/__pycache__/
+track-e/*.pyc

@@ -1,0 +1,900 @@
+#!/usr/bin/env python3
+"""
+Track E — real-data corpus fetcher (Clanker V4 on Base mainnet).
+
+Crawls historical token launches from Clanker V4 (0xE85A…83a9), the only
+Clanker factory active in the 6-month-to-90-day target window. Earlier
+Clanker versions (V1–V3.5) are dormant per the verification scan in
+sources.md — they emit zero events in this window.
+
+Extracts HP-component inputs at launch+96h and forward-replays for outcome
+labels at 30d/60d/90d. Output is a CSV at track-e/corpus.csv that validates
+against pipeline.py.
+
+Uses JSON-RPC against an Alchemy Base mainnet endpoint. Set
+BASE_MAINNET_RPC_URL in track-e/.env (gitignored — see sources.md).
+
+Usage:
+    uv run python3 fetch_corpus.py --pilot 10        # 10-token pilot
+    uv run python3 fetch_corpus.py                   # full crawl
+    uv run python3 fetch_corpus.py --reset           # clear state + cache
+
+The fetcher is idempotent: state lives at track-e/.fetch_state.json. Per-token
+extractions are cached at track-e/.fetch_cache/<token>.json.
+
+V4-specific design notes:
+    - Pool state (sqrtPriceX96) is read directly from each Swap event, so we
+      avoid needing the V4 StateView lens contract.
+    - lp_depth_eth is approximated as net WETH inflow via swaps + LP adds in
+      the launch→t+96h window. This is a proxy, not a literal pool balance,
+      because V4 PoolManager holds currency totals across all pools (no
+      per-pool WETH reserve to query directly).
+    - lp_removed_24h_eth uses ModifyLiquidity events with liquidityDelta < 0,
+      approximating WETH-side via the live sqrtPriceX96 at each event.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import os
+import sys
+import time
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import requests
+from dotenv import load_dotenv
+from eth_abi import decode as abi_decode
+from eth_utils import keccak
+
+HERE = Path(__file__).resolve().parent
+ENV_PATH = HERE / ".env"
+STATE_PATH = HERE / ".fetch_state.json"
+CACHE_DIR = HERE / ".fetch_cache"
+CORPUS_PATH = HERE / "corpus.csv"
+DISCOVERED_PATH = HERE / "discovered_tokens.csv"
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+CHAIN_ID_BASE = 8453
+WETH_BASE = "0x4200000000000000000000000000000000000006"
+V4_POOL_MANAGER_BASE = "0x498581ff718922c3f8e6a244956af099b2652b2b"
+ZERO = "0x0000000000000000000000000000000000000000"
+DEAD = "0x000000000000000000000000000000000000dead"
+
+KNOWN_NON_HOLDER_ADDRESSES = {
+    a.lower() for a in [
+        ZERO, DEAD, WETH_BASE, V4_POOL_MANAGER_BASE,
+        "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",  # 0x router
+    ]
+}
+
+BASE_BLOCK_TIME_S = 2.0
+BLOCKS_PER_DAY = int(86400 / BASE_BLOCK_TIME_S)
+BLOCKS_PER_HOUR = int(3600 / BASE_BLOCK_TIME_S)
+
+
+# ---------------------------------------------------------------------------
+# Clanker V4 factory + event ABI
+# ---------------------------------------------------------------------------
+
+CLANKER_V4_ADDRESS = "0xE85A59c628F7d27878ACeB4bf3b35733630083a9"
+
+# event TokenCreated(
+#   address indexed msgSender,
+#   address indexed tokenAddress,
+#   address tokenAdmin,
+#   string tokenMetadata, string tokenImage, string tokenName,
+#   string tokenSymbol, string tokenContext,
+#   int24 startingTick, address poolHook, bytes32 poolId,
+#   address pairedToken, address locker, address mevModule,
+#   uint256 extensionsSupply, address[] extensions
+# );
+# Sig hash verified against the on-chain topic0 0x9299d1d1… on Base mainnet.
+TOKEN_CREATED_SIG = (
+    "TokenCreated(address,address,address,string,string,string,string,string,"
+    "int24,address,bytes32,address,address,address,uint256,address[])"
+)
+# Indexed slots (msgSender, tokenAddress) → 2 topics after topic0.
+# Non-indexed (in data, in order):
+NONINDEXED_TYPES = [
+    "address",  # tokenAdmin
+    "string", "string", "string", "string", "string",
+    "int24", "address", "bytes32",
+    "address", "address", "address",
+    "uint256", "address[]",
+]
+NONINDEXED_NAMES = [
+    "tokenAdmin",
+    "tokenMetadata", "tokenImage", "tokenName", "tokenSymbol", "tokenContext",
+    "startingTick", "poolHook", "poolId",
+    "pairedToken", "locker", "mevModule",
+    "extensionsSupply", "extensions",
+]
+
+# Uniswap V4 PoolManager events
+# event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)
+SWAP_SIG = "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"
+SWAP_NONINDEXED = ["int128", "int128", "uint160", "uint128", "int24", "uint24"]
+
+# event ModifyLiquidity(bytes32 indexed id, address indexed sender, int24 tickLower, int24 tickUpper, int256 liquidityDelta, bytes32 salt)
+MODIFY_LIQ_SIG = "ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)"
+MODIFY_LIQ_NONINDEXED = ["int24", "int24", "int256", "bytes32"]
+
+# ERC-20 Transfer
+TRANSFER_SIG = "Transfer(address,address,uint256)"
+
+
+def topic0(sig: str) -> str:
+    return "0x" + keccak(text=sig).hex()
+
+
+# ---------------------------------------------------------------------------
+# JSON-RPC client (rate-limited, retrying)
+# ---------------------------------------------------------------------------
+
+class RPCError(Exception):
+    pass
+
+
+@dataclass
+class RpcClient:
+    url: str
+    min_interval_s: float = 0.04
+    max_retries: int = 6
+    _last_call: float = 0.0
+    _session: requests.Session = field(default_factory=requests.Session)
+    _request_id: int = 0
+
+    def _throttle(self):
+        gap = time.monotonic() - self._last_call
+        if gap < self.min_interval_s:
+            time.sleep(self.min_interval_s - gap)
+        self._last_call = time.monotonic()
+
+    def call(self, method: str, params: list) -> object:
+        for attempt in range(self.max_retries):
+            self._throttle()
+            self._request_id += 1
+            payload = {
+                "jsonrpc": "2.0",
+                "id": self._request_id,
+                "method": method,
+                "params": params,
+            }
+            try:
+                resp = self._session.post(self.url, json=payload, timeout=60)
+            except requests.RequestException as e:
+                self._backoff(attempt, f"network: {e}")
+                continue
+            if resp.status_code == 429:
+                self._backoff(attempt, "429 rate limited")
+                continue
+            if resp.status_code >= 500:
+                self._backoff(attempt, f"{resp.status_code}")
+                continue
+            try:
+                body = resp.json()
+            except ValueError:
+                self._backoff(attempt, "non-json")
+                continue
+            if "error" in body:
+                msg = str(body["error"])
+                if "log response size exceeded" in msg.lower() or "limit exceeded" in msg.lower():
+                    raise RPCError(f"log_limit:{msg}")
+                if any(s in msg.lower() for s in ("timeout", "temporarily", "503")):
+                    self._backoff(attempt, msg)
+                    continue
+                raise RPCError(f"{method}: {msg}")
+            return body.get("result")
+        raise RPCError(f"{method}: exhausted retries")
+
+    def _backoff(self, attempt: int, reason: str):
+        wait = min(60.0, 0.5 * (2 ** attempt))
+        time.sleep(wait)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def hex_to_int(h) -> int:
+    if isinstance(h, int):
+        return h
+    return int(h, 16)
+
+
+def topic_to_address(topic: str) -> str:
+    return "0x" + topic[-40:]
+
+
+def get_chain_id(rpc: RpcClient) -> int:
+    return hex_to_int(rpc.call("eth_chainId", []))
+
+
+def get_block_number(rpc: RpcClient) -> int:
+    return hex_to_int(rpc.call("eth_blockNumber", []))
+
+
+def get_block_timestamp(rpc: RpcClient, block: int) -> int:
+    res = rpc.call("eth_getBlockByNumber", [hex(block), False])
+    if not res:
+        raise RPCError(f"no block at {block}")
+    return hex_to_int(res["timestamp"])
+
+
+def find_block_at_ts(rpc: RpcClient, target_ts: int, lo: int, hi: int) -> int:
+    while lo < hi - 1:
+        mid = (lo + hi) // 2
+        ts = get_block_timestamp(rpc, mid)
+        if ts < target_ts:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def eth_call(rpc: RpcClient, to: str, data: str, block="latest") -> str:
+    blk = hex(block) if isinstance(block, int) else block
+    return rpc.call("eth_call", [{"to": to, "data": data}, blk])
+
+
+def get_logs(rpc: RpcClient, *, address, topics: list, from_block: int, to_block: int) -> list[dict]:
+    """eth_getLogs with auto-chunking on log_limit errors."""
+    out: list[dict] = []
+
+    def crawl(a: int, b: int):
+        try:
+            logs = rpc.call(
+                "eth_getLogs",
+                [{
+                    "fromBlock": hex(a),
+                    "toBlock": hex(b),
+                    "address": address,
+                    "topics": topics,
+                }],
+            ) or []
+            out.extend(logs)
+        except RPCError as e:
+            if str(e).startswith("log_limit") and b > a:
+                mid = (a + b) // 2
+                crawl(a, mid)
+                crawl(mid + 1, b)
+            else:
+                raise
+
+    chunk = 50000
+    cur = from_block
+    while cur <= to_block:
+        end = min(cur + chunk - 1, to_block)
+        crawl(cur, end)
+        cur = end + 1
+    return out
+
+
+def token_decimals(rpc: RpcClient, token: str) -> int:
+    sel = "0x313ce567"  # decimals()
+    try:
+        res = eth_call(rpc, token, sel)
+        return hex_to_int(res) if res and res != "0x" else 18
+    except RPCError:
+        return 18
+
+
+# ---------------------------------------------------------------------------
+# Decoders
+# ---------------------------------------------------------------------------
+
+def decode_token_created(log: dict) -> dict:
+    # Verified via on-chain inspection: topic[1] is tokenAddress (the deployed
+    # ERC-20 contract, has bytecode), topic[2] is msgSender (the deploying EOA
+    # or relayer agent). The canonical ABI signature gives the same topic0 hash
+    # regardless of param ordering, so we have to pin the slot order empirically.
+    token_address = topic_to_address(log["topics"][1]).lower()
+    msg_sender = topic_to_address(log["topics"][2]).lower()
+    data = bytes.fromhex(log["data"][2:])
+    values = abi_decode(NONINDEXED_TYPES, data)
+    out = {
+        "msgSender": msg_sender,
+        "tokenAddress": token_address,
+    }
+    for name, val in zip(NONINDEXED_NAMES, values):
+        if isinstance(val, bytes):
+            if name == "poolId":
+                out[name] = "0x" + val.hex()
+            else:
+                try:
+                    out[name] = val.decode("utf-8", errors="replace")
+                except Exception:
+                    out[name] = "0x" + val.hex()
+        else:
+            out[name] = val
+    return out
+
+
+def decode_swap(log: dict) -> dict:
+    pool_id = log["topics"][1]  # bytes32
+    sender = topic_to_address(log["topics"][2])
+    data = bytes.fromhex(log["data"][2:])
+    a0, a1, sqrtP, liquidity, tick, fee = abi_decode(SWAP_NONINDEXED, data)
+    return {
+        "poolId": pool_id,
+        "sender": sender,
+        "amount0": a0, "amount1": a1,
+        "sqrtPriceX96": sqrtP, "liquidity": liquidity, "tick": tick, "fee": fee,
+        "block": hex_to_int(log["blockNumber"]),
+        "tx": log["transactionHash"],
+        "log_index": hex_to_int(log["logIndex"]),
+    }
+
+
+def decode_modify_liquidity(log: dict) -> dict:
+    pool_id = log["topics"][1]
+    data = bytes.fromhex(log["data"][2:])
+    tick_lo, tick_hi, liq_delta, salt = abi_decode(MODIFY_LIQ_NONINDEXED, data)
+    return {
+        "poolId": pool_id,
+        "tickLower": tick_lo, "tickUpper": tick_hi,
+        "liquidityDelta": liq_delta,
+        "block": hex_to_int(log["blockNumber"]),
+    }
+
+
+def decode_transfer(log: dict) -> dict:
+    return {
+        "from": topic_to_address(log["topics"][1]),
+        "to": topic_to_address(log["topics"][2]),
+        "amount": hex_to_int(log["data"]),
+        "block": hex_to_int(log["blockNumber"]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# V4 pricing helpers
+# ---------------------------------------------------------------------------
+
+def sqrtPriceX96_to_price(sqrtP: int, target_is_token0: bool, target_dec: int = 18) -> float:
+    """Returns price of target denominated in WETH (both ETH-units, decimal-adjusted)."""
+    if sqrtP == 0:
+        return 0.0
+    p_raw = (sqrtP / (2 ** 96)) ** 2  # token1/token0 in raw units
+    if target_is_token0:
+        # target=token0, WETH=token1 → price(target in WETH) = p_raw, scaled by decimals
+        return p_raw * (10 ** (target_dec - 18))
+    else:
+        return (1.0 / p_raw) * (10 ** (target_dec - 18))
+
+
+def amount0_from_swap_to_eth(swap: dict, target_is_token0: bool) -> float:
+    """Return signed ETH-side change for the swapper from this swap.
+
+    Positive = swapper sent ETH in (a buy of target). Negative = swapper got ETH out.
+    Both amount0/amount1 are signed: positive means the swapper sent it in.
+    """
+    if target_is_token0:
+        return swap["amount1"] / 1e18  # WETH = token1
+    else:
+        return swap["amount0"] / 1e18  # WETH = token0
+
+
+def target_amount_signed(swap: dict, target_is_token0: bool) -> int:
+    return swap["amount0"] if target_is_token0 else swap["amount1"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: discovery
+# ---------------------------------------------------------------------------
+
+def discover_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
+    out: list[dict] = []
+    sig_topic = topic0(TOKEN_CREATED_SIG)
+    ckpt_key = "discover.V4.last_block"
+    scan_from = max(from_block, state.get(ckpt_key, from_block))
+    if scan_from > to_block:
+        print(f"  [V4] already discovered through {to_block}")
+    else:
+        print(f"  [V4] crawling {scan_from} → {to_block} ({(to_block - scan_from) // 1000}k blocks)")
+        logs = get_logs(rpc, address=CLANKER_V4_ADDRESS, topics=[sig_topic],
+                        from_block=scan_from, to_block=to_block)
+        print(f"  [V4] {len(logs)} TokenCreated events")
+        for log in logs:
+            try:
+                d = decode_token_created(log)
+            except Exception as e:
+                print(f"    decode fail: {e}")
+                continue
+            block = hex_to_int(log["blockNumber"])
+            out.append({
+                "token_address": d["tokenAddress"],
+                "deployer": d["msgSender"],
+                "version": "V4",
+                "name": d.get("tokenName", ""),
+                "symbol": d.get("tokenSymbol", ""),
+                "pool_id": d.get("poolId", ""),
+                "paired_token": d.get("pairedToken", "").lower() if isinstance(d.get("pairedToken"), str) else "",
+                "locker": d.get("locker", "").lower() if isinstance(d.get("locker"), str) else "",
+                "starting_tick": d.get("startingTick", 0),
+                "launch_block": block,
+                "tx_hash": log["transactionHash"],
+            })
+        state[ckpt_key] = to_block
+
+    out.sort(key=lambda t: t["launch_block"])
+    seen: set[str] = set()
+    deduped = []
+    for t in out:
+        if t["token_address"] in seen:
+            continue
+        seen.add(t["token_address"])
+        deduped.append(t)
+    return deduped
+
+
+def resolve_launch_timestamps(rpc: RpcClient, tokens: list[dict]) -> None:
+    """Backfill `launch_ts` for the given tokens. Caller is responsible for
+    capping the list to avoid 10k+ block-timestamp lookups during pilot runs."""
+    if not tokens:
+        return
+    block_set = sorted({t["launch_block"] for t in tokens})
+    ts_cache: dict[int, int] = {}
+    print(f"  resolving timestamps for {len(block_set)} blocks…")
+    for b in block_set:
+        ts_cache[b] = get_block_timestamp(rpc, b)
+    for t in tokens:
+        t["launch_ts"] = ts_cache[t["launch_block"]]
+
+
+# ---------------------------------------------------------------------------
+# Per-token feature + outcome extraction
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TokenExtraction:
+    token_address: str
+    ticker: str
+    name: str
+    chain: str
+    platform: str
+    creator_address: str
+    launch_ts: int
+    launch_block: int
+    t_window_hours: int
+    total_buy_volume_eth: float = 0.0
+    total_buy_volume_eth_decayed: float = 0.0
+    unique_buyers: int = 0
+    buyer_volumes_eth_json: str = "[]"
+    lp_depth_eth: float = 0.0
+    lp_removed_24h_eth: float = 0.0
+    early_holders_count: int = 0
+    early_holders_still_holding: int = 0
+    hp_delta_recent: float = 0.0
+    holder_count: int = 0
+    holder_balances_json: str = "[]"
+    outcome_30d_holder_retention: int = 0
+    outcome_30d_price_floor: int = 0
+    outcome_30d_volume_slope: int = 0
+    outcome_30d_composite: int = 0
+    outcome_60d_holder_retention: int = 0
+    outcome_60d_price_floor: int = 0
+    outcome_60d_volume_slope: int = 0
+    outcome_60d_composite: int = 0
+    outcome_90d_holder_retention: int = 0
+    outcome_90d_price_floor: int = 0
+    outcome_90d_volume_slope: int = 0
+    outcome_90d_composite: int = 0
+    notes: str = ""
+
+
+def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> TokenExtraction | None:
+    addr = token["token_address"]
+    cache_path = CACHE_DIR / f"{addr}.json"
+    if cache_path.exists():
+        try:
+            with open(cache_path) as f:
+                cached = json.load(f)
+            return TokenExtraction(**cached)
+        except Exception:
+            cache_path.unlink()
+
+    pool_id = token.get("pool_id", "")
+    if not pool_id or len(pool_id) != 66:
+        return None
+
+    paired = (token.get("paired_token") or WETH_BASE).lower()
+    if paired != WETH_BASE.lower():
+        # Skip non-WETH-paired tokens for v1 (rare; would need a paired-token-USD oracle to compare)
+        return None
+
+    launch_block = token["launch_block"]
+    launch_ts = token["launch_ts"]
+    blk_24h = launch_block + 24 * BLOCKS_PER_HOUR
+    blk_72h = launch_block + 72 * BLOCKS_PER_HOUR
+    blk_96h = launch_block + 96 * BLOCKS_PER_HOUR
+    blk_30d = launch_block + 30 * BLOCKS_PER_DAY
+    blk_60d = launch_block + 60 * BLOCKS_PER_DAY
+    blk_90d = launch_block + 90 * BLOCKS_PER_DAY
+    end_block = min(blk_90d, head_block)
+    if end_block <= launch_block:
+        return None
+
+    # token0 vs token1 in V4: lower address is currency0
+    target_is_token0 = addr.lower() < WETH_BASE.lower()
+    target_dec = token_decimals(rpc, addr)
+
+    # Clanker V4 stores arbitrary JSON in `tokenSymbol`; the human-readable
+    # ticker lives in `tokenName`. Use that for the ticker column.
+    ticker = (token.get("name") or "")[:12]
+    ext = TokenExtraction(
+        token_address=addr,
+        ticker=ticker,
+        name=(token.get("name") or "")[:64],
+        chain="base",
+        platform="clanker",
+        creator_address=token.get("deployer", ""),
+        launch_ts=launch_ts,
+        launch_block=launch_block,
+        t_window_hours=96,
+    )
+
+    # ----- Swap events on PoolManager filtered by poolId -----
+    swap_logs = get_logs(
+        rpc, address=V4_POOL_MANAGER_BASE,
+        topics=[topic0(SWAP_SIG), pool_id],
+        from_block=launch_block, to_block=end_block,
+    )
+    swaps = [decode_swap(l) for l in swap_logs]
+
+    if not swaps:
+        ext.notes = "no swaps in 90d"
+        CACHE_DIR.mkdir(exist_ok=True)
+        with open(cache_path, "w") as f:
+            json.dump(ext.__dict__, f)
+        return ext
+
+    # Compute swap-derived features at t+96h
+    buyer_volumes: dict[str, float] = defaultdict(float)
+    total_buy = 0.0
+    decayed_buy = 0.0
+    velocity_72_96 = 0.0
+    velocity_48_72 = 0.0
+    net_weth_inflow_to_t96h = 0.0  # for lp_depth_eth proxy
+
+    for sw in swaps:
+        if sw["block"] > blk_96h:
+            continue
+        eth_signed = amount0_from_swap_to_eth(sw, target_is_token0)
+        target_signed = target_amount_signed(sw, target_is_token0)
+        # In V4: positive amount = swapper sent in. So buy of target: WETH-side > 0, target-side < 0.
+        if eth_signed > 0 and target_signed < 0:
+            wallet = sw["sender"]
+            buyer_volumes[wallet] += eth_signed
+            total_buy += eth_signed
+            days_before_t96 = (blk_96h - sw["block"]) / BLOCKS_PER_DAY
+            decayed_buy += eth_signed * math.exp(-0.5 * max(0.0, days_before_t96))
+            if blk_72h <= sw["block"] < blk_96h:
+                velocity_72_96 += eth_signed
+            elif blk_24h + 24 * BLOCKS_PER_HOUR <= sw["block"] < blk_72h:
+                velocity_48_72 += eth_signed
+        # Net WETH flow into pool: positive eth_signed = WETH in, negative = WETH out
+        net_weth_inflow_to_t96h += eth_signed
+
+    ext.total_buy_volume_eth = round(total_buy, 6)
+    ext.total_buy_volume_eth_decayed = round(decayed_buy, 6)
+    ext.unique_buyers = len(buyer_volumes)
+    ext.buyer_volumes_eth_json = json.dumps([round(v, 6) for v in sorted(buyer_volumes.values(), reverse=True)])
+    ext.lp_depth_eth = round(max(0.0, net_weth_inflow_to_t96h), 6)
+
+    if velocity_48_72 + velocity_72_96 > 0:
+        delta = (velocity_72_96 - velocity_48_72) / max(velocity_48_72 + velocity_72_96, 1e-9)
+        ext.hp_delta_recent = round(max(-1.0, min(1.0, delta)), 4)
+
+    # ----- ModifyLiquidity (LP) events 72-96h -----
+    mod_logs = get_logs(
+        rpc, address=V4_POOL_MANAGER_BASE,
+        topics=[topic0(MODIFY_LIQ_SIG), pool_id],
+        from_block=blk_72h, to_block=blk_96h,
+    )
+    # Approximate WETH-side of liquidity removal: liquidity * sqrtPrice / 2^96, divided by 1e18
+    lp_removed_eth = 0.0
+    if mod_logs and swaps:
+        # For each negative-delta event, find nearest swap's sqrtPriceX96 to estimate WETH side.
+        for log in mod_logs:
+            ev = decode_modify_liquidity(log)
+            if ev["liquidityDelta"] >= 0:
+                continue
+            # Closest swap by block
+            nearest = min(swaps, key=lambda s: abs(s["block"] - ev["block"]))
+            sqrtP = nearest["sqrtPriceX96"]
+            removed_liq = -ev["liquidityDelta"]
+            # WETH-side amount ~= L * sqrtP / 2^96 / 1e18 (full-range approx)
+            weth_amt = (removed_liq * sqrtP) / (2 ** 96) / 1e18
+            lp_removed_eth += weth_amt
+    ext.lp_removed_24h_eth = round(lp_removed_eth, 6)
+
+    # ----- Token Transfer events for holder snapshots -----
+    transfer_logs = get_logs(
+        rpc, address=addr, topics=[topic0(TRANSFER_SIG)],
+        from_block=launch_block, to_block=end_block,
+    )
+
+    snapshot_blocks = sorted({blk_24h, blk_96h, blk_30d, blk_60d, blk_90d, end_block})
+    snapshot_blocks = [s for s in snapshot_blocks if s <= end_block]
+    snapshots: dict[int, dict[str, int]] = {}
+    balances: dict[str, int] = defaultdict(int)
+    si = 0
+
+    for log in transfer_logs:
+        ev = decode_transfer(log)
+        while si < len(snapshot_blocks) and ev["block"] > snapshot_blocks[si]:
+            snapshots[snapshot_blocks[si]] = {k: v for k, v in balances.items() if v > 0}
+            si += 1
+        if ev["from"] != ZERO:
+            balances[ev["from"]] -= ev["amount"]
+            if balances[ev["from"]] <= 0:
+                balances.pop(ev["from"], None)
+        if ev["to"] != ZERO:
+            balances[ev["to"]] += ev["amount"]
+    while si < len(snapshot_blocks):
+        snapshots[snapshot_blocks[si]] = {k: v for k, v in balances.items() if v > 0}
+        si += 1
+
+    pool_token_holder = V4_POOL_MANAGER_BASE.lower()  # PoolManager holds pool tokens
+
+    def filtered(snap: dict[str, int]) -> dict[str, int]:
+        excl = set(KNOWN_NON_HOLDER_ADDRESSES) | {pool_token_holder}
+        if token.get("locker"):
+            excl.add(token["locker"].lower())
+        unit = 10 ** target_dec
+        return {a: bal for a, bal in snap.items() if a not in excl and bal > unit}
+
+    snap_24h = snapshots.get(blk_24h, {})
+    snap_96h = snapshots.get(blk_96h, {})
+    snap_24h_filt = filtered(snap_24h)
+    snap_96h_filt = filtered(snap_96h)
+
+    ext.early_holders_count = len(snap_24h_filt)
+    early_set = set(snap_24h_filt.keys())
+    ext.early_holders_still_holding = sum(1 for a in early_set if a in snap_96h_filt)
+    ext.holder_count = len(snap_96h_filt)
+    # HHI is scale-invariant; store raw counts for stable JSON
+    ext.holder_balances_json = json.dumps(sorted(snap_96h_filt.values(), reverse=True))
+
+    # ----- Outcome labels -----
+    sample_interval = 7 * BLOCKS_PER_DAY
+    sample_blocks = list(range(launch_block + sample_interval, end_block + 1, sample_interval))
+    if not sample_blocks:
+        sample_blocks = [end_block]
+
+    # Holder count over time (re-replay with sample boundaries)
+    bal2: dict[str, int] = defaultdict(int)
+    sample_holder_counts: dict[int, int] = {}
+    si2 = 0
+    for log in transfer_logs:
+        ev = decode_transfer(log)
+        while si2 < len(sample_blocks) and ev["block"] > sample_blocks[si2]:
+            sample_holder_counts[sample_blocks[si2]] = len(filtered({k: v for k, v in bal2.items() if v > 0}))
+            si2 += 1
+        if ev["from"] != ZERO:
+            bal2[ev["from"]] -= ev["amount"]
+            if bal2[ev["from"]] <= 0:
+                bal2.pop(ev["from"], None)
+        if ev["to"] != ZERO:
+            bal2[ev["to"]] += ev["amount"]
+    while si2 < len(sample_blocks):
+        sample_holder_counts[sample_blocks[si2]] = len(filtered({k: v for k, v in bal2.items() if v > 0}))
+        si2 += 1
+
+    # Price samples at each sample block — use closest swap at-or-before that block
+    swaps_by_block = sorted(((sw["block"], sw["sqrtPriceX96"]) for sw in swaps), key=lambda x: x[0])
+    sample_prices: dict[int, float] = {}
+    last_sqrtP = 0
+    si3 = 0
+    for sb in sample_blocks:
+        # Advance through swaps up to sb
+        while si3 < len(swaps_by_block) and swaps_by_block[si3][0] <= sb:
+            last_sqrtP = swaps_by_block[si3][1]
+            si3 += 1
+        if last_sqrtP > 0:
+            sample_prices[sb] = sqrtPriceX96_to_price(last_sqrtP, target_is_token0, target_dec)
+
+    # 7d trailing volume samples (in ETH)
+    swap_buys_by_block = sorted(
+        ((sw["block"], amount0_from_swap_to_eth(sw, target_is_token0))
+         for sw in swaps
+         if amount0_from_swap_to_eth(sw, target_is_token0) > 0
+         and target_amount_signed(sw, target_is_token0) < 0),
+        key=lambda x: x[0],
+    )
+    sample_trailing_vol: dict[int, float] = {}
+    for sb in sample_blocks:
+        lo = sb - 7 * BLOCKS_PER_DAY
+        sample_trailing_vol[sb] = sum(v for b, v in swap_buys_by_block if lo <= b <= sb)
+
+    horizons = {
+        "30d": (blk_30d, "outcome_30d"),
+        "60d": (blk_60d, "outcome_60d"),
+        "90d": (blk_90d, "outcome_90d"),
+    }
+    for name, (blk_h, prefix) in horizons.items():
+        if blk_h > head_block:
+            continue
+        priors = [s for s in sample_blocks if s <= blk_h]
+        if not priors:
+            continue
+        sb_h = priors[-1]
+
+        peak_holder = max((sample_holder_counts.get(s, 0) for s in priors), default=0)
+        peak_price = max((sample_prices.get(s, 0.0) for s in priors), default=0.0)
+        peak_vol7d = max((sample_trailing_vol.get(s, 0.0) for s in priors), default=0.0)
+
+        cur_holder = sample_holder_counts.get(sb_h, 0)
+        cur_price = sample_prices.get(sb_h, 0.0)
+        cur_vol7d = sample_trailing_vol.get(sb_h, 0.0)
+
+        retention = int(peak_holder > 0 and cur_holder > 0.5 * peak_holder)
+        floor = int(peak_price > 0 and cur_price >= 0.30 * peak_price)
+        slope = int(peak_vol7d > 0 and cur_vol7d >= 0.20 * peak_vol7d)
+        composite = int(retention and floor and slope)
+
+        setattr(ext, f"{prefix}_holder_retention", retention)
+        setattr(ext, f"{prefix}_price_floor", floor)
+        setattr(ext, f"{prefix}_volume_slope", slope)
+        setattr(ext, f"{prefix}_composite", composite)
+
+    CACHE_DIR.mkdir(exist_ok=True)
+    with open(cache_path, "w") as f:
+        json.dump(ext.__dict__, f)
+    return ext
+
+
+# ---------------------------------------------------------------------------
+# CSV assembly
+# ---------------------------------------------------------------------------
+
+CSV_COLUMNS = [
+    "token_address", "ticker", "chain", "platform",
+    "launch_ts", "t_window_hours",
+    "total_buy_volume_eth", "total_buy_volume_eth_decayed",
+    "unique_buyers", "buyer_volumes_eth_json",
+    "lp_depth_eth", "lp_removed_24h_eth",
+    "early_holders_count", "early_holders_still_holding",
+    "hp_delta_recent",
+    "holder_count", "holder_balances_json",
+    "outcome_30d_holder_retention", "outcome_30d_price_floor",
+    "outcome_30d_volume_slope", "outcome_30d_composite",
+    "outcome_60d_holder_retention", "outcome_60d_price_floor",
+    "outcome_60d_volume_slope", "outcome_60d_composite",
+    "outcome_90d_holder_retention", "outcome_90d_price_floor",
+    "outcome_90d_volume_slope", "outcome_90d_composite",
+    "name", "creator_address", "notes",
+]
+
+
+def write_corpus(extractions: list[TokenExtraction], path: Path):
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(CSV_COLUMNS)
+        for e in extractions:
+            row = [getattr(e, c, "") for c in CSV_COLUMNS]
+            w.writerow(row)
+    print(f"wrote {len(extractions)} rows → {path}")
+
+
+# ---------------------------------------------------------------------------
+# State management
+# ---------------------------------------------------------------------------
+
+def load_state() -> dict:
+    if STATE_PATH.exists():
+        with open(STATE_PATH) as f:
+            return json.load(f)
+    return {}
+
+
+def save_state(state: dict):
+    STATE_PATH.write_text(json.dumps(state, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--pilot", type=int, default=None,
+                   help="Run in pilot mode with N tokens.")
+    p.add_argument("--start-days-ago", type=int, default=180)
+    p.add_argument("--end-days-ago", type=int, default=90)
+    p.add_argument("--reset", action="store_true")
+    args = p.parse_args()
+
+    if ENV_PATH.exists():
+        load_dotenv(ENV_PATH)
+    rpc_url = os.environ.get("BASE_MAINNET_RPC_URL", "").strip()
+    if not rpc_url or "<" in rpc_url:
+        sys.exit(
+            "BASE_MAINNET_RPC_URL not set. Add it to track-e/.env (gitignored) "
+            "or export it in your shell. See sources.md."
+        )
+
+    if args.reset:
+        if STATE_PATH.exists():
+            STATE_PATH.unlink()
+        if CACHE_DIR.exists():
+            for p_ in CACHE_DIR.iterdir():
+                p_.unlink()
+
+    rpc = RpcClient(url=rpc_url)
+    state = load_state()
+
+    chain_id = get_chain_id(rpc)
+    if chain_id != CHAIN_ID_BASE:
+        sys.exit(f"connected to chain {chain_id}, expected Base ({CHAIN_ID_BASE})")
+    head_block = get_block_number(rpc)
+    head_ts = get_block_timestamp(rpc, head_block)
+    print(f"connected to Base mainnet, head={head_block} ts={head_ts}")
+
+    start_ts = head_ts - args.start_days_ago * 86400
+    end_ts = head_ts - args.end_days_ago * 86400
+    print(f"target window: {args.start_days_ago}d ago → {args.end_days_ago}d ago")
+    print("locating block boundaries…")
+    start_anchor = max(0, head_block - args.start_days_ago * BLOCKS_PER_DAY * 2)
+    end_anchor = max(0, head_block - args.end_days_ago * BLOCKS_PER_DAY * 2)
+    start_block = find_block_at_ts(rpc, start_ts, start_anchor, head_block)
+    end_block = find_block_at_ts(rpc, end_ts, max(start_block, end_anchor), head_block)
+    print(f"  start_block={start_block}  end_block={end_block}  ({(end_block - start_block) // 1000}k blocks)")
+
+    print("\nPhase 1: discovering tokens…")
+    discovered = discover_tokens(rpc, from_block=start_block, to_block=end_block, state=state)
+    save_state(state)
+
+    if args.pilot is not None:
+        # Most-recent N — they all have ≥ 90d history (window cap is at end-days-ago).
+        discovered = discovered[-args.pilot:]
+        print(f"  pilot mode: capping to {len(discovered)} most-recent tokens")
+
+    # Resolve timestamps only for the tokens we'll actually process.
+    resolve_launch_timestamps(rpc, discovered)
+
+    with open(DISCOVERED_PATH, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["token_address", "ticker", "platform", "version",
+                    "launch_block", "launch_ts", "factory_address"])
+        for t in discovered:
+            w.writerow([t["token_address"], t.get("symbol", ""), "clanker", t["version"],
+                        t["launch_block"], t["launch_ts"], CLANKER_V4_ADDRESS])
+    print(f"  wrote {len(discovered)} discovered tokens → {DISCOVERED_PATH}")
+
+    print(f"\nPhase 2: extracting features + outcomes for {len(discovered)} tokens…")
+    CACHE_DIR.mkdir(exist_ok=True)
+    extractions: list[TokenExtraction] = []
+    for i, tok in enumerate(discovered):
+        symbol = (tok.get("symbol") or "")[:12]
+        print(f"  [{i+1}/{len(discovered)}] {symbol:<12} {tok['token_address']}…", end="", flush=True)
+        t0 = time.monotonic()
+        try:
+            ext = extract_token_features(rpc, tok, head_block=head_block)
+        except Exception as e:
+            print(f" FAILED ({e})")
+            continue
+        if ext is None:
+            print(" skipped (non-WETH paired or invalid pool)")
+            continue
+        extractions.append(ext)
+        dt = time.monotonic() - t0
+        print(f" ✓ ({dt:.1f}s, {ext.unique_buyers} buyers, {ext.holder_count} holders)")
+
+    save_state(state)
+
+    print(f"\nPhase 3: writing corpus.csv ({len(extractions)} tokens)…")
+    write_corpus(extractions, CORPUS_PATH)
+
+
+if __name__ == "__main__":
+    main()
