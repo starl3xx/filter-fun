@@ -522,10 +522,10 @@ class TokenExtraction:
     # Cache-schema fingerprint. Bump when extraction semantics change so stale
     # caches written by an earlier code version get re-extracted instead of
     # silently producing degenerate values in the corpus.
-    cache_schema: int = 4
+    cache_schema: int = 5
 
 
-CACHE_SCHEMA = 4
+CACHE_SCHEMA = 5
 
 
 def hhi_score_from_balances(balances: list[int]) -> float:
@@ -792,7 +792,6 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
     for snap_b in snap_pts:
         # Velocity + effectiveBuyers from cumulative buys ≤ snap_b
         buyers_at: dict[str, float] = defaultdict(float)
-        v_total = 0.0
         v_decayed = 0.0
         for sw in swaps_sorted:
             if sw["block"] > snap_b:
@@ -801,7 +800,6 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             tgt_signed = target_amount_signed(sw, target_is_token0)
             if eth_signed > 0 and tgt_signed < 0:
                 buyers_at[sw["sender"]] += eth_signed
-                v_total += eth_signed
                 days_before = (snap_b - sw["block"]) / BLOCKS_PER_DAY
                 v_decayed += eth_signed * math.exp(-0.5 * max(0.0, days_before))
         sum_sqrt = sum(math.sqrt(max(0.0, v)) for v in buyers_at.values())
@@ -821,15 +819,16 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
         removed_at = lp_removed_in_24h_pre(snap_b)
 
         # Retention: only meaningful from t+48h onward (t+24h sets the early
-        # cohort). At t+24h, retention is 1.0 by definition.
+        # cohort). At t+24h, retention is 1.0 if the cohort is non-empty —
+        # but 0.0 if there are no holders at all (a dead launch shouldn't
+        # contribute the retention component's full weight to its hp_raw).
         snap_at_filt = filtered(snapshots.get(snap_b, {}))
-        if snap_b == blk_24h:
+        if not early_set:
+            retention_at = 0.0
+        elif snap_b == blk_24h:
             retention_at = 1.0
         else:
-            retention_at = (
-                sum(1 for a in early_set if a in snap_at_filt) / max(len(early_set), 1)
-                if early_set else 0.0
-            )
+            retention_at = sum(1 for a in early_set if a in snap_at_filt) / len(early_set)
 
         hhi_at = hhi_score_from_balances(sorted(snap_at_filt.values(), reverse=True))
 
