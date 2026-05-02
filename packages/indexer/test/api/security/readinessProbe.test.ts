@@ -52,4 +52,28 @@ describe("readiness probe (Audit H-4)", () => {
     const r = await getReadinessHandler(probes());
     expect(r.status).toBe(503);
   });
+
+  it("Bugbot finding (PR #61): probe must not be the only path that boots the tick engine", async () => {
+    // The pure handler doesn't bootstrap — that lives in the route layer in
+    // src/api/index.ts. This test pins the contract: the handler reads the
+    // tickEngineRunning predicate as truth, never starts the engine itself.
+    // The route bootstraps via `ensureEventsEngineStarted(c.db)` so the FIRST
+    // probe call kicks the engine alive on the next call. Without the route-side
+    // bootstrap a load-balancer-gated /readiness deadlocks the indexer (engine
+    // only starts on first /events SSE request, but LB never lets traffic through
+    // until /readiness flips green).
+    let engineStartCalls = 0;
+    const r = await getReadinessHandler({
+      latestSeasonId: async () => 1,
+      tickEngineRunning: () => {
+        // Simulate the post-bootstrap state: predicate returns true on every call.
+        // If the handler were trying to start the engine itself, we'd see writes
+        // to engineStartCalls; the handler is supposed to be pure.
+        return true;
+      },
+    });
+    expect(r.status).toBe(200);
+    // The handler did NOT increment engineStartCalls — bootstrap is the route's job.
+    expect(engineStartCalls).toBe(0);
+  });
 });

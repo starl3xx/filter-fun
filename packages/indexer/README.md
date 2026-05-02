@@ -56,7 +56,7 @@ Mounted on Ponder's built-in Hono server (default port 42069; set `PORT` to over
 Two separate signals (Audit H-4, Phase 1 audit 2026-05-01):
 
 - **`GET /health`** — Ponder-owned. Returns 200 as soon as the HTTP server is up. Use as a **liveness** probe (process alive). Wired to Railway's basic healthcheck via `railway.json`.
-- **`GET /readiness`** — custom. Returns 200 only when (a) at least one season has been indexed AND (b) the live-event pipeline (`TickEngine`, started lazily on first SSE request) is running. Returns 503 otherwise. Use as a **readiness** probe — load balancers should route traffic away during startup or sync drops without killing the process.
+- **`GET /readiness`** — custom. Returns 200 only when (a) at least one season has been indexed AND (b) the live-event pipeline (`TickEngine`) is running. Returns 503 otherwise. Use as a **readiness** probe — load balancers should route traffic away during startup or sync drops without killing the process. The probe also bootstraps the tick engine on its first call (the engine would otherwise wait for the first `/events` SSE request, which a LB gating on `/readiness` would never let through — bugbot caught the deadlock on PR #61).
 
 ```json
 GET /readiness

@@ -67,7 +67,7 @@ import {
   type BagLockRow,
   type TokenDetailRow,
 } from "./handlers.js";
-import {eventsEngineRunning} from "./events/index.js";
+import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
 import {getTokenHistoryHandler, type HistoryQueries, type HpSnapshotRow} from "./history.js";
 import {
   applyGetRateLimit,
@@ -193,13 +193,23 @@ ponder.get("/readiness", async (c) => {
   // seconds from the load balancer) and rate-limiting them would make a healthy
   // indexer look unhealthy under normal probe pressure.
   //
-  // Bugbot finding on PR #61: this handler intentionally skips `toMwContext(c)`. Every
-  // other route validates Context shape via the adapter (audit H-3) but readiness must
-  // not — a shape-drift throw here would surface as a 500 on the load-balancer probe,
-  // making a healthy indexer look broken until the LB deregistered the instance.
+  // Bugbot finding #1 on PR #61: this handler intentionally skips `toMwContext(c)`.
+  // Every other route validates Context shape via the adapter (audit H-3) but readiness
+  // must not — a shape-drift throw here would surface as a 500 on the load-balancer
+  // probe, making a healthy indexer look broken until the LB deregistered the instance.
   // Probes need to read `c.db` (for the season query) and `c.json` only; both are
   // direct-property accesses with no middleware-style assumptions, so the adapter's
   // assertions are pure downside on this endpoint.
+  //
+  // Bugbot finding #2 on PR #61 (Medium): bootstrap the events engine here. The engine
+  // is started lazily on the first SSE request, but if a load balancer gates traffic
+  // on /readiness (the documented use case) and the engine is part of the readiness
+  // verdict, no SSE request ever reaches the indexer → engine never starts →
+  // readiness permanently 503 → indexer permanently unreachable. Calling
+  // `ensureEventsEngineStarted(c.db)` on every probe is idempotent (the inner check
+  // no-ops once the engine exists) and breaks the deadlock: the first probe boots the
+  // engine, all subsequent probes confirm it stays running.
+  ensureEventsEngineStarted(c.db);
   const r = await getReadinessHandler({
     latestSeasonId: async () => {
       const rows = await c.db.select().from(season).orderBy(desc(season.id)).limit(1);

@@ -118,6 +118,18 @@ ponder.get("/events", (c) => {
 });
 
 /// Construct + start the engine on first request. Subsequent calls no-op.
+///
+/// Exported as `ensureEventsEngineStarted` because /readiness needs to bootstrap the
+/// engine on the first probe — without that, a load balancer gating on /readiness
+/// would deadlock: readiness requires the engine to be running, the engine only
+/// starts on the first SSE request, but no SSE request can reach the indexer until
+/// the LB lets traffic through. Bugbot finding on PR #61 (Medium severity) caught
+/// the deadlock; this export is the load-bearing fix. See callers in this module
+/// (the SSE route below) and src/api/index.ts (/readiness route).
+export function ensureEventsEngineStarted(db: ApiContext["db"]): void {
+  ensureEngineStarted(db);
+}
+
 function ensureEngineStarted(db: ApiContext["db"]): void {
   if (engine) return;
   engine = new TickEngine({cfg, queries: buildQueries(db), hub});
