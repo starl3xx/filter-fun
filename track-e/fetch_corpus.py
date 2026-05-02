@@ -1104,13 +1104,34 @@ def main():
         per_bin = args.pilot // 3
         rem = args.pilot - per_bin * 3
         rng = random.Random(42)  # deterministic — re-running yields the same corpus
+        # Pre-shuffle each bin so we can take a prefix; then redistribute any
+        # under-filled bin's shortfall to the next bin in a second pass. With
+        # 596k discovered tokens this never trips, but a 5-token corpus with
+        # --pilot 4 used to silently return 3 because bin 0's shortfall wasn't
+        # passed to bin 2.
+        shuffled = []
+        for b in bins:
+            sb = list(b)
+            rng.shuffle(sb)
+            shuffled.append(sb)
+        targets = [per_bin + (1 if i < rem else 0) for i in range(3)]
         candidates: list[dict] = []
-        for i, b in enumerate(bins):
-            take = per_bin + (1 if i < rem else 0)
-            if len(b) <= take:
-                candidates.extend(b)
-            else:
-                candidates.extend(rng.sample(b, take))
+        carry = 0
+        for i in range(3):
+            want = targets[i] + carry
+            actually = min(want, len(shuffled[i]))
+            candidates.extend(shuffled[i][:actually])
+            carry = want - actually
+        # Final pass: any remaining carry walks back across bins with leftover
+        # capacity (so trailing-bin shortfall finds room in earlier bins).
+        if carry > 0:
+            for i in range(3):
+                room = shuffled[i][targets[i]:]  # unused suffix of bin i
+                take = min(carry, len(room))
+                candidates.extend(room[:take])
+                carry -= take
+                if carry == 0:
+                    break
         print(f"  pilot mode: time-stratified sample of {len(candidates)} tokens "
               f"across the window (3 bins of ~{per_bin} each, seed=42)")
     else:
