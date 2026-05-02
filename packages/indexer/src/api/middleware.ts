@@ -91,9 +91,12 @@ const profileCache = new LruTtlCache<unknown>({
 /// cache holds many entries — one per distinct param tuple per token. Reuse the
 /// profile-cache TTL knob since the data behind history changes on the same cadence
 /// as the per-token snapshot writer (5 min ≈ HP_SNAPSHOT_INTERVAL_BLOCKS), but cap
-/// the entries at the same multi-entry budget as profile.
+/// the entries at the same multi-entry budget as profile. Audit finding C-3
+/// (Phase 1 audit 2026-05-01): this TTL field previously read `tokensTtlMs` (5s
+/// default) which contradicted the comment above and caused a 60× under-cache vs
+/// the documented 5-min intent. Regression covered by `test/api/middleware.test.ts`.
 const historyCache = new LruTtlCache<unknown>({
-  ttlMs: cacheCfg.tokensTtlMs,
+  ttlMs: cacheCfg.profileTtlMs,
   maxEntries: cacheCfg.maxEntries,
 });
 

@@ -133,13 +133,17 @@ contract FilterLauncherTest is Test {
 
     // ============================================================ Per-wallet cap
 
+    /// @notice Spec §4.6 (locked 2026-04-30) — `maxLaunchesPerWallet = 1`. The constructor
+    ///         default is bound to `SPEC_LOCK_MAX_LAUNCHES_PER_WALLET`; this test guards the
+    ///         on-chain enforcement layer (audit finding C-2, Phase 1 audit 2026-05-01).
+    ///         Pre-fix this test allowed alice 2 launches and reverted on the 3rd, which
+    ///         encoded the buggy `= 2` default and silently accepted a non-spec cap.
     function test_PerWalletCapEnforced() public {
         _openSeason();
         vm.startPrank(aliceCreator);
         launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
-        launcher.launchToken{value: _slotCost(1)}("B", "BBB", "");
         vm.expectRevert(FilterLauncher.LaunchCapReached.selector);
-        launcher.launchToken{value: _slotCost(2)}("C", "CCC", "");
+        launcher.launchToken{value: _slotCost(1)}("B", "BBB", "");
         vm.stopPrank();
     }
 

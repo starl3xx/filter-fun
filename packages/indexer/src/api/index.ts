@@ -8,6 +8,15 @@
 ///   GET /tokens/:address/history         — HP timeseries for one token (admin drilldown)
 ///   GET /profile/:address                — wallet stats: tokens + claims + swap volume + badges
 ///
+/// Deliberately NOT exposed in genesis (Phase 1 audit 2026-05-01, finding C-4):
+///   GET /tokens/:address/holders         — deferred to Phase 2. The underlying
+///                                          `holderBalance` + `holderSnapshot` tables are
+///                                          populated; the HTTP surface waits on the
+///                                          §41.3 concentration filter to drive shape
+///                                          decisions (pagination, dust cutoff, bag-locked
+///                                          creator handling). See README §"Known gaps"
+///                                          + §"Outstanding" for the full rationale.
+///
 /// Liveness (`/health`), readiness (`/ready`), and metrics (`/metrics`) are served by
 /// Ponder itself — they're reserved paths and adding our own here would fail validation.
 /// `/health` returns 200 as soon as the HTTP server is up (independent of indexer sync),

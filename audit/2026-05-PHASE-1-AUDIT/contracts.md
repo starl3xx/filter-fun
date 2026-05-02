@@ -51,16 +51,18 @@ Add `ReentrancyGuard` to `BonusDistributor` and apply the `nonReentrant` modifie
 ---
 
 ### [Contracts] MaxLaunchesPerWallet default set to 2, contradicts spec lock requiring 1
+**Status:** ✅ **FIXED** in audit-remediation PR (Audit Finding C-2). Introduced public constant `SPEC_LOCK_MAX_LAUNCHES_PER_WALLET = 1` in `FilterLauncher.sol`'s Constants block citing spec §4.6, and bound the storage default to it: `uint256 public maxLaunchesPerWallet = SPEC_LOCK_MAX_LAUNCHES_PER_WALLET;`. The constant is the regression layer — drifting the on-chain cap now requires explicitly editing the spec-lock constant (not just changing a literal). Also corrected `test_PerWalletCapEnforced` in `FilterLauncher.t.sol`, which previously *encoded* the buggy default by allowing alice 2 launches and reverting on the 3rd — it now asserts the second launch reverts. Regression covered by `test/security/FilterLauncherMaxLaunchesPerWalletDefault.t.sol` (deterministic exploit reproduction — pre-fix `maxLaunchesPerWallet()` returned `2` from a raw constructor call, and the second same-wallet launch succeeded; post-fix both invariants hold without any `setMaxLaunchesPerWallet` override).
+
 **Severity:** Critical
-**Files:** packages/contracts/src/FilterLauncher.sol:124, packages/contracts/test/Deploy.t.sol:191, 388, 425
+**Files:** packages/contracts/src/FilterLauncher.sol:131, packages/contracts/test/Deploy.t.sol:191, 388, 425
 **Spec ref:** §4.6 (Launch Constraints — locked 2026-04-30)
 
 **Description:**
-Spec §4.6 explicitly locks `maxLaunchesPerWallet = 1` on 2026-04-30 and states: "The contract default of 2 (FilterLauncher.sol:114) is overridden via deploy-script env (`MAX_LAUNCHES_PER_WALLET=1`)." The code shows the default is still hardcoded to 2 at line 124: `uint256 public maxLaunchesPerWallet = 2;`. This creates a critical gap: if the deployer script fails to override via setMaxLaunchesPerWallet(), or if the env var is missing, the deployed contract will incorrectly allow 2 launches per wallet instead of the locked spec-compliant 1. This breaks the game-theoretic constraint that keeps the scarcity narrative intact.
+Spec §4.6 explicitly locks `maxLaunchesPerWallet = 1` on 2026-04-30 and states: "The contract default of 2 (FilterLauncher.sol:114) is overridden via deploy-script env (`MAX_LAUNCHES_PER_WALLET=1`)." The code shows the default is still hardcoded to 2 at line 131: `uint256 public maxLaunchesPerWallet = 2;`. This creates a critical gap: if the deployer script fails to override via setMaxLaunchesPerWallet(), or if the env var is missing, the deployed contract will incorrectly allow 2 launches per wallet instead of the locked spec-compliant 1. This breaks the game-theoretic constraint that keeps the scarcity narrative intact.
 
 **Evidence:**
 ```solidity
-// FilterLauncher.sol:124
+// FilterLauncher.sol:131
 uint256 public maxLaunchesPerWallet = 2;
 
 // Test expects it to be 1 per spec:
@@ -71,7 +73,7 @@ vm.expectRevert(bytes("AssertionFailed_1: maxLaunchesPerWallet != spec 4.6 lock 
 ```
 
 **Recommendation:**
-Change the default to `uint256 public maxLaunchesPerWallet = 1;` at line 124. Document in the constructor or via a NatSpec comment that this value must remain 1 per spec §4.6. If a future upgrade needs to relax it, do so only via explicit governance, not by changing the default.
+Change the default to `uint256 public maxLaunchesPerWallet = 1;` at line 131. Document in the constructor or via a NatSpec comment that this value must remain 1 per spec §4.6. If a future upgrade needs to relax it, do so only via explicit governance, not by changing the default.
 
 **Effort:** XS
 

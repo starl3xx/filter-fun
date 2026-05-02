@@ -198,6 +198,31 @@ describe("historyCacheKey", () => {
   });
 });
 
+/// Audit finding C-3 (Phase 1 audit 2026-05-01) — `/tokens/:address/history`
+/// cache was wired to `cacheCfg.tokensTtlMs` (5s default) instead of
+/// `cacheCfg.profileTtlMs` (30s default, intent ~5min per HP_SNAPSHOT_INTERVAL_BLOCKS).
+/// The bug was masked by the cache's opacity at the type level and by the absence of
+/// any test asserting the wired TTL. This block locks BOTH the per-route wiring AND
+/// the relationship "history TTL == profile TTL", so future env-config refactors
+/// can't silently regress.
+///
+/// Pre-fix this test FAILS — historyResponseCache.ttlMs equals tokensResponseCache.ttlMs
+/// (both 5_000ms) and is NOT equal to profileResponseCache.ttlMs (30_000ms).
+/// Post-fix it PASSES — historyResponseCache.ttlMs equals profileResponseCache.ttlMs.
+describe("response-cache TTL wiring (audit finding C-3)", () => {
+  it("history cache reuses the profile TTL knob, not the tokens TTL knob", async () => {
+    const {historyResponseCache, profileResponseCache, tokensResponseCache} = await import(
+      "../../src/api/middleware.js"
+    );
+    expect(historyResponseCache.ttlMs).toBe(profileResponseCache.ttlMs);
+    // Belt-and-braces: explicitly assert the bug-shape (history === tokens) does NOT hold.
+    // If a future refactor flips both profileTtlMs and tokensTtlMs to the same default the
+    // first assertion would silently pass; this second assertion only holds if the two
+    // knobs *exist as distinct values at runtime* (which is the env contract).
+    expect(historyResponseCache.ttlMs).not.toBe(tokensResponseCache.ttlMs);
+  });
+});
+
 function addr(n: number): `0x${string}` {
   return `0x${n.toString(16).padStart(40, "0")}` as `0x${string}`;
 }
