@@ -645,17 +645,12 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             json.dump(ext.__dict__, f)
         return ext
 
-    # Compute swap-derived features at t+96h
+    # Compute swap-derived features at t+96h. velocity windowing for momentum
+    # is handled below in the multi-snapshot HP loop (Track-E v3 Fix 2); the
+    # v2 buy-velocity-rate formula was removed in this PR.
     buyer_volumes: dict[str, float] = defaultdict(float)
     total_buy = 0.0
     decayed_buy = 0.0
-    # Per spec §6.4.5: rate-of-change of buy velocity in two overlapping 48h
-    # windows ending at t+72h and t+96h. Captures whether interest is decaying
-    # or accelerating across the second half of the t+96h horizon.
-    blk_24_72 = (blk_24h, blk_72h)         # [t+24h, t+72h)  → velocity_at_t72h
-    blk_48_96 = (blk_24h + 24 * BLOCKS_PER_HOUR, blk_96h)   # [t+48h, t+96h)
-    velocity_24_72 = 0.0
-    velocity_48_96 = 0.0
     last_swap_in_window: dict | None = None  # for V4 LP-depth proxy
 
     for sw in swaps:
@@ -670,10 +665,6 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             total_buy += eth_signed
             days_before_t96 = (blk_96h - sw["block"]) / BLOCKS_PER_DAY
             decayed_buy += eth_signed * math.exp(-0.5 * max(0.0, days_before_t96))
-            if blk_24_72[0] <= sw["block"] < blk_24_72[1]:
-                velocity_24_72 += eth_signed
-            if blk_48_96[0] <= sw["block"] < blk_48_96[1]:
-                velocity_48_96 += eth_signed
         if last_swap_in_window is None or sw["block"] > last_swap_in_window["block"]:
             last_swap_in_window = sw
 
@@ -694,12 +685,6 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             target_is_token0,
         )
         ext.lp_depth_eth = round(weth_wei / 1e18, 6)
-
-    # hp_delta_recent: (velocity_at_t96h - velocity_at_t72h) / max(velocity_at_t72h, 1e-9),
-    # clipped to [-1, 1]. Pipeline.py applies the spec §6.4.5 cap when scoring.
-    if velocity_24_72 > 0 or velocity_48_96 > 0:
-        delta = (velocity_48_96 - velocity_24_72) / max(velocity_24_72, 1e-9)
-        ext.hp_delta_recent = round(max(-1.0, min(1.0, delta)), 4)
 
     # ----- ModifyLiquidity (LP) events: full launch→96h window, with
     # cumulative-by-block index so we can read "removed in 24h prior to <snap>"
@@ -803,7 +788,6 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
     # corpus. The intra-token delta is well-defined regardless.
     snap_pts = [blk_24h, blk_48h, blk_72h, blk_96h]
     hp_traj: list[float] = []
-    last_sqrtP_walk = 0
     swaps_sorted = sorted(swaps, key=lambda s: s["block"])
     for snap_b in snap_pts:
         # Velocity + effectiveBuyers from cumulative buys ≤ snap_b
