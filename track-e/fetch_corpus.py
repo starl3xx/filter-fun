@@ -862,15 +862,15 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             depth_168 = v4_full_range_weth_wei(
                 last_sw_168["liquidity"], last_sw_168["sqrtPriceX96"], target_is_token0
             ) / 1e18
-        # trailing 24h swap volume
+        # trailing 24h swap volume — single pass, single decode per swap
         lo_168 = blk_168h - 24 * BLOCKS_PER_HOUR
-        vol_24h_168 = sum(
-            amount0_from_swap_to_eth(sw, target_is_token0)
-            for sw in swaps_sorted
-            if lo_168 <= sw["block"] <= blk_168h
-            and amount0_from_swap_to_eth(sw, target_is_token0) > 0
-            and target_amount_signed(sw, target_is_token0) < 0
-        )
+        vol_24h_168 = 0.0
+        for sw in swaps_sorted:
+            if sw["block"] < lo_168 or sw["block"] > blk_168h:
+                continue
+            eth_v = amount0_from_swap_to_eth(sw, target_is_token0)
+            if eth_v > 0 and target_amount_signed(sw, target_is_token0) < 0:
+                vol_24h_168 += eth_v
         if (
             len(snap_168h) >= SURVIVED_HOLDERS_MIN
             and depth_168 >= SURVIVED_LP_MIN_ETH
@@ -1147,7 +1147,16 @@ def main():
             print(" skipped (non-WETH paired or invalid pool)")
             continue
         dt = time.monotonic() - t0
-        if ext.unique_buyers == 0 and ext.total_buy_volume_eth == 0:
+        # "zero-activity" means the token had no buy activity in the t+96h
+        # extraction window. A token can survive_to_day_7 (which checks
+        # late-window holders + liquidity + buy volume in [t+144h, t+168h])
+        # while being early-dead-on-arrival. Don't tag those as zero-activity
+        # since the survival outcome contradicts it for the reader.
+        if (
+            ext.unique_buyers == 0
+            and ext.total_buy_volume_eth == 0
+            and ext.survived_to_day_7 == 0
+        ):
             n_zero_activity += 1
             ext.notes = (ext.notes + ";" if ext.notes else "") + "zero-activity"
             print(f" zero-activity ({dt:.1f}s, retained for unbiased corpus)")
