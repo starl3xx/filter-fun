@@ -80,6 +80,13 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     uint256 public constant MAX_LAUNCHES = 12;
     /// @notice Maximum length of the launch window from `startSeason`.
     uint256 public constant LAUNCH_WINDOW_DURATION = 48 hours;
+    /// @notice Spec §4.6 launch-cap lock (2026-04-30): a wallet may launch at most ONE token
+    ///         per season. The constructor initializes `maxLaunchesPerWallet` from this
+    ///         constant; owner may relax via `setMaxLaunchesPerWallet` for governance, but
+    ///         the constructor default MUST always match this lock so a missing deploy-script
+    ///         env override can never ship a non-spec cap (audit finding C-2, Phase 1 audit
+    ///         2026-05-01).
+    uint256 public constant SPEC_LOCK_MAX_LAUNCHES_PER_WALLET = 1;
 
     // ============================================================ Wiring
 
@@ -121,7 +128,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     ///         intentionally not wired here yet (deferred to follow-up).
     TournamentVault public immutable tournamentVault;
     uint256 public bonusUnlockDelay = 14 days;
-    uint256 public maxLaunchesPerWallet = 2;
+    uint256 public maxLaunchesPerWallet = SPEC_LOCK_MAX_LAUNCHES_PER_WALLET;
 
     // ============================================================ Launch-window config
 
