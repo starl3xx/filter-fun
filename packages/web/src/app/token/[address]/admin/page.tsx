@@ -26,16 +26,13 @@ import {useConnect} from "wagmi";
 
 import {AdminTransferForms} from "@/components/admin/AdminTransferForms";
 import {AuthBanner} from "@/components/admin/AuthBanner";
+import {BagLockCard} from "@/components/admin/BagLockCard";
 import {BountyEstimate} from "@/components/admin/BountyEstimate";
 import {ClaimFeesPanel} from "@/components/admin/ClaimFeesPanel";
 import {HpPanel} from "@/components/admin/HpPanel";
 import {MetadataForm} from "@/components/admin/MetadataForm";
 import {PhaseCountdown} from "@/components/admin/PhaseCountdown";
-import {
-  BagLockPlaceholder,
-  BulkDistributeCard,
-  VerifyPlaceholder,
-} from "@/components/admin/PlaceholderCards";
+import {BulkDistributeCard, VerifyPlaceholder} from "@/components/admin/PlaceholderCards";
 import {RankPanel} from "@/components/admin/RankPanel";
 import {RecipientForm} from "@/components/admin/RecipientForm";
 import {SettlementPreview} from "@/components/admin/SettlementPreview";
@@ -82,6 +79,14 @@ function AdminConsole({token}: {token: Address}) {
   const cohort = useMemo(() => tokens ?? [], [tokens]);
   const tokenStats = stats.token;
   const ticker = tokenStats?.ticker ?? "$…";
+  // Pull this token's bag-lock surface off the cohort. `null` while /tokens is
+  // still resolving or when the token isn't in the current cohort (past-season
+  // tokens). The card handles `null` as "no commitment recorded" — same shape
+  // the indexer would have surfaced if the row existed without a lock.
+  const bagLock = useMemo(() => {
+    const row = cohort.find((t) => t.token.toLowerCase() === token.toLowerCase());
+    return row?.bagLock ?? null;
+  }, [cohort, token]);
 
   const canEdit = auth.state === "ADMIN";
   const isWinner = stats.token?.rank === 1;
@@ -204,7 +209,12 @@ function AdminConsole({token}: {token: Address}) {
             pendingAdmin={info.pendingAdmin}
             authState={auth.state}
           />
-          <BagLockPlaceholder />
+          <BagLockCard
+            token={token}
+            creator={info.creator}
+            bagLock={bagLock}
+            chain={chain}
+          />
           <VerifyPlaceholder />
           <BulkDistributeCard token={token} />
         </div>

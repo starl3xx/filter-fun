@@ -35,6 +35,27 @@ export type SeasonResponse = {
 
 export type TokenStatus = "SAFE" | "AT_RISK" | "FINALIST" | "FILTERED";
 
+/// Per-token bag-lock surface (Epic 1.13 — added to /tokens by PR #45). Mirrors
+/// `BagLock` in `packages/indexer/src/api/builders.ts` — keep in sync.
+///
+///   isLocked         — `unlockTimestamp > nowSec` evaluated server-side at
+///                      response time. Drives the badge / "Locked" copy on the
+///                      arena and admin console.
+///   unlockTimestamp  — unix-seconds the lock expires. `null` ONLY when the
+///                      creator never committed a lock for this token (the row
+///                      was absent from the indexer's `creator_lock` table).
+///                      An expired-but-once-locked token surfaces a non-null
+///                      timestamp with `isLocked: false` so the UI can render
+///                      "unlocked since <date>" without a second round-trip.
+///   creator          — the creator-of-record (`CreatorRegistry.creatorOf`).
+///                      Echoed back so the badge tooltip can render
+///                      "Creator <0xabcd…> locked" without a separate read.
+export type BagLock = {
+  isLocked: boolean;
+  unlockTimestamp: number | null;
+  creator: `0x${string}`;
+};
+
 export type TokenResponse = {
   token: `0x${string}`;
   /// Already prefixed with `$` (e.g. "$FILTER").
@@ -59,6 +80,7 @@ export type TokenResponse = {
     retention: number;
     momentum: number;
   };
+  bagLock: BagLock;
 };
 
 // ============================================================ /events

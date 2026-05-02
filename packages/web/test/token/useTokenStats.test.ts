@@ -20,6 +20,7 @@ function makeToken(rank: number, status: TokenResponse["status"] = "SAFE"): Toke
     liquidity: "0",
     holders: 0,
     components: {velocity: 0.5, effectiveBuyers: 0.5, stickyLiquidity: 0.5, retention: 0.5, momentum: 0.5},
+    bagLock: {isLocked: false, unlockTimestamp: null, creator: "0x0000000000000000000000000000000000000000"},
   };
 }
 
