@@ -305,6 +305,57 @@ code {
   filter: brightness(1.06);
 }
 
+/* ----- ROI calculator (Epic 2.10 / spec §45) ----------------------------- */
+
+.ff-roi-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 700px) {
+  .ff-roi-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Range input styling — matches the launch page's mono+pink palette and
+   gives keyboard focus a visible 2px halo per a11y guidance. */
+.ff-roi-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.ff-roi-slider:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 4px;
+}
+.ff-roi-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--pink), var(--purple));
+  border: 2px solid var(--text);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(255, 58, 161, 0.35);
+}
+.ff-roi-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--pink), var(--purple));
+  border: 2px solid var(--text);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(255, 58, 161, 0.35);
+}
+
 /* ----- Filter-moment overlay (Epic 1.9 / spec §21) ------------------------ */
 
 /* The overlay container fades in over 0.4s on each stage transition (the
