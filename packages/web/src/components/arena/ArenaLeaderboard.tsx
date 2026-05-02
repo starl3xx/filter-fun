@@ -367,7 +367,7 @@ function Row({
         <span style={{fontSize: 13, fontWeight: 800, fontFamily: F.display, letterSpacing: "-0.01em"}}>{token.ticker}</span>
       </div>
 
-      <ArenaHpBar hp={token.hp} dim={below} />
+      <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
 
       <div style={{display: "flex", alignItems: "center", gap: 5, minWidth: 0}}>
         <StatusBadge status={token.status} compact />

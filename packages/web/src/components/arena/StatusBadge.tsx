@@ -47,7 +47,13 @@ function treatmentFor(status: TokenStatus): {color: string; label: string; icon:
     case "SAFE":
       return {color: C.green, label: "Safe", icon: null};
     case "AT_RISK":
-      return {color: "#ffa940", label: "At risk", icon: "⚠️"};
+      // ARENA_SPEC §3.3 — AT_RISK is red ▼ (U+25BC), not orange ⚠️. Audit
+      // H-Arena-3 caught the pre-fix orange/⚠️ pair which both broke the
+      // colour-icon contract and duplicated a different glyph from the AT RISK
+      // chip elsewhere in the leaderboard. ▼ is the literal Unicode glyph,
+      // NOT the 🔻 emoji — the emoji renders as a coloured photo character on
+      // some platforms which collides with the red CSS colour.
+      return {color: C.red, label: "At risk", icon: "▼"};
     case "FILTERED":
       return {color: C.red, label: "Filtered", icon: "▼"};
   }

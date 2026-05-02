@@ -26,23 +26,26 @@ export const F = {
 } as const;
 
 // Per-token avatar color — used for avatar bg, ticker-tape pip, finalist glow.
-const TICKER_COLORS: Record<string, string> = {
-  FILTER: "#ffe933",
-  BLOOD: "#ff5d8c",
-  KING: "#ffb020",
+// Locked to ARENA_SPEC §3.2 — pinned by tickerColorsMap.test.ts so any drift
+// surfaces as a regression. Audit H-Arena-1 (Phase 1, 2026-05-01) caught the
+// pre-fix map silently re-themed every avatar away from the broadcast palette.
+export const TICKER_COLORS = {
+  FILTER: "#ff3aa1",
+  BLOOD: "#ff2d55",
+  KING: "#ffe933",
   SURVIVE: "#52ff8b",
-  MOON: "#a78bfa",
+  MOON: "#9c5cff",
   FINAL: "#00f0ff",
-  CUT: "#ff7a4c",
-  EDGE: "#fde047",
-  SLICE: "#f472b6",
-  RUG: "#9ca3af",
-  DUST: "#78716c",
-  GHOST: "#cbd5e1",
-};
+  CUT: "#ff8aa1",
+  EDGE: "#ffaa3a",
+  SLICE: "#aaff3a",
+  RUG: "#ff5577",
+  DUST: "#aa88ff",
+  GHOST: "#88aacc",
+} as const;
 
 export function tickerColor(t: string): string {
-  return TICKER_COLORS[t] ?? "#a78bfa";
+  return (TICKER_COLORS as Record<string, string>)[t] ?? C.purple;
 }
 
 // Strip the `$` prefix from a ticker. The indexer hands us `$`-prefixed

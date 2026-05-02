@@ -1,14 +1,24 @@
-/// Slim HP bar — segmented gradient from low (red) to high (cyan) with the
-/// integer 0–100 value next to it. Distinct from the broadcast `HpBar` (which
-/// renders an interactive tooltip with component breakdown) — that lives on
-/// the broadcast home and reads simulated component data; this one renders
-/// from the live `/tokens` HP integer.
-
+/// Slim HP bar — status-driven gradient (ARENA_SPEC §6.4.3) with the integer 0–100
+/// value next to it. Distinct from the broadcast `HpBar` (which renders an
+/// interactive tooltip with component breakdown) — that lives on the broadcast
+/// home and reads simulated component data; this one renders from the live
+/// `/tokens` HP integer.
+///
+/// Audit H-Arena-2 (Phase 1, 2026-05-01): pre-fix the bar derived a single fill
+/// colour from HP value alone, ignoring the row's status. The spec gradient is
+/// intentional — finalist/safe/risk read at-a-glance from the bar's hue, not its
+/// length. The HP-bucket colorForHp() helper is retained as a fallback for callers
+/// that don't (yet) have a status on hand.
+import type {TokenStatus} from "@/lib/arena/api";
 import {C, F} from "@/lib/tokens";
 
 export type ArenaHpBarProps = {
   /// 0-100 integer.
   hp: number;
+  /// Status drives the bar gradient + (when finalist) the value glow. Optional
+  /// because a few legacy callers don't yet have it; absent → fall back to the
+  /// HP-bucket colour spectrum.
+  status?: TokenStatus;
   /// Width in px. Defaults match the leaderboard column.
   width?: number;
   /// Show the numeric value next to the bar.
@@ -17,9 +27,19 @@ export type ArenaHpBarProps = {
   dim?: boolean;
 };
 
-export function ArenaHpBar({hp, width = 100, showValue = true, dim}: ArenaHpBarProps) {
+/// ARENA_SPEC §6.4.3 — status → [from, to] gradient stops. FILTERED reuses the
+/// AT_RISK red→pink so the bar still reads the same urgency hue post-cut.
+export const STATUS_GRADIENT: Record<TokenStatus, readonly [string, string]> = {
+  FINALIST: [C.yellow, C.pink],
+  SAFE: [C.green, C.cyan],
+  AT_RISK: [C.red, C.pink],
+  FILTERED: [C.red, C.pink],
+} as const;
+
+export function ArenaHpBar({hp, status, width = 100, showValue = true, dim}: ArenaHpBarProps) {
   const clamped = Math.max(0, Math.min(100, hp));
-  const color = colorForHp(clamped);
+  const [fromColor, toColor] = status ? STATUS_GRADIENT[status] : fallbackGradientForHp(clamped);
+  const finalist = status === "FINALIST";
   return (
     <div style={{display: "flex", alignItems: "center", gap: 8, opacity: dim ? 0.55 : 1}}>
       <div
@@ -44,14 +64,25 @@ export function ArenaHpBar({hp, width = 100, showValue = true, dim}: ArenaHpBarP
             left: 0,
             bottom: 0,
             width: `${clamped}%`,
-            background: `linear-gradient(90deg, ${color}, ${color}cc)`,
-            boxShadow: `0 0 6px ${color}66`,
+            background: `linear-gradient(90deg, ${fromColor}, ${toColor})`,
+            boxShadow: `0 0 6px ${fromColor}66`,
             transition: "width 0.4s ease",
           }}
         />
       </div>
       {showValue && (
-        <span style={{fontSize: 11, fontFamily: F.mono, fontWeight: 700, color: dim ? C.faint : C.dim, fontVariantNumeric: "tabular-nums", minWidth: 22, textAlign: "right"}}>
+        <span
+          style={{
+            fontSize: 11,
+            fontFamily: F.mono,
+            fontWeight: 700,
+            color: dim ? C.faint : C.dim,
+            fontVariantNumeric: "tabular-nums",
+            minWidth: 22,
+            textAlign: "right",
+            textShadow: finalist && !dim ? `0 0 8px ${C.yellow}66` : undefined,
+          }}
+        >
           {clamped}
         </span>
       )}
@@ -59,9 +90,16 @@ export function ArenaHpBar({hp, width = 100, showValue = true, dim}: ArenaHpBarP
   );
 }
 
+/// HP-bucket fallback for callers that don't pass `status`. Kept so the legacy
+/// behaviour stays explicit rather than implicit-via-default.
 export function colorForHp(hp: number): string {
   if (hp >= 75) return C.cyan;
   if (hp >= 50) return C.green;
   if (hp >= 30) return "#ffa940";
   return C.red;
+}
+
+function fallbackGradientForHp(hp: number): readonly [string, string] {
+  const c = colorForHp(hp);
+  return [c, `${c}cc`] as const;
 }

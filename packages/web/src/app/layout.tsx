@@ -18,9 +18,17 @@ const display = Bricolage_Grotesque({
   variable: "--font-display",
 });
 
+/// ARENA_SPEC §2.1 mandates 4 JetBrains Mono weights — 400, 500, 600, 700.
+/// Phase 1 audit M-Arena-1 caught that 400 + 600 were missing AND that 800 was
+/// being loaded (not in spec): the previous set was 500/700/800. Mono surfaces
+/// (countdowns, prices, RateLimit-Remaining footer chip, table tabular-nums
+/// columns) silently fall back to the nearest loaded weight when a non-loaded
+/// weight is requested, which broke type-role hierarchy across every mono
+/// surface. Removing any spec-mandated weight here — or adding one not in spec
+/// — is a regression.
 const mono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["500", "700", "800"],
+  weight: ["400", "500", "600", "700"],
   display: "swap",
   variable: "--font-mono",
 });
