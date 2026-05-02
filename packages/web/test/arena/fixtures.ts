@@ -1,7 +1,7 @@
 /// Fixture cohort + season for arena tests. Twelve tokens with rank 1..12,
 /// HP descending — exactly the spec's "12 → 6 → 1" cohort shape.
 
-import type {SeasonResponse, TickerEvent, TokenResponse, TokenStatus} from "@/lib/arena/api";
+import type {BagLock, SeasonResponse, TickerEvent, TokenResponse, TokenStatus} from "@/lib/arena/api";
 
 const HP_BY_RANK = [98, 92, 88, 80, 72, 64, 52, 44, 32, 22, 14, 6];
 const TICKERS = [
@@ -18,6 +18,19 @@ function statusFor(rank: number): TokenStatus {
 
 function addressFor(i: number): `0x${string}` {
   return `0x${String(i + 1).padStart(40, "0")}` as `0x${string}`;
+}
+
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+
+/// Default bag-lock fixture — "no commitment recorded." Tests that exercise the
+/// lock UI (badge presence, admin card states) override per-row.
+export function makeFixtureBagLock(over: Partial<BagLock> = {}): BagLock {
+  return {
+    isLocked: false,
+    unlockTimestamp: null,
+    creator: ZERO_ADDR,
+    ...over,
+  };
 }
 
 export function makeFixtureCohort(): TokenResponse[] {
@@ -41,6 +54,7 @@ export function makeFixtureCohort(): TokenResponse[] {
         retention: 0.4,
         momentum: 0.3,
       },
+      bagLock: makeFixtureBagLock(),
     } satisfies TokenResponse;
   });
 }

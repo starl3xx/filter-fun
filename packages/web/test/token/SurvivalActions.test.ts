@@ -28,6 +28,7 @@ function token(components: Partial<TokenResponse["components"]>): TokenResponse 
       momentum: 0.6,
       ...components,
     },
+    bagLock: {isLocked: false, unlockTimestamp: null, creator: "0x0000000000000000000000000000000000000000"},
   };
 }
 

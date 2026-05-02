@@ -145,14 +145,63 @@ function Heading({token}: {token: TokenResponse}) {
       >
         {noDollar.slice(0, 2)}
       </div>
-      <div style={{flex: 1, minWidth: 0}}>
-        <div style={{fontSize: 18, fontFamily: F.display, fontWeight: 800, letterSpacing: "-0.01em"}}>{token.ticker}</div>
+      <div style={{flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2}}>
+        <div style={{display: "flex", alignItems: "center", gap: 6}}>
+          <span style={{fontSize: 18, fontFamily: F.display, fontWeight: 800, letterSpacing: "-0.01em"}}>{token.ticker}</span>
+          <BagLockBadge bagLock={token.bagLock} />
+        </div>
         <div style={{fontSize: 11, fontFamily: F.mono, color: C.faint, letterSpacing: "0.04em"}}>
           {token.token.slice(0, 6)}…{token.token.slice(-4)}
         </div>
       </div>
       <StatusBadge status={token.status} />
     </div>
+  );
+}
+
+/// Bag-lock badge (Epic 1.13). Renders only for currently-locked tokens — an
+/// "unlocked" state is the default and a missing badge is the right signal.
+/// Pink-red gradient matches the ▼ brand glyph; copy is "Locked" + a short
+/// countdown when < 30 days. The tooltip is the deeper-context surface.
+function BagLockBadge({bagLock}: {bagLock: TokenResponse["bagLock"]}) {
+  if (!bagLock?.isLocked || !bagLock.unlockTimestamp) return null;
+  const unlockMs = bagLock.unlockTimestamp * 1000;
+  const remainingMs = unlockMs - Date.now();
+  const days = Math.max(0, Math.floor(remainingMs / 86_400_000));
+  const dateLabel = new Date(unlockMs).toLocaleDateString();
+  const showCountdown = days < 30;
+  const tooltip =
+    `Creator has locked their personal holdings until ${new Date(unlockMs).toLocaleString()}. ` +
+    `What this means →`;
+  return (
+    <a
+      href="https://docs.filter.fun/creators/bag-lock"
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid="arena-baglock-badge"
+      data-baglock-locked="true"
+      title={tooltip}
+      aria-label={`Bag locked until ${dateLabel}. Open bag-lock docs.`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 7px",
+        borderRadius: 6,
+        background: `linear-gradient(135deg, ${C.pink}, ${C.red})`,
+        color: "#fff",
+        fontFamily: F.mono,
+        fontSize: 10,
+        fontWeight: 800,
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        textDecoration: "none",
+        boxShadow: `0 2px 10px ${C.pink}44`,
+      }}
+    >
+      <span aria-hidden style={{fontSize: 9}}>▼</span>
+      <span>Locked{showCountdown ? ` · ${days}d` : ""}</span>
+    </a>
   );
 }
 

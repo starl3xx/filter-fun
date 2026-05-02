@@ -101,6 +101,34 @@ export const CreatorRegistryAbi = [
   },
 ] as const;
 
+// ============================================================ CreatorCommitments
+// Epic 1.13 bag-lock surface. Only the read + write fragments the admin console
+// touches — `isLocked` is consumed by the on-chain transfer gate and isn't read
+// from the UI (we render off `unlockOf`, which is the timestamp the badge needs).
+
+export const CreatorCommitmentsAbi = [
+  {
+    type: "function",
+    name: "unlockOf",
+    stateMutability: "view",
+    inputs: [
+      {name: "creator", type: "address"},
+      {name: "token", type: "address"},
+    ],
+    outputs: [{type: "uint256"}],
+  },
+  {
+    type: "function",
+    name: "commit",
+    stateMutability: "nonpayable",
+    inputs: [
+      {name: "token", type: "address"},
+      {name: "lockUntil", type: "uint256"},
+    ],
+    outputs: [],
+  },
+] as const;
+
 // ============================================================ CreatorFeeDistributor
 
 export const CreatorFeeDistributorAbi = [

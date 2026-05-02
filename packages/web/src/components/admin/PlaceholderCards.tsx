@@ -7,35 +7,14 @@ import {C, F} from "@/lib/tokens";
 import {Card} from "./Card";
 
 /// Placeholder cards for features that depend on other epics:
-///   - Bag-lock (Epic 1.13 — audit-gated; contracts not yet shipped)
 ///   - Verify token (off-chain attestation flow — design pending)
+///
+/// (Bag-lock used to live here as a placeholder for Epic 1.13. The full card
+/// shipped in `BagLockCard.tsx` once PR #43 contracts and PR #45 indexer
+/// surface landed.)
 ///
 /// They're rendered here rather than omitted entirely so creators can see
 /// what's coming and so the layout doesn't shift when those features land.
-
-export function BagLockPlaceholder() {
-  return (
-    <Card label="Bag-lock commitment">
-      <div
-        style={{
-          padding: "10px 12px",
-          borderRadius: 9,
-          background: `${C.purple}10`,
-          border: `1px dashed ${C.purple}55`,
-          fontSize: 12,
-          color: C.dim,
-          fontFamily: F.display,
-          lineHeight: 1.5,
-        }}
-      >
-        <strong style={{color: C.purple}}>Coming soon — Epic 1.13.</strong>{" "}
-        Opt-in time-lock on your own holdings. Once locked, the lock can be EXTENDED but
-        never shortened — even by you, even by the protocol. The killer trust signal vs
-        Clanker (spec §38.8). Audit-gated for mainnet activation.
-      </div>
-    </Card>
-  );
-}
 
 export function VerifyPlaceholder() {
   return (

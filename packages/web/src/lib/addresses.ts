@@ -17,6 +17,10 @@ const ZERO_ADDR: Address = "0x0000000000000000000000000000000000000000";
 export const contractAddresses = {
   filterLauncher: (deployment.addresses.filterLauncher || ZERO_ADDR) as Address,
   filterFactory: (deployment.addresses.filterFactory || ZERO_ADDR) as Address,
+  /// CreatorCommitments — the on-chain bag-lock primitive (Epic 1.13). Address
+  /// arrives via the same deploy manifest sync; pre-deploy it's the zero
+  /// address and `isDeployed("creatorCommitments")` gates the bag-lock UI.
+  creatorCommitments: (deployment.addresses.creatorCommitments || ZERO_ADDR) as Address,
   // `filterToken` is intentionally not exported here. The deploy manifest
   // stores it at the top level as an object `{address, locker, ...}` (set
   // by SeedFilter.s.sol after the protocol launch), not under `addresses.*`.
