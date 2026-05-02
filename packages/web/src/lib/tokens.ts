@@ -45,5 +45,14 @@ export function tickerColor(t: string): string {
   return TICKER_COLORS[t] ?? "#a78bfa";
 }
 
+// Strip the `$` prefix from a ticker. The indexer hands us `$`-prefixed
+// strings (`$FILTER`); some surfaces need the bare symbol — avatar
+// `tickerColor` lookups, two-letter avatar glyphs, etc. Single source
+// of truth so future changes to the prefix convention only touch one
+// file (bugbot caught the prior duplication across components).
+export function stripDollar(ticker: string): string {
+  return ticker.startsWith("$") ? ticker.slice(1) : ticker;
+}
+
 // Top 6 survive each filter — drives leaderboard row split.
 export const SURVIVE_COUNT = 6;

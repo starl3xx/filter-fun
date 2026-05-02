@@ -17,7 +17,7 @@ import type {TokenResponse} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {fmtPrice} from "@/lib/format";
 import {sparkPath} from "@/lib/sparkline";
-import {C, F, tickerColor} from "@/lib/tokens";
+import {C, F, stripDollar, tickerColor} from "@/lib/tokens";
 
 import {ArenaHpBar} from "./HpBar";
 import {StatusBadge} from "./StatusBadge";
@@ -33,6 +33,19 @@ export type ArenaLeaderboardProps = {
   hideCutLine?: boolean;
   /// True when the leaderboard is empty (pre-season or no cohort yet).
   isLoading?: boolean;
+  /// Pre-filter mode (Epic 1.9 / spec §21.2). Pulses the cut line at a
+  /// faster cadence than the locked motion spec and shows an "AT RISK"
+  /// danger chip on rows 5-8 (near the cut). Drives the leaderboard's
+  /// share of the dramatic pre-roll without baking time into this layer.
+  urgentCutline?: boolean;
+  /// Firing mode (spec §21.3). Locks selection visually (rows still
+  /// receive clicks) and stamps filtered rows with a red ▼ overlay +
+  /// halos surviving rows in finalist gold for the duration. Truthy
+  /// only during the ~5s firing stage.
+  firingMode?: boolean;
+  /// Addresses to mark as "just filtered" — drives the red ▼ stamp and
+  /// the fade. Lower-case canonical (indexer form) comparison.
+  recentlyFilteredAddresses?: Set<`0x${string}`>;
 };
 
 const COL_TEMPLATE = "32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px";
@@ -45,9 +58,16 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
   onSelect,
   hideCutLine,
   isLoading,
+  urgentCutline,
+  firingMode,
+  recentlyFilteredAddresses,
 }: ArenaLeaderboardProps) {
   const sorted = useMemo(() => sortByRank(tokens), [tokens]);
   const showCutLine = !hideCutLine && sorted.length > CUT_INDEX;
+  const filteredLower = useMemo(() => {
+    if (!recentlyFilteredAddresses) return null;
+    return new Set(Array.from(recentlyFilteredAddresses).map((a) => a.toLowerCase()));
+  }, [recentlyFilteredAddresses]);
 
   return (
     <section
@@ -76,13 +96,23 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
               isSelected={selectedAddress === t.token}
               below={i >= CUT_INDEX}
               onSelect={onSelect}
+              urgentNearCut={!!urgentCutline && isNearCut(i)}
+              firingMode={!!firingMode}
+              filtered={firingMode && filteredLower ? filteredLower.has(t.token.toLowerCase()) : false}
+              survivor={firingMode && filteredLower ? !filteredLower.has(t.token.toLowerCase()) && i < CUT_INDEX : false}
             />
-          )).flatMap((row, i) => (showCutLine && i === CUT_INDEX ? [<CutLine key="cut" />, row] : [row]))}
+          )).flatMap((row, i) => (showCutLine && i === CUT_INDEX ? [<CutLine key="cut" urgent={!!urgentCutline} />, row] : [row]))}
         </div>
       </div>
     </section>
   );
 });
+
+/// Rows 5..8 (zero-indexed 4..7) are the near-cut band — ranks 5, 6, 7, 8.
+/// Drives the "AT RISK" chip during the pre-filter window per spec §21.2.
+function isNearCut(indexInList: number): boolean {
+  return indexInList >= 4 && indexInList <= 7;
+}
 
 // ============================================================ sorting
 
@@ -162,12 +192,12 @@ function EmptyState({isLoading}: {isLoading: boolean}) {
   );
 }
 
-function CutLine() {
+function CutLine({urgent}: {urgent?: boolean}) {
   return (
     <div
       role="separator"
       aria-label="Cut line — top 6 survive, bottom 6 get filtered"
-      className="ff-pulse ff-arena-cutline"
+      className={`ff-pulse ff-arena-cutline${urgent ? " ff-arena-cutline--urgent" : ""}`}
       style={{
         position: "relative",
         height: 36,
@@ -210,6 +240,10 @@ function Row({
   isSelected,
   below,
   onSelect,
+  urgentNearCut,
+  firingMode,
+  filtered,
+  survivor,
 }: {
   token: TokenResponse;
   index: number;
@@ -217,6 +251,10 @@ function Row({
   isSelected: boolean;
   below: boolean;
   onSelect: (a: `0x${string}`) => void;
+  urgentNearCut?: boolean;
+  firingMode?: boolean;
+  filtered?: boolean;
+  survivor?: boolean;
 }) {
   const finalist = token.status === "FINALIST";
   const display = displayRank(token.rank, index);
@@ -226,12 +264,32 @@ function Row({
   const sparkColor = colorForChange(token.priceChange24h, token.hp);
   const ariaLabel = `${token.ticker} rank ${display} status ${token.status.toLowerCase()} HP ${token.hp}`;
 
+  // Firing-mode treatments override the default below/finalist styling.
+  // Filtered rows fade + get a red ▼ stamp (CSS class drives the timing
+  // ramp); survivor rows in the top 6 get a brief gold halo.
+  const rowOpacity = firingMode && filtered ? 0.42 : below ? 0.62 : 1;
+  const rowClass = firingMode
+    ? filtered
+      ? "ff-arena-row-filtered"
+      : survivor
+        ? "ff-arena-row-survivor"
+        : ""
+    : "";
+  const rowBackground = isSelected
+    ? `linear-gradient(90deg, ${C.cyan}1a, transparent 70%)`
+    : firingMode && survivor
+      ? `linear-gradient(90deg, ${C.yellow}26, transparent 70%)`
+      : finalist
+        ? `linear-gradient(90deg, ${C.yellow}14, transparent 60%)`
+        : "transparent";
+
   return (
     <button
       type="button"
       aria-label={ariaLabel}
       aria-pressed={isSelected}
       onClick={() => onSelect(token.token)}
+      className={rowClass || undefined}
       style={{
         display: "grid",
         gridTemplateColumns: COL_TEMPLATE,
@@ -240,12 +298,8 @@ function Row({
         textAlign: "left",
         padding: "10px 18px",
         alignItems: "center",
-        opacity: below ? 0.62 : 1,
-        background: isSelected
-          ? `linear-gradient(90deg, ${C.cyan}1a, transparent 70%)`
-          : finalist
-            ? `linear-gradient(90deg, ${C.yellow}14, transparent 60%)`
-            : "transparent",
+        opacity: rowOpacity,
+        background: rowBackground,
         // Neutralize the user-agent button border on top + right; keep the
         // bottom row separator and the left selection accent. Order matters
         // here — using `border: "none"` ahead of borderBottom/borderLeft
@@ -257,8 +311,29 @@ function Row({
         color: "inherit",
         cursor: "pointer",
         font: "inherit",
+        position: "relative",
+        transition: "opacity 0.6s ease, background 0.4s ease",
       }}
     >
+      {firingMode && filtered && (
+        <span
+          aria-hidden
+          className="ff-arena-row-filter-stamp"
+          style={{
+            position: "absolute",
+            right: 22,
+            top: "50%",
+            transform: "translateY(-50%)",
+            color: C.red,
+            fontSize: 22,
+            fontWeight: 900,
+            textShadow: `0 0 14px ${C.red}cc`,
+            pointerEvents: "none",
+          }}
+        >
+          ▼
+        </span>
+      )}
       <div
         style={{
           fontFamily: display <= 3 ? F.display : F.mono,
@@ -294,7 +369,10 @@ function Row({
 
       <ArenaHpBar hp={token.hp} dim={below} />
 
-      <StatusBadge status={token.status} compact />
+      <div style={{display: "flex", alignItems: "center", gap: 5, minWidth: 0}}>
+        <StatusBadge status={token.status} compact />
+        {urgentNearCut && !filtered && <AtRiskChip />}
+      </div>
 
       <div
         style={{
@@ -329,6 +407,39 @@ function Row({
   );
 }
 
+/// Pre-filter "AT RISK" danger chip (Epic 1.9 / spec §21.2). Shown next to
+/// the regular status badge during the 10-minute urgent window for rows
+/// near the cut. Distinct from the AT_RISK *status* badge (which is a
+/// scoring-derived state) — this chip is a temporal warning, "the cut is
+/// imminent and you're in the danger band."
+function AtRiskChip() {
+  return (
+    <span
+      data-chip="at-risk"
+      className="ff-arena-row-at-risk-chip"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        padding: "1px 6px",
+        borderRadius: 99,
+        background: `${C.red}1f`,
+        border: `1px solid ${C.red}cc`,
+        color: C.red,
+        fontFamily: F.mono,
+        fontWeight: 800,
+        fontSize: 8,
+        letterSpacing: "0.18em",
+        textTransform: "uppercase",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span aria-hidden>▼</span>
+      AT RISK
+    </span>
+  );
+}
+
 function MiniSpark({values, color}: {values: number[]; color: string}) {
   const w = 70;
   const h = 22;
@@ -358,10 +469,6 @@ function colorForChange(change: number, hp: number): string {
 /// row index when rank is 0 (unscored tokens still get a stable position).
 function displayRank(rank: number, indexInList: number): number {
   return rank > 0 ? rank : indexInList + 1;
-}
-
-function stripDollar(ticker: string): string {
-  return ticker.startsWith("$") ? ticker.slice(1) : ticker;
 }
 
 // Re-export for tests + consumers — keeps the cut-index contract explicit.

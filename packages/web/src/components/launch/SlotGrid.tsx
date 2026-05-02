@@ -13,7 +13,7 @@ import {memo} from "react";
 import type {LaunchSlot} from "@/hooks/launch/useLaunchSlots";
 import {ArenaHpBar} from "@/components/arena/HpBar";
 import {StatusBadge} from "@/components/arena/StatusBadge";
-import {C, F, tickerColor} from "@/lib/tokens";
+import {C, F, stripDollar, tickerColor} from "@/lib/tokens";
 import {fmtEthFromWei, shortAddr} from "@/lib/launch/format";
 
 export type SlotGridProps = {
@@ -433,6 +433,3 @@ function EmptyCard({
   );
 }
 
-function stripDollar(ticker: string): string {
-  return ticker.startsWith("$") ? ticker.slice(1) : ticker;
-}
