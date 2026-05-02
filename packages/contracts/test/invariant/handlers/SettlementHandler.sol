@@ -577,6 +577,13 @@ contract SettlementHandler is Test {
 
         bytes32[] memory proof = _proofForHolder(attackerHolderIdx);
 
+        // Clear the attacker's outcome flags so this cycle's reads reflect *this* call only.
+        // `attacker` is shared with `fuzz_reentrantBonusClaim` and the flags are sticky --
+        // without this reset, an earlier bonus-surface fire would set
+        // `ghostReentryAttemptedAtLeastOnce` here even when this cycle's claim surface
+        // didn't fire, weakening the anti-vacuousness signal. The handler-level ghosts
+        // remain sticky across calls; only the per-cycle observation window is reset.
+        attacker.clear();
         attacker.arm(
             address(vault),
             abi.encodeWithSelector(vault.claimRollover.selector, holderShares[attackerHolderIdx], proof)
@@ -608,6 +615,14 @@ contract SettlementHandler is Test {
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = _bonusReentryAttackerProof;
 
+        // Clear before arming so `ghostBonusReentryAttempted` only flips when *this* cycle's
+        // bonus-claim surface actually fires the hook. `attacker` is shared with
+        // `fuzz_reentrantClaim` and `MaliciousReceiver`'s flags are sticky -- without this
+        // reset, a prior `fuzz_reentrantClaim` fire would contaminate the bonus-surface
+        // anti-vacuousness signal. Handler-level ghosts (`ghostBonusReentryAttempted`,
+        // `ghostBonusReentryBypassed`) remain sticky across calls; this only refreshes the
+        // per-cycle observation window on the underlying attacker.
+        attacker.clear();
         attacker.arm(
             address(bonusReentry),
             abi.encodeWithSelector(
@@ -618,7 +633,6 @@ contract SettlementHandler is Test {
         vm.prank(address(attacker));
         try bonusReentry.claim(BONUS_REENTRY_SEASON, BONUS_REENTRY_RESERVE / 2, proof) {} catch {}
 
-        // Sticky ghosts (cleared only by `attacker.clear()` which we never call).
         if (attacker.reentryAttempted()) ghostBonusReentryAttempted = true;
         if (attacker.reentrySucceeded()) ghostBonusReentryBypassed = true;
 

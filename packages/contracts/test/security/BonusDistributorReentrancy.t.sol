@@ -96,13 +96,23 @@ contract BonusDistributorReentrancyTest is Test {
     ///         `fundBonus` for a DIFFERENT seasonId. Pre-fix this succeeds (different
     ///         seasonId → AlreadyFunded gate doesn't trip → arbitrary accounting corruption).
     ///         Post-fix the re-entry reverts via the guard.
+    ///
+    ///         Note on the harness: the attacker is minted `TOTAL_BONUS + 1` and approves
+    ///         `type(uint256).max`. Both are required so the inner re-entry actually has the
+    ///         balance and allowance to execute its own `safeTransferFrom`. With the prior
+    ///         exact-`TOTAL_BONUS` mint+approve, the outer call's `_spendAllowance` zeroed the
+    ///         allowance before the hook fired, so the inner call would have reverted with
+    ///         `ERC20InsufficientAllowance` even pre-fix -- masking the real exploit and
+    ///         making the test only detect the missing guard via the wrong-selector assertion.
+    ///         With the wider runway, the inner call genuinely *would* corrupt seasonId 2
+    ///         pre-fix; the post-fix assertions on `bonusOf(2)` are therefore load-bearing.
     function test_AuditC1_FundBonusReentrancyBlockedByGuard() public {
         FundReentrant attacker = new FundReentrant();
         weth.setHook(address(attacker));
 
-        weth.mint(address(attacker), TOTAL_BONUS);
+        weth.mint(address(attacker), TOTAL_BONUS + 1);
         vm.prank(address(attacker));
-        weth.approve(address(bonus), TOTAL_BONUS);
+        weth.approve(address(bonus), type(uint256).max);
 
         // Stage the inner call: re-enter into a DIFFERENT seasonId so AlreadyFunded does not
         // gate the inner attempt. With the guard missing, the inner call succeeds and the
