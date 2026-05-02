@@ -74,6 +74,15 @@ The /season case is ambiguous: should it be 503 (not ready) or 200/empty until i
 
 **Effort:** S
 
+**Status:** ✅ FIXED in audit-remediation PR (Audit Finding H-2, indexer-high-batch-2 / 2026-05-02). Picked option (a) with a discriminated envelope rather than zero-fields:
+- `/season` → `200 + {status: "not-ready", season: null}` when no season indexed (was `404`). Web/SDK consumers gate on `status` instead of catching a 404; uptime monitors stop seeing a confusing 404 on a healthy indexer.
+- `/tokens` → unchanged (200 + []).
+- `/token/:address` → unchanged (404 for unknown — named-singleton convention).
+- `/profile/:address` → unchanged (200/empty, privacy-driven exception per §22).
+- Convention documented in a top-of-file comment in `handlers.ts` and in `README.md`.
+- Regression cover: `test/api/security/endpointStatusContract.test.ts` (5 tests).
+- Web follow-up: `/season` consumer must handle `status === "not-ready"` (currently catches the 404). Tracked in PR description.
+
 ### [Indexer] Type safety — widespread `as unknown as MwContext` casts
 **Severity:** High
 **Files:** packages/indexer/src/api/index.ts (5 sites: /season, /tokens, /token/:address, /tokens/:address/history, /profile/:address)
@@ -85,6 +94,11 @@ Pattern `const mw = c as unknown as MwContext;` is a type-safety escape hatch. W
 **Recommendation:** Narrow with a type guard or add a small `toMwContext(c: Context)` adapter that documents the assumed shape and asserts at runtime.
 
 **Effort:** S
+
+**Status:** ✅ FIXED in audit-remediation PR (Audit Finding H-3, indexer-high-batch-2 / 2026-05-02). Adapter approach:
+- Added `src/api/mwContext.ts::toMwContext(c)` with runtime assertions on `.req`, `.req.url`, `.req.header`, `.header`, `.json`. Each missing surface throws with a named field so a Ponder upgrade that drifts the Context shape surfaces on the very first request rather than as silent middleware misbehaviour.
+- All 5 cast sites in `index.ts` and 2 in `events/index.ts` replaced.
+- Regression cover: `test/api/security/mwContextAdapter.test.ts` (9 tests including the operator-grep-friendly "Ponder Context shape changed" anchor in error messages).
 
 ### [Indexer] No /healthz or readiness check beyond Ponder default
 **Severity:** High
@@ -98,6 +112,13 @@ Comment says `/health`, `/ready`, `/metrics` are "reserved paths" served by Pond
 
 **Effort:** S
 
+**Status:** ✅ FIXED in audit-remediation PR (Audit Finding H-4, indexer-high-batch-2 / 2026-05-02).
+- Added `GET /readiness` route returning `200` only when (a) latest-season indexed AND (b) `TickEngine.isRunning()`. Returns `503` (not 200/false) so load balancers route traffic away during startup / sync drops without killing the process.
+- Added `TickEngine.isRunning()` method + exported `eventsEngineRunning()` helper from `src/api/events/index.ts`.
+- Pure handler `getReadinessHandler` in `handlers.ts` so the verdict is testable without a live DB or SSE engine.
+- README updated with the liveness (`/health`) vs readiness (`/readiness`) distinction.
+- Regression cover: `test/api/security/readinessProbe.test.ts` (4 tests covering the three scenarios + the 503 status assertion).
+
 ### [Indexer] Holder snapshot timing not validated in code
 **Severity:** High
 **Files:** packages/indexer/src/api/index.ts:341 (`holderBadgeFlagsForUser`), 367, 372
@@ -110,6 +131,13 @@ Queries `holderSnapshot` rows by `trigger = "CUT"` or `"FINALIZE"`. Spec §42 ex
 
 **Effort:** S
 
+**Status:** ✅ FIXED in audit-remediation PR (Audit Finding H-5, indexer-high-batch-2 / 2026-05-02).
+- New pure module `src/api/snapshotCadence.ts` with `validateSnapshotCadence(input)` returning a structured drift verdict (`drifted`, `driftSeconds`, `expectedHour`, `actualHourFloor`, `logFields`) and `checkAndLogCadence(input, logger)` that emits a structured warning when drift exceeds 5 minutes.
+- Wired into `holderBadgeFlagsForUser` in `index.ts` — every snapshot row processed through the validator; verdict observed via the warn log line; never fails the request (operations decides whether observed drift is real).
+- Drift threshold: 5 minutes (`DRIFT_THRESHOLD_SECONDS`). Cadence anchors: CUT @ hour 96, FINALIZE @ hour 168 per spec §42.
+- Unknown trigger labels (e.g. a future contract change adding a third trigger) silently accepted — false-positive warnings on every request would be worse than the missing anchor.
+- Regression cover: `test/api/security/snapshotCadenceDrift.test.ts` (8 tests).
+
 ### [Indexer] No CORS headers configured
 **Severity:** High
 **Files:** packages/indexer/src/api/middleware.ts (no CORS middleware found)
@@ -121,6 +149,13 @@ No middleware explicitly sets `Access-Control-Allow-Origin`. Ponder's HTTP serve
 **Recommendation:** Add CORS middleware allowing the canonical origins (filter.fun, api.filter.fun, localhost:3000 for dev). Document allowed origins in env.
 
 **Effort:** S
+
+**Status:** ✅ FIXED in audit-remediation PR (Audit Finding H-6, indexer-high-batch-2 / 2026-05-02).
+- New pure policy module `src/api/cors.ts` with `loadCorsConfigFromEnv()` (reads `CORS_ALLOWED_ORIGINS` comma-separated, falls back to defaults) and `originAllowed(origin, cfg)` (exact-equality match, returns the matched origin string — not `*` — so cached responses stay scoped).
+- Default allow-list: `https://filter.fun`, `https://docs.filter.fun`, `http://localhost:3000`, `http://localhost:3001`.
+- Wired via `ponder.use("*", cors({...}))` so every route + the SSE endpoint share one policy.
+- `.env.example` documents `CORS_ALLOWED_ORIGINS` for production override without a code deploy.
+- Regression cover: `test/api/security/corsAllowedOrigins.test.ts` (11 tests including the substring-match denial guard against `https://attacker-filter.fun`).
 
 ---
 
@@ -271,6 +306,13 @@ Placeholders pending V4 PoolManager integration; documented in code comment.
 **Recommendation:** Track explicit story for V4 data flow integration.
 
 **Effort:** L (separate epic)
+
+**Status:** ✅ FIXED in audit-remediation PR (Audit Finding H-1, indexer-high-batch-2 / 2026-05-02). Severity-rated High in batch dispatch despite the original Info classification — frontend cannot distinguish "value is genuinely zero" from "data not yet wired" so it surfaced "0 holders / $0 liquidity" across every row.
+- Placeholder fields (`price`/`priceChange24h`/`volume24h`/`liquidity`/`holders`) now return `null` (web renders "—") instead of `0`/`"0"`.
+- New `dataAvailability: {v4Reads, holderEnumeration}` block on every TokenRow tells the renderer whether to read the value cells at all. Both flags hard-coded `false` until the V4 read integration + `/tokens/:address/holders` endpoint ship; flipping a flag without wiring the underlying source would be a regression.
+- Single source of truth: `TOKEN_DATA_AVAILABILITY` constant in `src/api/builders.ts`.
+- Regression cover: `test/api/security/tokenRowPlaceholderHonesty.test.ts` (5 tests).
+- V4 PoolManager wiring is a separate epic; this PR only stops the response from lying.
 
 ### [Indexer] EventsQueries.latestSeason takenAtSec captured at query time
 **Severity:** Info

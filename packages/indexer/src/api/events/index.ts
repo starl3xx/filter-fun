@@ -118,10 +118,32 @@ ponder.get("/events", (c) => {
 });
 
 /// Construct + start the engine on first request. Subsequent calls no-op.
+///
+/// Exported as `ensureEventsEngineStarted` because /readiness needs to bootstrap the
+/// engine on the first probe — without that, a load balancer gating on /readiness
+/// would deadlock: readiness requires the engine to be running, the engine only
+/// starts on the first SSE request, but no SSE request can reach the indexer until
+/// the LB lets traffic through. Bugbot finding on PR #61 (Medium severity) caught
+/// the deadlock; this export is the load-bearing fix. See callers in this module
+/// (the SSE route below) and src/api/index.ts (/readiness route).
+export function ensureEventsEngineStarted(db: ApiContext["db"]): void {
+  ensureEngineStarted(db);
+}
+
 function ensureEngineStarted(db: ApiContext["db"]): void {
   if (engine) return;
   engine = new TickEngine({cfg, queries: buildQueries(db), hub});
   engine.start();
+}
+
+/// Audit H-4 (Phase 1, 2026-05-01): /readiness reads this to gate "indexer is serving
+/// real-time data". The engine is started lazily on the first SSE request, so a freshly-
+/// booted indexer with zero clients will always report `false` here — that is correct:
+/// readiness asks whether the live-event pipeline is up, not whether the process is up
+/// (Ponder's /health covers liveness). Treat the lazy-start as expected; a
+/// long-running indexer with no SSE clients is a degraded state, not a healthy one.
+export function eventsEngineRunning(): boolean {
+  return engine?.isRunning() ?? false;
 }
 
 function buildQueries(db: ApiContext["db"]): EventsQueries {

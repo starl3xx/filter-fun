@@ -93,17 +93,41 @@ export interface BagLock {
   creator: `0x${string}`;
 }
 
+/// Per-row data-availability flags. Audit H-1 (Phase 1, 2026-05-01) landed these so the
+/// web app can distinguish "value is genuinely zero" from "indexer hasn't wired this read
+/// yet" — pre-fix, both states surfaced identically as `0` / `"0"` and the leaderboard
+/// rendered "0 holders / $0 liquidity" for every row across genesis.
+///
+/// `v4Reads = false` until the V4 PoolManager integration epic lands; `holderEnumeration =
+/// false` until the deferred `/tokens/:address/holders` endpoint ships (audit C-4 deferred
+/// to Phase 2). When either flips to `true` the corresponding TokenResponse fields
+/// (`price`/`priceChange24h`/`volume24h`/`liquidity` for v4Reads; `holders` for
+/// holderEnumeration) become non-null.
+export interface TokenDataAvailability {
+  v4Reads: boolean;
+  holderEnumeration: boolean;
+}
+
 export interface TokenResponse {
   token: `0x${string}`;
   ticker: string;
   rank: number;
   hp: number;
   status: TokenStatus;
-  price: string;
-  priceChange24h: number;
-  volume24h: string;
-  liquidity: string;
-  holders: number;
+  /// Audit H-1: `null` when `dataAvailability.v4Reads === false` (V4 read integration
+  /// pending). Web renders "—" in that state. Will become a decimal-ether string once
+  /// V4 reads land.
+  price: string | null;
+  /// Audit H-1: `null` when `dataAvailability.v4Reads === false`.
+  priceChange24h: number | null;
+  /// Audit H-1: `null` when `dataAvailability.v4Reads === false`.
+  volume24h: string | null;
+  /// Audit H-1: `null` when `dataAvailability.v4Reads === false`.
+  liquidity: string | null;
+  /// Audit H-1: `null` when `dataAvailability.holderEnumeration === false`. Holder
+  /// snapshots are indexed but the public endpoint is deferred (audit C-4); both fields
+  /// flip together when that endpoint ships.
+  holders: number | null;
   components: {
     velocity: number;
     effectiveBuyers: number;
@@ -112,7 +136,24 @@ export interface TokenResponse {
     momentum: number;
   };
   bagLock: BagLock;
+  /// Audit H-1: per-row availability map for the placeholder fields. Web should read
+  /// this before rendering price/volume/liquidity/holders cells.
+  dataAvailability: TokenDataAvailability;
 }
+
+/// Audit H-1 (Phase 1, 2026-05-01): centralised data-availability flags for placeholder
+/// fields. Today both flags are hard-coded `false` because neither integration has
+/// shipped — flipping a flag here without first wiring the underlying read would lie to
+/// the frontend, so guard the toggle with the corresponding integration commit.
+///
+/// When V4 reads land: flip `v4Reads` and start populating
+/// `price`/`priceChange24h`/`volume24h`/`liquidity` from the real source.
+/// When `/tokens/:address/holders` lands: flip `holderEnumeration` and populate
+/// `holders` from the indexed snapshot.
+export const TOKEN_DATA_AVAILABILITY: TokenDataAvailability = {
+  v4Reads: false,
+  holderEnumeration: false,
+};
 
 /// Builds the `/tokens` response array. Sorted by ascending rank.
 ///
@@ -170,11 +211,15 @@ export function buildTokensResponse(
       // returns 0-1; round to 0-100 here for the wire format.
       hp: hpAsInt100(s?.hp ?? 0),
       status,
-      price: "0",
-      priceChange24h: 0,
-      volume24h: "0",
-      liquidity: "0",
-      holders: 0,
+      // Audit H-1: emit null (not "0"/0) while v4Reads + holderEnumeration are pending.
+      // The web app distinguishes "—" (null, value unknown) from "0" (value confirmed
+      // zero) when rendering these cells. dataAvailability below tells the renderer
+      // which state applies cohort-wide.
+      price: TOKEN_DATA_AVAILABILITY.v4Reads ? "0" : null,
+      priceChange24h: TOKEN_DATA_AVAILABILITY.v4Reads ? 0 : null,
+      volume24h: TOKEN_DATA_AVAILABILITY.v4Reads ? "0" : null,
+      liquidity: TOKEN_DATA_AVAILABILITY.v4Reads ? "0" : null,
+      holders: TOKEN_DATA_AVAILABILITY.holderEnumeration ? 0 : null,
       components: {
         velocity: s?.components.velocity.score ?? 0,
         effectiveBuyers: s?.components.effectiveBuyers.score ?? 0,
@@ -183,6 +228,7 @@ export function buildTokensResponse(
         momentum: s?.components.momentum.score ?? 0,
       },
       bagLock,
+      dataAvailability: TOKEN_DATA_AVAILABILITY,
     };
   });
   // Sort by rank ascending; tokens with rank 0 (unscored / launch phase) sort last by id.

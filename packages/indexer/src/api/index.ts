@@ -37,6 +37,7 @@
 
 import {ponder, type ApiContext} from "@/generated";
 import {and, count, desc, eq, gte, inArray, lte} from "@ponder/core";
+import {cors} from "hono/cors";
 
 import {
   bonusClaim,
@@ -54,7 +55,11 @@ import {
 
 import {isAddressLike} from "./builders.js";
 import {cached} from "./cache.js";
+import {loadCorsConfigFromEnv, originAllowed} from "./cors.js";
+import {toMwContext} from "./mwContext.js";
+import {checkAndLogCadence, consoleCadenceLogger} from "./snapshotCadence.js";
 import {
+  getReadinessHandler,
   getSeasonHandler,
   getTokenDetailHandler,
   getTokensHandler,
@@ -62,6 +67,7 @@ import {
   type BagLockRow,
   type TokenDetailRow,
 } from "./handlers.js";
+import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
 import {getTokenHistoryHandler, type HistoryQueries, type HpSnapshotRow} from "./history.js";
 import {
   applyGetRateLimit,
@@ -88,8 +94,36 @@ import {
   type TournamentBadgeFlags,
 } from "./profile.js";
 
+/// Audit H-6 (Phase 1, 2026-05-01): CORS middleware. Origin allow-list is loaded from
+/// env at module-import time via `CORS_ALLOWED_ORIGINS` (comma-separated); falls back
+/// to the default list (filter.fun + docs subdomain + localhost dev ports) when unset.
+/// Mounted via `ponder.use("*", ...)` so every route + the SSE endpoint share the
+/// same policy. `originAllowed` returns the matched origin (not `*`) so cached
+/// responses stay scoped to the specific allowed origin that requested them.
+///
+/// Bugbot finding #3 on PR #61 (Medium): `exposeHeaders` MUST list every custom
+/// response header the middleware sets. Per the Fetch spec, only CORS-safelisted
+/// response headers (Cache-Control, Content-Language, Content-Length, Content-Type,
+/// Expires, Last-Modified, Pragma) are visible to browser JS by default — `RateLimit-
+/// Remaining`/`Retry-After`/`X-Cache` would be silently stripped from the cross-origin
+/// response, breaking the rate-limit feedback loop and the cache-status header for
+/// browser clients on filter.fun. SSE-side `Last-Event-ID` is safelisted; nothing else
+/// the indexer emits needs explicit exposure today, but extend this list whenever a
+/// new custom header lands.
+const corsCfg = loadCorsConfigFromEnv();
+ponder.use(
+  "*",
+  cors({
+    origin: (origin) => originAllowed(origin, corsCfg),
+    allowMethods: ["GET", "OPTIONS"],
+    allowHeaders: ["Content-Type"],
+    exposeHeaders: ["RateLimit-Remaining", "Retry-After", "X-Cache"],
+    maxAge: 600,
+  }),
+);
+
 ponder.get("/season", async (c) => {
-  const mw = c as unknown as MwContext;
+  const mw = toMwContext(c);
   const limited = applyGetRateLimit(mw);
   if (limited) return limited;
   const bypass = shouldBypassCache(mw);
@@ -100,11 +134,12 @@ ponder.get("/season", async (c) => {
     {bypass},
   );
   mw.header("X-Cache", r.status);
-  return c.json(r.value.body, r.value.status as 200 | 404);
+  // Audit H-2: /season always returns 200 (envelope discriminates ready vs not-ready).
+  return c.json(r.value.body, r.value.status as 200);
 });
 
 ponder.get("/tokens", async (c) => {
-  const mw = c as unknown as MwContext;
+  const mw = toMwContext(c);
   const limited = applyGetRateLimit(mw);
   if (limited) return limited;
   const bypass = shouldBypassCache(mw);
@@ -122,7 +157,7 @@ ponder.get("/tokens", async (c) => {
 });
 
 ponder.get("/token/:address", async (c) => {
-  const mw = c as unknown as MwContext;
+  const mw = toMwContext(c);
   const limited = applyGetRateLimit(mw);
   if (limited) return limited;
   const result = await getTokenDetailHandler(buildQueries(c.db), c.req.param("address") ?? "");
@@ -130,7 +165,7 @@ ponder.get("/token/:address", async (c) => {
 });
 
 ponder.get("/tokens/:address/history", async (c) => {
-  const mw = c as unknown as MwContext;
+  const mw = toMwContext(c);
   const limited = applyGetRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
@@ -159,8 +194,46 @@ ponder.get("/tokens/:address/history", async (c) => {
   return c.json(r.value.body, r.value.status as 200 | 400);
 });
 
+/// Audit H-4 (Phase 1, 2026-05-01) — readiness probe distinct from Ponder's /health.
+/// /health (reserved by Ponder) returns 200 as soon as the HTTP server is up — useful
+/// for liveness checks but blind to indexer sync state. /readiness returns 200 only
+/// when the indexer has at least one season indexed AND the live-event pipeline is
+/// running, 503 otherwise. Wire to deployer readiness probe (separate from liveness).
+ponder.get("/readiness", async (c) => {
+  // No rate limit on readiness — probes hit it at infrastructure cadence (every few
+  // seconds from the load balancer) and rate-limiting them would make a healthy
+  // indexer look unhealthy under normal probe pressure.
+  //
+  // Bugbot finding #1 on PR #61: this handler intentionally skips `toMwContext(c)`.
+  // Every other route validates Context shape via the adapter (audit H-3) but readiness
+  // must not — a shape-drift throw here would surface as a 500 on the load-balancer
+  // probe, making a healthy indexer look broken until the LB deregistered the instance.
+  // Probes need to read `c.db` (for the season query) and `c.json` only; both are
+  // direct-property accesses with no middleware-style assumptions, so the adapter's
+  // assertions are pure downside on this endpoint.
+  //
+  // Bugbot finding #2 on PR #61 (Medium): bootstrap the events engine here. The engine
+  // is started lazily on the first SSE request, but if a load balancer gates traffic
+  // on /readiness (the documented use case) and the engine is part of the readiness
+  // verdict, no SSE request ever reaches the indexer → engine never starts →
+  // readiness permanently 503 → indexer permanently unreachable. Calling
+  // `ensureEventsEngineStarted(c.db)` on every probe is idempotent (the inner check
+  // no-ops once the engine exists) and breaks the deadlock: the first probe boots the
+  // engine, all subsequent probes confirm it stays running.
+  ensureEventsEngineStarted(c.db);
+  const r = await getReadinessHandler({
+    latestSeasonId: async () => {
+      const rows = await c.db.select().from(season).orderBy(desc(season.id)).limit(1);
+      const row = rows[0];
+      return row ? Number(row.id) : null;
+    },
+    tickEngineRunning: () => eventsEngineRunning(),
+  });
+  return c.json(r.body, r.status as 200 | 503);
+});
+
 ponder.get("/profile/:address", async (c) => {
-  const mw = c as unknown as MwContext;
+  const mw = toMwContext(c);
   const limited = applyGetRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
@@ -368,11 +441,33 @@ function buildProfileQueries(db: ApiDb): ProfileQueries {
         seasonIds.map((id) => db.select().from(season).where(eq(season.id, id)).limit(1)),
       );
       const winnerBySeason = new Map<bigint, `0x${string}` | null>();
+      // Audit H-5 (Phase 1, 2026-05-01): also capture season.startedAt so we can validate
+      // each snapshot's actual on-chain timestamp against the spec §42 cadence anchors
+      // (CUT @ hour 96, FINALIZE @ hour 168). Drift > 5 min logs a structured warning;
+      // never fails the request.
+      const seasonStartBySeason = new Map<bigint, bigint>();
       for (const ss of seasonRows) {
         const s = ss[0];
-        if (s) winnerBySeason.set(s.id, s.winner ?? null);
+        if (s) {
+          winnerBySeason.set(s.id, s.winner ?? null);
+          seasonStartBySeason.set(s.id, s.startedAt);
+        }
       }
       for (const r of rows) {
+        // Audit H-5: validate cadence per snapshot. The check is fire-and-forget for
+        // the request path; verdict.drifted is observed via the warn log line.
+        const seasonStartedAt = seasonStartBySeason.get(r.seasonId);
+        if (seasonStartedAt !== undefined) {
+          checkAndLogCadence(
+            {
+              trigger: r.trigger,
+              blockTimestamp: r.blockTimestamp,
+              seasonStartedAt,
+              seasonId: r.seasonId,
+            },
+            consoleCadenceLogger,
+          );
+        }
         if (r.trigger === "FINALIZE") {
           const winner = winnerBySeason.get(r.seasonId);
           if (winner && winner.toLowerCase() === r.token.toLowerCase()) {

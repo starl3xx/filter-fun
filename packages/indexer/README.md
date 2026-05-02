@@ -51,6 +51,42 @@ a quick way to verify you're indexing the manifest you think you are.
 
 Mounted on Ponder's built-in Hono server (default port 42069; set `PORT` to override). Base path is `/`. Ponder reserves `/health`, `/ready`, `/status`, and `/metrics` for its own use; Railway's healthcheck targets `/health` (always 200 once the HTTP server is up, independent of indexer sync state).
 
+### Health vs. readiness probes
+
+Two separate signals (Audit H-4, Phase 1 audit 2026-05-01):
+
+- **`GET /health`** — Ponder-owned. Returns 200 as soon as the HTTP server is up. Use as a **liveness** probe (process alive). Wired to Railway's basic healthcheck via `railway.json`.
+- **`GET /readiness`** — custom. Returns 200 only when (a) at least one season has been indexed AND (b) the live-event pipeline (`TickEngine`) is running. Returns 503 otherwise. Use as a **readiness** probe — load balancers should route traffic away during startup or sync drops without killing the process. The probe also bootstraps the tick engine on its first call (the engine would otherwise wait for the first `/events` SSE request, which a LB gating on `/readiness` would never let through — bugbot caught the deadlock on PR #61).
+
+```json
+GET /readiness
+{
+  "ready": true,
+  "checks": {
+    "latestSeason": true,
+    "tickEngine": true,
+    "latestSeasonId": 7
+  }
+}
+```
+
+### Endpoint status convention
+
+One rule across this surface (Audit H-2, Phase 1 audit 2026-05-01), pinned by `test/api/security/endpointStatusContract.test.ts`:
+
+- **Collections + status endpoints** → `200` with empty/null/sentinel payload
+- **Named singletons** (`/token/:address`) → `404` for unknown identifiers
+- **`/profile/:address`** → `200`/empty even for unknown wallets (privacy-driven exception, spec §22)
+
+Concretely:
+
+| Endpoint | When no data | Payload |
+|---|---|---|
+| `/season` | no season indexed | `200 + {status: "not-ready", season: null}` |
+| `/tokens` | no season exists | `200 + []` |
+| `/token/:address` | address unknown | `404 + {error: "unknown token"}` |
+| `/profile/:address` | wallet has no recorded activity | `200 + empty profile` (does not reveal whether the wallet is known) |
+
 ### `GET /season`
 
 Live state of the current weekly season — drives Arena top-bar countdowns, prize-pool figures, and phase indicators.
