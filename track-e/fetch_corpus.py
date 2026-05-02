@@ -862,15 +862,18 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             depth_168 = v4_full_range_weth_wei(
                 last_sw_168["liquidity"], last_sw_168["sqrtPriceX96"], target_is_token0
             ) / 1e18
-        # trailing 24h swap volume — single pass, single decode per swap
+        # trailing 24h swap volume (any direction — buys + sells) per the
+        # spec for survived_to_day_7. WETH-side magnitude captures both:
+        # buys send WETH in (eth_v > 0), sells take WETH out (eth_v < 0);
+        # |eth_v| sums them as total flow either way.
         lo_168 = blk_168h - 24 * BLOCKS_PER_HOUR
         vol_24h_168 = 0.0
         for sw in swaps_sorted:
             if sw["block"] < lo_168 or sw["block"] > blk_168h:
                 continue
             eth_v = amount0_from_swap_to_eth(sw, target_is_token0)
-            if eth_v > 0 and target_amount_signed(sw, target_is_token0) < 0:
-                vol_24h_168 += eth_v
+            if eth_v != 0:
+                vol_24h_168 += abs(eth_v)
         if (
             len(snap_168h) >= SURVIVED_HOLDERS_MIN
             and depth_168 >= SURVIVED_LP_MIN_ETH
