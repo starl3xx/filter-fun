@@ -9,6 +9,7 @@ This PR ships the **report only** — no behaviour-changing code is included. Fi
 | Finding | Severity | Status | PR |
 |---|---|---|---|
 | C-1: BonusDistributor missing `nonReentrant` on `fundBonus` / `postRoot` (extended to `claim`) | Critical | ✅ Fixed | audit-remediation PR (BonusDistributor reentrancy + invariant suite extension) |
+| C-2: `FilterLauncher.maxLaunchesPerWallet` default = `2` contradicts spec §4.6 lock (= `1`) | Critical | ✅ Fixed | audit-remediation PR (introduce `SPEC_LOCK_MAX_LAUNCHES_PER_WALLET` constant + reproduction test) |
 | C-3: `/tokens/:address/history` cache wired to `tokensTtlMs` (5s) instead of `profileTtlMs` (~5min intent) — 60× under-cache | Critical | ✅ Fixed | audit-remediation PR (one-line middleware wiring fix + TTL-introspection regression test) |
 | C-4: `/tokens/:address/holders` endpoint missing | Critical | ✅ Deferred to Phase 2 | audit-remediation PR (explicit deferral documented in indexer README + route docstring + Phase-2 design constraints) |
 
