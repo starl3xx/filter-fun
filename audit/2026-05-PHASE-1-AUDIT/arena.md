@@ -35,6 +35,8 @@ const display = Bricolage_Grotesque({
 ## HIGH
 
 ### [Arena] TICKER_COLORS map drifts from ARENA_SPEC §3.2
+**Status:** ✅ **FIXED** in `audit/arena-high-batch-4` (Audit H-Arena-1). All 12 entries replaced with the spec-exact map; map is now `export`'d so it's pinned by `tickerColorsMap.test.ts` rather than indirectly tested through avatar render snapshots. `tickerColor()` falls back to `C.purple` for unknown tickers (was `#a78bfa`, a non-palette lavender).
+
 **Severity:** High
 **Files:** packages/web/src/lib/tokens.ts:29-42
 **Spec ref:** ARENA_SPEC §3.2
@@ -65,6 +67,8 @@ RUG: "#9ca3af",      // spec: #ff5577
 **Effort:** S
 
 ### [Arena] HpBar uses single 4-color spectrum globally instead of status-driven gradient
+**Status:** ✅ **FIXED** in `audit/arena-high-batch-4` (Audit H-Arena-2). New `STATUS_GRADIENT` map exported from `HpBar.tsx` (FINALIST yellow→pink, SAFE green→cyan, AT_RISK red→pink, FILTERED red→pink). `status` prop threaded through `ArenaLeaderboard:370`; HP-bucket `colorForHp()` retained as fallback only when no status is supplied. Finalist rows additionally get the spec'd yellow text-shadow glow on the HP value (closes Low Arena finding "Finalist HP score lacks yellow text-shadow glow").
+
 **Severity:** High
 **Files:** packages/web/src/components/arena/HpBar.tsx:62-67, packages/web/src/components/arena/ArenaLeaderboard.tsx:370
 **Spec ref:** ARENA_SPEC §6.4.3
@@ -87,6 +91,8 @@ function colorForHp(hp: number): string {
 **Effort:** M
 
 ### [Arena] AT_RISK status badge uses orange ⚠️ icon instead of red ▼
+**Status:** ✅ **FIXED** in `audit/arena-high-batch-4` (Audit H-Arena-3). `AT_RISK` case in `treatmentFor()` now returns `{color: C.red, label: "At risk", icon: "▼"}`. Pinned to U+25BC literal Unicode glyph (NOT 🔻 emoji) per the project memory — emoji renders as a coloured photo character on some platforms which collides with the red CSS colour. `statusBadgeAtRisk.test.tsx` asserts the codepoint AND the rejected emoji explicitly.
+
 **Severity:** High
 **Files:** packages/web/src/components/arena/StatusBadge.tsx:50
 **Spec ref:** ARENA_SPEC §3.3
@@ -99,6 +105,8 @@ Spec maps risk status to `--red` colour with ▼ icon. Code uses `#ffa940` orang
 **Effort:** XS
 
 ### [Arena] HP breakdown bars use single cyan→pink gradient (should be per-component)
+**Status:** ✅ **FIXED** in `audit/arena-high-batch-4` (Audit H-Arena-4). `HP_COMPONENT_COLORS` map added to `lib/arena/hpLabels.ts` (Velocity pink / Buyers cyan / Liquidity yellow / Retention green / Momentum purple — momentum is a fifth component the indexer reports but spec doesn't enumerate; assigned the only remaining broadcast-palette colour). Map keyed by `HpKey` so the type system rejects future drops. Threaded through `ComponentRow` for both label colour and bar gradient — combines with the M-Arena "labels in dim" finding below.
+
 **Severity:** High
 **Files:** packages/web/src/components/arena/ArenaTokenDetail.tsx:289
 **Spec ref:** ARENA_SPEC §6.5.3
@@ -111,6 +119,8 @@ Spec maps each HP component to its own colour: Velocity → pink, Buyers → cya
 **Effort:** S
 
 ### [Arena] LIVE pill styling deviates from spec (padding, border alpha)
+**Status:** ✅ **FIXED** in `audit/arena-high-batch-4` (Audit H-Arena-5). `Pill` component padding changed from `3px 10px` to `5px 11px`; bg from `${color}1a` (~10%) to `${color}1f` (~12%); border from `${color}55` (~33%) to `${color}66` (~40%). Pinned by `arenaTopBarSpec.test.tsx`, which parses jsdom's serialised rgba and asserts alpha within ±0.01.
+
 **Severity:** High → Medium
 **Files:** packages/web/src/components/arena/ArenaTopBar.tsx:99-104
 **Spec ref:** ARENA_SPEC §6.1
@@ -123,6 +133,8 @@ Spec: `padding: 5px 11px`, bg @ 12%, border @ 40%. Code: `padding: 3px 10px`, bg
 **Effort:** XS
 
 ### [Arena] Top bar Brand wordmark renders all-white (`.fun` should be pink)
+**Status:** ✅ **FIXED** in `audit/arena-high-batch-4` (Audit H-Arena-6). `Brand` component now renders `<span color: C.text>filter</span><span color: C.pink>.fun</span>` in the same outer span (so font-family / weight / size / letter-spacing stay shared). Verified against the only literal-wordmark site in the codebase — URLs / metadata / OG-card title strings stay one piece.
+
 **Severity:** High
 **Files:** packages/web/src/components/arena/ArenaTopBar.tsx:82-91
 **Spec ref:** ARENA_SPEC §6.1
@@ -178,6 +190,8 @@ Spec: header has 📡 + title + STREAMING pill (pulsing green dot). Code shows t
 **Effort:** S
 
 ### [Arena] HP breakdown labels rendered in dim instead of component colour
+**Status:** ✅ **FIXED** in `audit/arena-high-batch-4` (combined with H-Arena-4). `ComponentRow` label `color` prop now sourced from `HP_COMPONENT_COLORS[key]` instead of the shared `C.dim`. Single fix touched both label and bar gradient.
+
 **Severity:** Medium
 **Files:** packages/web/src/components/arena/ArenaTokenDetail.tsx:274-279
 **Spec ref:** ARENA_SPEC §6.5.3
@@ -190,6 +204,8 @@ Spec: labels coloured per component (Velocity pink, Buyers cyan, etc.). Code: `c
 **Effort:** XS (combined)
 
 ### [Arena] JetBrains Mono — weights 400 + 600 missing, weight 800 added (not in spec)
+**Status:** ✅ **FIXED** in `audit/arena-high-batch-4` (Audit M-Arena-1). `weight` array changed from `["500","700","800"]` to `["400","500","600","700"]` — pinned by `jetbrainsMonoWeights.test.ts` which greps `app/layout.tsx` for the literal array (same pattern PR #57 established for Bricolage's C-8 weight pin). NatSpec block above the import flags removing any of the 4 spec-mandated weights — or adding a non-spec weight — as a regression.
+
 **Severity:** Medium
 **Files:** packages/web/src/app/layout.tsx:15-20
 **Spec ref:** ARENA_SPEC §2.1

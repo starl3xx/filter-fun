@@ -19,7 +19,7 @@ import {Triangle} from "@/components/Triangle";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
-import {HP_KEYS_IN_ORDER, HP_LABELS, type HpKey} from "@/lib/arena/hpLabels";
+import {HP_COMPONENT_COLORS, HP_KEYS_IN_ORDER, HP_LABELS, type HpKey} from "@/lib/arena/hpLabels";
 import {fmtNum, fmtUSD, fmtPrice} from "@/lib/format";
 import {sparkPath} from "@/lib/sparkline";
 import {C, F, tickerColor} from "@/lib/tokens";
@@ -273,20 +273,25 @@ function HpBreakdown({components, hp}: {components: TokenResponse["components"];
       <ArenaHpBar hp={hp} showValue={false} />
       <div style={{display: "flex", flexDirection: "column", gap: 6, marginTop: 4}}>
         {HP_KEYS_IN_ORDER.map((key) => (
-          <ComponentRow key={key} label={HP_LABELS[key]} score={components[key as HpKey] ?? 0} />
+          <ComponentRow
+            key={key}
+            label={HP_LABELS[key]}
+            score={components[key as HpKey] ?? 0}
+            color={HP_COMPONENT_COLORS[key]}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function ComponentRow({label, score}: {label: string; score: number}) {
+function ComponentRow({label, score, color}: {label: string; score: number; color: string}) {
   const pct = Math.max(0, Math.min(100, Math.round(score * 100)));
   return (
     <div style={{display: "grid", gridTemplateColumns: "1fr 60px 32px", alignItems: "center", gap: 8, fontSize: 11}}>
-      <span style={{color: C.dim, fontFamily: F.display, fontWeight: 600}}>{label}</span>
+      <span style={{color, fontFamily: F.display, fontWeight: 600}}>{label}</span>
       <div style={{height: 4, borderRadius: 99, background: "rgba(255,255,255,0.06)", overflow: "hidden"}}>
-        <div style={{height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${C.cyan}, ${C.pink})`}} />
+        <div style={{height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${color}, ${color}cc)`}} />
       </div>
       <span style={{fontFamily: F.mono, fontVariantNumeric: "tabular-nums", color: C.text, fontSize: 11, textAlign: "right"}}>
         {pct}

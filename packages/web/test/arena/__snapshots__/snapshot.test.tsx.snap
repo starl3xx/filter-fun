@@ -76,7 +76,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             🥇
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 233, 51); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ffe933aa;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 58, 161); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ff3aa1aa;"
           >
             FI
           </div>
@@ -101,11 +101,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
               />
             </div>
             <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
             >
               98
             </span>
@@ -167,7 +167,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             🥈
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 93, 140); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ff5d8caa;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 45, 85); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ff2d55aa;"
           >
             BL
           </div>
@@ -192,11 +192,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
               />
             </div>
             <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
             >
               92
             </span>
@@ -258,7 +258,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             🥉
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 176, 32); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 233, 51); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             KI
           </div>
@@ -283,7 +283,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -369,7 +369,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -430,7 +430,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             #5
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(167, 139, 250); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(156, 92, 255); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             MO
           </div>
@@ -455,7 +455,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -541,7 +541,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -602,7 +602,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             #7
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 122, 76); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 138, 161); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             CU
           </div>
@@ -627,7 +627,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -641,12 +641,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
           >
             <span
               data-status="AT_RISK"
-              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
               <span
                 aria-hidden="true"
               >
-                ⚠️
+                ▼
               </span>
               At risk
             </span>
@@ -693,7 +693,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             #8
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(253, 224, 71); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 170, 58); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             ED
           </div>
@@ -718,7 +718,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ffa940, #ffa940cc); box-shadow: 0 0 6px #ffa94066; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -732,12 +732,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
           >
             <span
               data-status="AT_RISK"
-              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
               <span
                 aria-hidden="true"
               >
-                ⚠️
+                ▼
               </span>
               At risk
             </span>
@@ -784,7 +784,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             #9
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(244, 114, 182); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(170, 255, 58); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             SL
           </div>
@@ -809,7 +809,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ffa940, #ffa940cc); box-shadow: 0 0 6px #ffa94066; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -823,12 +823,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
           >
             <span
               data-status="AT_RISK"
-              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
               <span
                 aria-hidden="true"
               >
-                ⚠️
+                ▼
               </span>
               At risk
             </span>
@@ -875,7 +875,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             #10
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(156, 163, 175); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 85, 119); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             RU
           </div>
@@ -900,7 +900,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -966,7 +966,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             #11
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(120, 113, 108); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(170, 136, 255); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             DU
           </div>
@@ -991,7 +991,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -1057,7 +1057,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             #12
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(203, 213, 225); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(136, 170, 204); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             GH
           </div>
@@ -1082,7 +1082,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -1218,7 +1218,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             🥇
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 233, 51); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ffe933aa;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 58, 161); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ff3aa1aa;"
           >
             FI
           </div>
@@ -1243,11 +1243,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
               />
             </div>
             <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
             >
               98
             </span>
@@ -1309,7 +1309,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             🥈
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 93, 140); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ff5d8caa;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 45, 85); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: 0 0 10px #ff2d55aa;"
           >
             BL
           </div>
@@ -1334,11 +1334,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
               />
             </div>
             <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
             >
               92
             </span>
@@ -1400,7 +1400,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             🥉
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 176, 32); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 233, 51); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             KI
           </div>
@@ -1425,7 +1425,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -1511,7 +1511,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #00f0ff, #00f0ffcc); box-shadow: 0 0 6px #00f0ff66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -1572,7 +1572,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             #5
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(167, 139, 250); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(156, 92, 255); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             MO
           </div>
@@ -1597,7 +1597,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -1683,7 +1683,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -1796,7 +1796,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             #7
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 122, 76); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 138, 161); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             CU
           </div>
@@ -1821,7 +1821,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #52ff8b, #52ff8bcc); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -1835,12 +1835,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
           >
             <span
               data-status="AT_RISK"
-              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
               <span
                 aria-hidden="true"
               >
-                ⚠️
+                ▼
               </span>
               At risk
             </span>
@@ -1887,7 +1887,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             #8
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(253, 224, 71); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 170, 58); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             ED
           </div>
@@ -1912,7 +1912,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ffa940, #ffa940cc); box-shadow: 0 0 6px #ffa94066; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -1926,12 +1926,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
           >
             <span
               data-status="AT_RISK"
-              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
               <span
                 aria-hidden="true"
               >
-                ⚠️
+                ▼
               </span>
               At risk
             </span>
@@ -1978,7 +1978,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             #9
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(244, 114, 182); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(170, 255, 58); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             SL
           </div>
@@ -2003,7 +2003,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ffa940, #ffa940cc); box-shadow: 0 0 6px #ffa94066; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -2017,12 +2017,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
           >
             <span
               data-status="AT_RISK"
-              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 169, 64, 0.1); border: 1px solid rgba(255, 169, 64, 0.333); color: rgb(255, 169, 64); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
+              style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 45, 85, 0.1); border: 1px solid rgba(255, 45, 85, 0.333); color: rgb(255, 45, 85); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
               <span
                 aria-hidden="true"
               >
-                ⚠️
+                ▼
               </span>
               At risk
             </span>
@@ -2069,7 +2069,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             #10
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(156, 163, 175); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(255, 85, 119); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             RU
           </div>
@@ -2094,7 +2094,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -2160,7 +2160,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             #11
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(120, 113, 108); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(170, 136, 255); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             DU
           </div>
@@ -2185,7 +2185,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -2251,7 +2251,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             #12
           </div>
           <div
-            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(203, 213, 225); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
+            style="width: 24px; height: 24px; border-radius: 6px; background: rgb(136, 170, 204); display: grid; place-items: center; font-size: 9px; font-weight: 900; color: rgb(26, 1, 42); font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; box-shadow: none;"
           >
             GH
           </div>
@@ -2276,7 +2276,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff2d55cc); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
               />
             </div>
             <span
@@ -2389,11 +2389,20 @@ exports[`Arena visual snapshots > ArenaTopBar matches snapshot 1`] = `
         <span
           style="font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-weight: 800; font-size: 16px; letter-spacing: -0.01em;"
         >
-          filter.fun
+          <span
+            style="color: rgb(254, 242, 255);"
+          >
+            filter
+          </span>
+          <span
+            style="color: rgb(255, 58, 161);"
+          >
+            .fun
+          </span>
         </span>
       </span>
       <span
-        style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.16em;"
+        style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 99px; background: rgba(82, 255, 139, 0.12); border: 1px solid rgba(82, 255, 139, 0.4); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.16em;"
       >
         <span
           aria-hidden="true"

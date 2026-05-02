@@ -80,16 +80,26 @@ export function ArenaTopBar({season, liveStatus}: ArenaTopBarProps) {
 }
 
 function Brand() {
+  // ARENA_SPEC §6.1 — wordmark renders `filter` in white + `.fun` in pink.
+  // Audit H-Arena-6 caught the pre-fix all-white render which lost the brand
+  // colour signal at the most prominent surface in the app.
   return (
     <span style={{display: "flex", alignItems: "center", gap: 6}}>
       <span aria-hidden style={{display: "inline-flex", filter: `drop-shadow(0 0 6px ${C.red}88)`}}>
         <Triangle size={18} />
       </span>
-      <span style={{fontFamily: F.display, fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em"}}>filter.fun</span>
+      <span style={{fontFamily: F.display, fontWeight: 800, fontSize: 16, letterSpacing: "-0.01em"}}>
+        <span style={{color: C.text}}>filter</span>
+        <span style={{color: C.pink}}>.fun</span>
+      </span>
     </span>
   );
 }
 
+/// ARENA_SPEC §6.1 — LIVE-pill style: padding 5×11, bg @ 12% alpha (`1f`),
+/// border @ 40% alpha (`66`). Audit H-Arena-5 caught the pre-fix `3×10 / 1a /
+/// 55` (10% bg, ~33% border) which made the pill read as a faint chip rather
+/// than the assertive LIVE marker the spec calls for.
 function Pill({color, children}: {color: string; children: React.ReactNode}) {
   return (
     <span
@@ -97,10 +107,10 @@ function Pill({color, children}: {color: string; children: React.ReactNode}) {
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
-        padding: "3px 10px",
+        padding: "5px 11px",
         borderRadius: 99,
-        background: `${color}1a`,
-        border: `1px solid ${color}55`,
+        background: `${color}1f`,
+        border: `1px solid ${color}66`,
         color,
         fontFamily: F.mono,
         fontWeight: 800,
