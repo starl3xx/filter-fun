@@ -14,6 +14,8 @@
 
 import {formatEther, parseEther} from "viem";
 
+import {MAX_LAUNCHES} from "./abi";
+
 // ============================================================ constants
 
 /// 0.01 ETH base cost — spec §4.3 (locked 2026-05-02, reduced 5× from
@@ -23,7 +25,10 @@ import {formatEther, parseEther} from "viem";
 /// when no contract read is available).
 export const BASE_LAUNCH_COST_WEI: bigint = parseEther("0.01");
 
-export const MAX_LAUNCHES = 12;
+/// Re-exported for callers that import from `economics.ts` rather than the
+/// abi module — the cost formula here uses the same canonical value, so
+/// a single divergence point is impossible.
+export {MAX_LAUNCHES};
 
 /// Spec §10.2 — flat 20 bps of trading volume to the creator while live.
 export const CREATOR_FEE_BPS = 20; // 0.20%
@@ -47,11 +52,6 @@ export const ETH_USD_FALLBACK = 3500;
 /// USD value of a wei amount at the given ETH/USD rate.
 export function weiToUsd(wei: bigint, ethUsd: number = ETH_USD_FALLBACK): number {
   return Number(formatEther(wei)) * ethUsd;
-}
-
-/// USD value of a decimal-ether amount (the indexer wire format).
-export function ethToUsd(eth: number, ethUsd: number = ETH_USD_FALLBACK): number {
-  return eth * ethUsd;
 }
 
 /// "$35" / "$1,234" / "$1.2M". Compact notation kicks in at 10k+ so the
@@ -257,4 +257,8 @@ export function valueToLog(value: number, scale: LogScale): number {
 }
 
 export const PEAK_MC_SCALE: LogScale = {min: 1_000, max: 10_000_000};
-export const WEEKLY_VOLUME_SCALE: LogScale = {min: 1_000, max: 5_000_000};
+/// Volume scale max set to $10M so the "Viral winner" preset (which uses
+/// $10M weekly volume) renders inside the slider range. A $5M ceiling
+/// would clamp the viral preset on first slider interaction, silently
+/// halving creator-fees and breaking preset/value coherence.
+export const WEEKLY_VOLUME_SCALE: LogScale = {min: 1_000, max: 10_000_000};

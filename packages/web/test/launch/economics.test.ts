@@ -95,9 +95,16 @@ describe("log slider scale", () => {
     expect(logToValue(0, PEAK_MC_SCALE)).toBeCloseTo(1_000, 1);
     expect(logToValue(100, PEAK_MC_SCALE)).toBeCloseTo(10_000_000, 1);
   });
-  it("logToValue covers the full $1k → $5M range for weekly volume", () => {
+  it("logToValue covers the full $1k → $10M range for weekly volume", () => {
     expect(logToValue(0, WEEKLY_VOLUME_SCALE)).toBeCloseTo(1_000, 1);
-    expect(logToValue(100, WEEKLY_VOLUME_SCALE)).toBeCloseTo(5_000_000, 1);
+    expect(logToValue(100, WEEKLY_VOLUME_SCALE)).toBeCloseTo(10_000_000, 1);
+  });
+  it("viral preset's volume falls within the slider scale (no clamp)", () => {
+    // Regression: bugbot caught a high-sev where the viral preset's
+    // weeklyVolumeUsd ($10M) exceeded WEEKLY_VOLUME_SCALE.max ($5M),
+    // which silently halved creator-fees on the first slider touch.
+    const viral = PRESETS.find((p) => p.id === "viral")!;
+    expect(viral.weeklyVolumeUsd).toBeLessThanOrEqual(WEEKLY_VOLUME_SCALE.max);
   });
   it("clamps values outside the configured range", () => {
     // Slider t < 0 clamps to 0 (= scale.min); t > 100 clamps to scale.max.
