@@ -5,12 +5,21 @@ WETH-side proxy used to populate `lp_depth_eth` / `lp_removed_24h_eth`. Both
 have produced silent zero/garbage values in earlier corpus runs — locking the
 formulas with fixtures keeps regressions visible.
 
+Also includes a v4 static-analysis test (`test_no_leakage_inputs`) that
+AST-walks pipeline.py and asserts no HP-component scorer reads from any
+column named `outcome_*` or `survived_*`. This guards against accidental
+leakage between component inputs and outcome labels — bugbot would catch
+explicit `row.get("outcome_…")` calls in PR review, but a slow drift toward
+helpers that pass-through rows is harder to spot manually.
+
 Run: `uv run python3 test_pipeline.py` from track-e/.
 """
 
+import ast
 import json
 import math
 import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -158,6 +167,75 @@ def test_v4_lp_depth_token0_bug_regression():
     # below the buggy result by 4 orders of magnitude.
     buggy = (L * sqrtP) / Q96
     assert weth_wei < buggy / 1000.0, (weth_wei, buggy)
+
+
+SCORER_FUNCS = {
+    "velocity_score",
+    "effective_buyers_score",
+    "sticky_liquidity_score",
+    "retention_score",
+    "momentum_score",
+    "hhi_score",
+    "compute_components",
+}
+LEAKAGE_PREFIXES = ("outcome_", "survived_")
+
+
+def _string_args(node: ast.AST) -> list[str]:
+    """Yield every string literal anywhere inside this AST node."""
+    out: list[str] = []
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+            out.append(sub.value)
+    return out
+
+
+def test_no_leakage_inputs():
+    """Walk pipeline.py and assert no HP-component scoring function references
+    a column whose name starts with `outcome_` or `survived_`. The scorers
+    are only allowed to read raw input fields — outcome columns belong to
+    the analysis pass that runs *after* compute_components, never inside it.
+
+    Detection is pessimistic: if a scorer mentions ANY string that has the
+    leakage prefix (even in a comment that became a literal — unlikely), the
+    test fails. False positives are easier to fix than missed leakage.
+    """
+    pipeline_path = Path(__file__).parent / "pipeline.py"
+    tree = ast.parse(pipeline_path.read_text())
+    leaks: list[tuple[str, str, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if node.name not in SCORER_FUNCS:
+            continue
+        for s in _string_args(node):
+            if s.startswith(LEAKAGE_PREFIXES):
+                leaks.append((node.name, s, node.lineno))
+    assert not leaks, (
+        "Found outcome-column references inside HP-component scorers — "
+        "would create input/outcome leakage. Move the read into the "
+        "outcome-derivation pass instead.\n  " + "\n  ".join(
+            f"{fn} (line {ln}): refs '{s}'" for fn, s, ln in leaks
+        )
+    )
+
+
+def test_no_leakage_inputs_catches_simulated_leak():
+    """Meta-test: prove the AST walker actually fails when a scorer touches
+    an outcome column. Builds a synthetic AST snippet and runs the same check
+    in isolation so a stale walker can't silently let leakage through."""
+    snippet = (
+        "def velocity_score(row):\n"
+        "    return row.get('outcome_30d_holder_retention', 0.0)\n"
+    )
+    tree = ast.parse(snippet)
+    leaks: list[tuple[str, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name in SCORER_FUNCS:
+            for s in _string_args(node):
+                if s.startswith(LEAKAGE_PREFIXES):
+                    leaks.append((node.name, s))
+    assert leaks == [("velocity_score", "outcome_30d_holder_retention")], leaks
 
 
 def main():

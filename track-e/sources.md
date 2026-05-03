@@ -57,27 +57,63 @@ some fraction is Bankr-originated). Follow-up: reverse-engineer V4
 
 ## Liquid — Base mainnet
 
-**Status (v3, 2026-05-02): factory address not yet verified.**
+**Status (v4, 2026-05-02): factory verified at
+[`0x04F1…7760`](https://basescan.org/address/0x04F1a284168743759BE6554f607a10CEBdB77760)**
+(Liquid Protocol's published address per
+[app.liquidprotocol.org/docs](https://app.liquidprotocol.org/docs)). Contract
+bytecode 12,481 bytes; deployed at block 43,323,646 (2026-03-13); 2,613
+lifetime `TokenCreated` events as of 2026-05-02 head (block 45,489,609).
 
-Two candidate addresses were investigated and ruled out:
+| Component | Address |
+|---|---|
+| Liquid factory | [`0x04F1a284168743759BE6554f607a10CEBdB77760`](https://basescan.org/address/0x04F1a284168743759BE6554f607a10CEBdB77760) |
+| LiquidFeeLocker | [`0xF7d3BE3FC0de76fA5550C29A8F6fa53667B876FF`](https://basescan.org/address/0xF7d3BE3FC0de76fA5550C29A8F6fa53667B876FF) |
+| LiquidLpLockerFeeConversion | [`0x77247fCD1d5e34A3703AcA898A591Dc7422435f3`](https://basescan.org/address/0x77247fCD1d5e34A3703AcA898A591Dc7422435f3) |
+| LiquidPoolExtensionAllowlist | [`0xb614167d79aDBaA9BA35d05fE1d5542d7316Ccaa`](https://basescan.org/address/0xb614167d79aDBaA9BA35d05fE1d5542d7316Ccaa) |
+| LiquidHookDynamicFeeV2 | [`0x80E2F7dC8C2C880BbC4BDF80A5Fb0eB8B1DB68CC`](https://basescan.org/address/0x80E2F7dC8C2C880BbC4BDF80A5Fb0eB8B1DB68CC) |
+| LiquidHookStaticFeeV2 | [`0x9811f10Cd549c754Fa9E5785989c422A762c28cc`](https://basescan.org/address/0x9811f10Cd549c754Fa9E5785989c422A762c28cc) |
 
-- [`0xCb22…0f85`](https://basescan.org/address/0xcb22ed2b12da1365539283e2891bb93ba10a0f85)
-  — EOA (no contract bytecode), nonce 16, ~3.2e10 wei balance, **zero log
-  activity ever** (90d/180d/365d windows). A regular wallet, not a factory.
-- [`0xab37…64fe`](https://basescan.org/address/0xab3754736c1a426461259764ed28115d01bb64fe)
-  — also an EOA, nonce 52, ~9.8e14 wei balance, **zero log activity ever**.
-  A regular user wallet that bridges + swaps via various contracts (V4
-  PoolManager, a Relay bridge at `0x4cd00e387622c35bddb9b4c962c136462338bc31`,
-  etc.) — none of which are token factories.
+Event signature (verified against Sourcify partial-match for
+`Liquid.sol::ILiquid`; `keccak(sig) == 0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67`,
+which matches the dominant log topic on the factory):
 
-Liquid Protocol's marketing references "Uniswap V4 pools, locked liquidity,
-MEV protection" but the deployed Base factory address has not been located
-in their public materials.
+```solidity
+event TokenCreated(
+    address          msgSender,
+    address indexed  tokenAddress,
+    address indexed  tokenAdmin,
+    string           tokenImage,
+    string           tokenName,
+    string           tokenSymbol,
+    string           tokenMetadata,
+    string           tokenContext,
+    int24            startingTick,
+    address          poolHook,
+    PoolId           poolId,            // bytes32
+    address          pairedToken,
+    address          locker,
+    address          mevModule,
+    uint256          extensionsSupply,
+    address[]        extensions
+);
+```
 
-**Action for v3:** Liquid corpus is **deferred** pending a verified factory
-address. The v3 corpus is Clanker-V4-only. Follow-up: source the verified
-Liquid factory address from their team or docs, then add a `LIQUID_VERSIONS`
-constant mirroring `CLANKER_VERSIONS` in `fetch_corpus.py`.
+Pairs into Uniswap V4 (same PoolManager
+[`0x498581ff…2b2b`](https://basescan.org/address/0x498581fF718922c3f8e6A244956aF099B2652b2b)
+as Clanker V4), so swap / ModifyLiquidity / Transfer ingestion in
+`extract_token_features` is launchpad-agnostic from the discovery step
+onward — only `discover_liquid()` and the locker/hook exclusion list need
+to be Liquid-specific.
+
+**Action for v4:** Liquid is in scope for the validation cohort (top-25 by
+FDV). Wired in `fetch_corpus.py::LIQUID_VERSIONS` (see ticket #31). Lockers
+above are added to `KNOWN_NON_HOLDER_ADDRESSES` so HHI excludes locked-LP
+balances per spec §41.3.
+
+Two earlier candidate addresses (ruled out as EOAs with zero log activity)
+are kept here for historical context to prevent re-verification:
+[`0xCb22…0f85`](https://basescan.org/address/0xcb22ed2b12da1365539283e2891bb93ba10a0f85),
+[`0xab37…64fe`](https://basescan.org/address/0xab3754736c1a426461259764ed28115d01bb64fe).
 
 ## Filterfun (own project)
 

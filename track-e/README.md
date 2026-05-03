@@ -74,7 +74,7 @@ Generates `synthetic_corpus.csv` (500 tokens, deterministic) and writes `SYNTHET
 | Clanker V4 (`0xE85A…83a9`) | ✅ Active in target window — primary corpus source. |
 | Clanker V1–V3.5 | ⏸ Dormant in 6mo→90d-ago window (zero events; verified in `sources.md`). Not crawled. |
 | Bankr | ⏸ Factory address not located in public docs. Skipped. |
-| Liquid | ⏸ Identification ambiguous (LiquidLaunch is on Hyperliquid, not Base). Skipped. |
+| Liquid V1 (`0x04F1…7760`) | ✅ Verified 2026-05-02 (deploy block 43.32M, ~2.6k lifetime launches). Wired in v4 — opt in via `--source liquid` or `--source both`. |
 | Filterfun (own) | ⏸ Sepolia-only — insufficient mainnet history. Add in v2. |
 
 Clanker V4 alone yields ~5,978 TokenCreated events per 200k Base blocks (~120k+ tokens in the 6-mo window), so the corpus target is comfortably reachable from this single source.
