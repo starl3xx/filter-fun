@@ -262,12 +262,19 @@ describe("M-Web-8: wagmi module validates the active chain's RPC env var at load
     expect(src).toMatch(/NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL/);
   });
 
-  it("missing env var throws in production builds", () => {
+  it("missing env var throws at runtime in production but NOT during next build", () => {
     expect(src).toMatch(/process\.env\.NODE_ENV === "production"/);
     expect(src).toMatch(/throw new Error\(message\)/);
+    // CI failure on PR #72: pre-fix this throw fired during `next build`'s
+    // static prerendering when env vars aren't provisioned in CI. The
+    // build-phase escape hatch keeps the runtime fail-fast intact while
+    // letting the build phase complete; the throw still fires at server
+    // start (`next start`) and browser-load.
+    expect(src).toMatch(/NEXT_PHASE === "phase-production-build"/);
+    expect(src).toMatch(/!isBuildPhase/);
   });
 
-  it("missing env var only warns in dev / test", () => {
+  it("missing env var only warns in dev / test / build-phase", () => {
     expect(src).toMatch(/console\.warn\(message\)/);
   });
 });

@@ -36,20 +36,28 @@ const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID ?? "";
 // to viem's hard-coded public RPC, which is severely rate-limited and
 // produces sporadic UX failures (failed reads, stalled txs) that look like
 // dapp bugs to the user. Detect the missing-env case at module load and:
-//   - throw in production builds (deploy-time fail-fast — a missing env var
-//     is an ops misconfig, not a runtime condition the app should tolerate);
+//   - throw at server-start / browser-load in production (deploy-time
+//     fail-fast — a missing env var is an ops misconfig, not a runtime
+//     condition the app should tolerate);
 //   - warn in dev / test where falling back to the public RPC is the
 //     intended developer-friction-free behaviour and the test suite must
 //     keep importing this module without provisioning real RPCs.
+//
+// Skip the throw during `next build` (NEXT_PHASE === "phase-production-build")
+// because static prerendering imports this module at build time when env
+// vars aren't necessarily provisioned in CI. The validation still fires at
+// runtime — both during server-render on `next start` and on the client
+// when the bundle loads in the browser.
 const expectedRpcEnvName: "NEXT_PUBLIC_BASE_RPC_URL" | "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL" =
   chain === base ? "NEXT_PUBLIC_BASE_RPC_URL" : "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL";
 const expectedRpcUrl =
   chain === base
     ? process.env.NEXT_PUBLIC_BASE_RPC_URL
     : process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL;
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 if (!expectedRpcUrl || expectedRpcUrl.trim() === "") {
   const message = `[wagmi] ${expectedRpcEnvName} is unset for active chain "${chain.name}" — viem will fall back to the rate-limited public RPC and reads/txs will silently fail under load.`;
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" && !isBuildPhase) {
     throw new Error(message);
   }
   // eslint-disable-next-line no-console
