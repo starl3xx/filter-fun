@@ -90,6 +90,25 @@ export function useHpUpdates(events: ReadonlyArray<TickerEvent>): UseHpUpdatesRe
   return {hpByAddress};
 }
 
+/// Compares two HpUpdate maps by their VISUAL-OUTPUT fields (hp + all 6
+/// components). Metadata — `computedAt`, `trigger`, `receivedAtIso` — is
+/// intentionally excluded.
+///
+/// **Why exclude metadata.** Two HP_UPDATED frames can share the same
+/// hp + components but carry different metadata (e.g., a BLOCK_TICK
+/// recompute that finds nothing changed since the last SWAP, but writes
+/// a new row anyway with a new `computedAt`). Including `computedAt` in
+/// the comparison would make every BLOCK_TICK invalidate the cached
+/// map → bump the pulse seq (which uses `computedAt`) → replay the
+/// cyan pulse animation on every recompute, including no-op ones. With
+/// Base's ~2s block cadence and a periodic block-tick handler, that
+/// produces near-continuous pulsing on all rows — the "HP just changed"
+/// signal becomes meaningless. Bugbot M on PR #83.
+///
+/// **Why include all 6 components, not just hp.** Same hp can mask a
+/// component shift (rounding to integer). The detail panel reads
+/// component values directly, so eliding a component-only delta would
+/// leave the panel stale. Bugbot L on PR #83.
 function mapsEqual(
   a: ReadonlyMap<string, HpUpdate>,
   b: ReadonlyMap<string, HpUpdate>,
@@ -98,19 +117,8 @@ function mapsEqual(
   for (const [k, va] of a) {
     const vb = b.get(k);
     if (!vb) return false;
-    // Compare every field that downstream consumers read. `computedAt`
-    // alone is *almost* enough because the indexer's SQL coalescing skips
-    // re-writes for the same `(token, blockTimestamp)` — but this guards
-    // defensively against same-computedAt frames carrying different
-    // component scores (e.g., a cohort-wide trigger and a SWAP trigger
-    // landing on identical block timestamps), which would otherwise
-    // silently elide the second frame and leave detail panels showing
-    // stale component breakdowns. Bugbot L on PR #83.
     if (
-      va.computedAt !== vb.computedAt ||
       va.hp !== vb.hp ||
-      va.trigger !== vb.trigger ||
-      va.receivedAtIso !== vb.receivedAtIso ||
       va.components.velocity !== vb.components.velocity ||
       va.components.effectiveBuyers !== vb.components.effectiveBuyers ||
       va.components.stickyLiquidity !== vb.components.stickyLiquidity ||

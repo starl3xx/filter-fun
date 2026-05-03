@@ -116,6 +116,64 @@ describe("useHpUpdates", () => {
     expect(result.current.hpByAddress.size).toBe(1);
   });
 
+  it("preserves map identity when a no-op recompute lands (same hp + components, new metadata) (bugbot M PR #83 round 2)", () => {
+    // Initial: SWAP at computedAt=100 with hp=87.
+    const initial: TickerEvent[] = [
+      hpUpdatedEvent({id: 1, address: TOKEN_A, data: fakeHpData({hp: 87, computedAt: 100, trigger: "SWAP"})}),
+    ];
+    const {result, rerender} = renderHook(({evs}: {evs: TickerEvent[]}) => useHpUpdates(evs), {
+      initialProps: {evs: initial},
+    });
+    const firstMap = result.current.hpByAddress;
+    // BLOCK_TICK at computedAt=200 lands — same hp + identical components,
+    // just new metadata. The hook MUST keep the previous map reference so
+    // the leaderboard's pulse seq (derived from computedAt) doesn't bump
+    // and trigger the cyan pulse animation on a no-op recompute.
+    const next: TickerEvent[] = [
+      hpUpdatedEvent({
+        id: 2, address: TOKEN_A,
+        timestamp: new Date(Date.now() + 1000).toISOString(),
+        data: fakeHpData({hp: 87, computedAt: 200, trigger: "BLOCK_TICK"}),
+      }),
+      ...initial,
+    ];
+    rerender({evs: next});
+    expect(result.current.hpByAddress).toBe(firstMap);
+    // And the seq stayed at the original computedAt — confirms the
+    // pulse won't replay on the BLOCK_TICK.
+    expect(result.current.hpByAddress.get(TOKEN_A.toLowerCase())!.computedAt).toBe(100);
+  });
+
+  it("invalidates map identity when components change at the same hp value", () => {
+    const initial: TickerEvent[] = [
+      hpUpdatedEvent({id: 1, address: TOKEN_A, data: fakeHpData({hp: 87, computedAt: 100})}),
+    ];
+    const {result, rerender} = renderHook(({evs}: {evs: TickerEvent[]}) => useHpUpdates(evs), {
+      initialProps: {evs: initial},
+    });
+    const firstMap = result.current.hpByAddress;
+    // Same integer HP (87) but a component shifted — the recompute IS
+    // meaningful for the detail panel even though the bar height looks
+    // identical. Hook must adopt the new map.
+    const next: TickerEvent[] = [
+      hpUpdatedEvent({
+        id: 2, address: TOKEN_A,
+        data: fakeHpData({
+          hp: 87, computedAt: 200,
+          components: {
+            velocity: 0.1, // changed from 0.9
+            effectiveBuyers: 0.7, stickyLiquidity: 0.8, retention: 1.0,
+            momentum: 0.0, holderConcentration: 0.4,
+          },
+        }),
+      }),
+      ...initial,
+    ];
+    rerender({evs: next});
+    expect(result.current.hpByAddress).not.toBe(firstMap);
+    expect(result.current.hpByAddress.get(TOKEN_A.toLowerCase())!.components.velocity).toBe(0.1);
+  });
+
   it("preserves map identity when an unrelated event arrives (bugbot M PR #83)", () => {
     // Initial: one HP_UPDATED.
     const initial: TickerEvent[] = [
