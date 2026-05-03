@@ -164,8 +164,24 @@ const nextConfig = {
     const indexerUrl = safeIndexerUrl();
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
-      `connect-src 'self' ${indexerUrl} https://*.base.org https://*.publicnode.com wss://*.walletconnect.com wss://*.walletconnect.org https://*.walletconnect.com https://*.walletconnect.org`,
+      // `https://static.cloudflareinsights.com` — Railway / Cloudflare Pages
+      // injects the Cloudflare Insights beacon (beacon.min.js) into the
+      // <head> of every response when the project is fronted by Cloudflare.
+      // The pre-fix CSP dropped it (post-PR #80), surfacing as a
+      // "Refused to load https://static.cloudflareinsights.com/beacon.min.js
+      // because it does not appear in the script-src directive" console
+      // error in production. The beacon is first-party Cloudflare analytics
+      // (no third-party tracking, no ads) and the URL is fixed, so an
+      // explicit origin allow-list entry is the right shape — avoids
+      // widening to a wildcard. If the project ever stops being fronted by
+      // Cloudflare this entry can be removed without further changes.
+      "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' https://static.cloudflareinsights.com",
+      // `https://cloudflareinsights.com` — companion endpoint for the beacon
+      // allow-listed in script-src above. The beacon POSTs telemetry to
+      // `cloudflareinsights.com/cdn-cgi/rum`; without this entry the
+      // analytics beacon loads but fails to report. Same scope rationale
+      // as the script-src entry: first-party Cloudflare, fixed origin.
+      `connect-src 'self' ${indexerUrl} https://*.base.org https://*.publicnode.com wss://*.walletconnect.com wss://*.walletconnect.org https://*.walletconnect.com https://*.walletconnect.org https://cloudflareinsights.com`,
       "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",
       "img-src 'self' https: data:",
