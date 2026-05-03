@@ -70,9 +70,12 @@ def _parse_calibrate_thresholds(out: str) -> tuple[int, float, float]:
         SURVIVED_LP_MIN_ETH  = 0.05
         SURVIVED_VOL_MIN_ETH = 0.0
     """
+    # Accept negative floats too: VOL_THRESHOLDS_ETH includes a -1.0
+    # "disable axis" sentinel (bugbot #66 finding 14), which the recommender
+    # may emit verbatim as `SURVIVED_VOL_MIN_ETH = -1.0`.
     h = re.search(r"SURVIVED_HOLDERS_MIN\s*=\s*(\d+)", out)
-    lp = re.search(r"SURVIVED_LP_MIN_ETH\s*=\s*([\d.]+)", out)
-    v = re.search(r"SURVIVED_VOL_MIN_ETH\s*=\s*([\d.]+)", out)
+    lp = re.search(r"SURVIVED_LP_MIN_ETH\s*=\s*(-?[\d.]+)", out)
+    v = re.search(r"SURVIVED_VOL_MIN_ETH\s*=\s*(-?[\d.]+)", out)
     if not (h and lp and v):
         # Fallback: calibrate may have failed to find a combo in band. Use
         # spec defaults so the run still produces a report.

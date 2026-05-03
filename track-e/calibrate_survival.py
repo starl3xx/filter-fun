@@ -35,7 +35,13 @@ from survival_gate import survival_mask
 # the [30%, 70%] band is the most permissive (lowest false-survivor risk).
 HOLDER_THRESHOLDS = [1, 2, 3, 5, 10]
 LP_THRESHOLDS_ETH = [0.0, 0.05, 0.1, 0.25, 0.5, 1.0]
-VOL_THRESHOLDS_ETH = [0.0, 0.001, 0.01]
+# Volume sweep includes a -1.0 "disable axis" sentinel because the gate
+# uses strict `>` on volume (bugbot #66 finding 14): with 0.0 as the
+# loosest value, a corpus where every token has vol_24h_at_168h_eth == 0
+# (the v4 reality — see REPORT_v4 §2) returns 0% on every combo, masking
+# any in-band gate. -1.0 makes `v > -1.0` True for all rows, so the sweep
+# can find e.g. (holders≥1, lp≥0.5, vol disabled) → 39% automatically.
+VOL_THRESHOLDS_ETH = [-1.0, 0.0, 0.001, 0.01]
 
 
 def main(argv: list[str] | None = None) -> int:
