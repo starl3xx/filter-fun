@@ -833,12 +833,44 @@ def generate_synthetic_corpus(n_tokens: int = 500, seed: int = 42) -> pd.DataFra
 # Main
 # ============================================================================
 
+def _recompute_survived_to_day_7(df: pd.DataFrame, *,
+                                  holders_min: int,
+                                  lp_min_eth: float,
+                                  vol_min_eth: float) -> int:
+    """Track-E v4: recompute the survived_to_day_7 column from the raw 168h
+    gate components (`holders_at_168h`, `lp_depth_168h_eth`,
+    `vol_24h_at_168h_eth`). Lets the dispatch's [30%, 70%] true-rate band
+    calibration land without re-running the multi-hour Alchemy crawl. The
+    fetcher writes survived_to_day_7 with whatever gate was active at
+    fetch-time; this overwrites it in-place. No-op (and warns) if the raw
+    columns are absent — i.e., for v3 corpora pre-cache_schema=6."""
+    needed = ["holders_at_168h", "lp_depth_168h_eth", "vol_24h_at_168h_eth"]
+    if not all(c in df.columns for c in needed):
+        return 0  # silent no-op for pre-v4 corpora; data-quality section flags
+    h = pd.to_numeric(df["holders_at_168h"], errors="coerce").fillna(0)
+    l = pd.to_numeric(df["lp_depth_168h_eth"], errors="coerce").fillna(0.0)
+    v = pd.to_numeric(df["vol_24h_at_168h_eth"], errors="coerce").fillna(0.0)
+    df["survived_to_day_7"] = (
+        (h >= holders_min) & (l >= lp_min_eth) & (v > vol_min_eth)
+    ).astype(int)
+    return int(df["survived_to_day_7"].sum())
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default=None, help="Path to corpus CSV (defaults to synthetic)")
     parser.add_argument("--output", default=None, help="Path to output report markdown")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-synthetic", type=int, default=500)
+    # v4: post-hoc survival-gate calibration. Defaults match the fetcher's
+    # at-fetch-time gates so behavior matches v3 unless overridden.
+    parser.add_argument("--survived-holders-min", type=int, default=5,
+                        help="Minimum holders at t+168h for survived_to_day_7=1")
+    parser.add_argument("--survived-lp-min-eth", type=float, default=0.5,
+                        help="Minimum LP depth (ETH) at t+168h for survival")
+    parser.add_argument("--survived-vol-min-eth", type=float, default=0.0,
+                        help="Strictly-greater-than threshold for trailing-24h "
+                             "swap volume (ETH) at t+168h for survival")
     args = parser.parse_args()
 
     here = Path(__file__).parent
@@ -853,6 +885,18 @@ def main():
     else:
         print(f"Loading corpus from {args.input}...")
         df = pd.read_csv(args.input)
+        n_survived = _recompute_survived_to_day_7(
+            df,
+            holders_min=args.survived_holders_min,
+            lp_min_eth=args.survived_lp_min_eth,
+            vol_min_eth=args.survived_vol_min_eth,
+        )
+        if "holders_at_168h" in df.columns:
+            print(f"  recomputed survived_to_day_7 with gate "
+                  f"(holders≥{args.survived_holders_min}, "
+                  f"lp≥{args.survived_lp_min_eth} ETH, "
+                  f"vol>{args.survived_vol_min_eth} ETH) → "
+                  f"{n_survived}/{len(df)} ({n_survived/max(len(df),1)*100:.0f}%)")
 
     print(f"Computing HP components for {len(df):,} tokens...")
     components_df = compute_components(df)
