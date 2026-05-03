@@ -25,8 +25,9 @@ import {HookMiner} from "../src/libraries/HookMiner.sol";
 ///           - Mines the FilterHook CREATE2 salt inline if `HOOK_SALT` isn't in env, and writes
 ///             it back into the manifest so re-runs (after `rm`-ing the manifest) read the
 ///             cached salt instead of re-mining.
-///           - Calls `setMaxLaunchesPerWallet` + `setRefundableStakeEnabled` with env values,
-///             so Sepolia config is authoritative even when it matches contract defaults.
+///           - Calls `setRefundableStakeEnabled` with the env value so Sepolia config is
+///             authoritative even when it matches contract defaults. (Per-wallet cap is
+///             enforced structurally by LaunchEscrow per spec §46 — no env knob.)
 ///           - Refuses to overwrite an existing manifest unless `FORCE_REDEPLOY=1`. Re-runs
 ///             without that flag bail with a clear error so the operator can `rm` first.
 ///
@@ -36,8 +37,9 @@ import {HookMiner} from "../src/libraries/HookMiner.sol";
 ///           WETH_ADDRESS                 canonical WETH9 on Base Sepolia
 ///           TREASURY_OWNER               EOA acting as treasury timelock admin + recipient
 ///           SCHEDULER_ORACLE_ADDRESS     scheduler oracle EOA (calls startSeason/cuts/etc.)
-///           MAX_LAUNCHES_PER_WALLET      cap (Sepolia: 1)
 ///           REFUNDABLE_STAKE_ENABLED     "true" or "false"
+///         (legacy MAX_LAUNCHES_PER_WALLET env var is accepted but ignored — the
+///          structural per-wallet cap of 1 lives in LaunchEscrow now per spec §46)
 ///
 ///         Optional env (default to TREASURY_OWNER):
 ///           MECHANICS_WALLET             events/missions wallet
@@ -84,7 +86,10 @@ contract DeploySepolia is Script {
         address oracle = vm.envAddress("SCHEDULER_ORACLE_ADDRESS");
         address mechanics = vm.envOr("MECHANICS_WALLET", treasuryOwner);
         address polVaultOwner = vm.envOr("POL_VAULT_OWNER", treasuryOwner);
-        uint256 maxLaunchesPerWallet = vm.envUint("MAX_LAUNCHES_PER_WALLET");
+        // Spec §46 deferred-activation: the launcher enforces the per-wallet cap
+        // structurally via LaunchEscrow (1 reservation per wallet per season). The legacy
+        // MAX_LAUNCHES_PER_WALLET env var is no longer read by the contract; it remains
+        // accepted-and-ignored for one release so any cached deploy script doesn't break.
         bool refundableStake = ScriptUtils.envBool("REFUNDABLE_STAKE_ENABLED", true);
 
         require(block.chainid == 84_532, "DeploySepolia: chainId != 84532 (Base Sepolia)");
@@ -153,8 +158,9 @@ contract DeploySepolia is Script {
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));
 
-        // 7. Sepolia-specific config knobs.
-        launcher.setMaxLaunchesPerWallet(maxLaunchesPerWallet);
+        // 7. Sepolia-specific config knobs. Per-wallet cap is no longer configurable —
+        //    LaunchEscrow enforces 1 reservation per wallet per season structurally
+        //    (spec §46). Only the refundable-stake toggle remains operator-controlled.
         launcher.setRefundableStakeEnabled(refundableStake);
 
         // 8. Hand POLVault ownership to the configured owner. Ownable2Step — owner must
@@ -176,6 +182,7 @@ contract DeploySepolia is Script {
                 bonus: address(bonus),
                 polVault: address(polVault),
                 launcher: address(launcher),
+                launchEscrow: address(launcher.launchEscrow()),
                 polManager: address(polManager),
                 hook: address(hook),
                 factory: address(factory),
@@ -190,7 +197,6 @@ contract DeploySepolia is Script {
                 oracle: oracle,
                 mechanics: mechanics,
                 polVaultOwner: polVaultOwner,
-                maxLaunchesPerWallet: maxLaunchesPerWallet,
                 refundableStake: refundableStake
             })
         );
@@ -236,6 +242,7 @@ contract DeploySepolia is Script {
         address bonus;
         address polVault;
         address launcher;
+        address launchEscrow;
         address polManager;
         address hook;
         address factory;
@@ -250,7 +257,6 @@ contract DeploySepolia is Script {
         address oracle;
         address mechanics;
         address polVaultOwner;
-        uint256 maxLaunchesPerWallet;
         bool refundableStake;
     }
 
@@ -272,6 +278,8 @@ contract DeploySepolia is Script {
             _kv("polVault", a.polVault),
             ",",
             _kv("filterLauncher", a.launcher),
+            ",",
+            _kv("launchEscrow", a.launchEscrow),
             ",",
             _kv("polManager", a.polManager),
             ",",
@@ -304,8 +312,6 @@ contract DeploySepolia is Script {
             _kv("mechanicsWallet", a.mechanics),
             ",",
             _kv("polVaultOwner", a.polVaultOwner),
-            ",",
-            _kvUint("maxLaunchesPerWallet", a.maxLaunchesPerWallet),
             ",",
             _kvBool("refundableStakeEnabled", a.refundableStake),
             "}"

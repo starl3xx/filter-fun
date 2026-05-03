@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 
 import {FilterLauncher} from "../src/FilterLauncher.sol";
+import {LaunchEscrow} from "../src/LaunchEscrow.sol";
 import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 import {IBonusFunding, IPOLManager} from "../src/SeasonVault.sol";
@@ -11,6 +12,10 @@ import {BonusDistributor} from "../src/BonusDistributor.sol";
 import {MockWETH} from "./mocks/MockWETH.sol";
 import {MockFilterFactory} from "./mocks/MockFilterFactory.sol";
 
+/// @title FilterLauncherTest
+/// @notice Coverage of the deferred-activation reservation flow (spec §46) on the launcher
+///         contract. Replaces the pre-§46 `launchToken`-immediate-deploy suite with the
+///         reservation-then-activate semantics.
 contract FilterLauncherTest is Test {
     FilterLauncher launcher;
     MockFilterFactory factory;
@@ -38,7 +43,6 @@ contract FilterLauncherTest is Test {
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
 
-        // Fund test actors so they can pay slot costs.
         vm.deal(aliceCreator, 100 ether);
         vm.deal(bobCreator, 100 ether);
         for (uint160 i = 1; i <= 12; ++i) {
@@ -51,113 +55,295 @@ contract FilterLauncherTest is Test {
         sid = launcher.startSeason();
     }
 
-    /// @dev Pure replica of `FilterLauncher._launchCost` so callers can compute slot costs
-    ///      without dispatching a view call to the launcher. Important: any call between
-    ///      `vm.prank` and the action under test consumes the prank, so this function MUST
-    ///      stay pure (no calls to `launcher.*`).
+    /// @dev Pure mirror of the launcher's `_slotCost` so callers can compute slot costs
+    ///      without dispatching a view call (which would consume a `vm.prank`).
     function _slotCost(uint64 slotIndex) internal pure returns (uint256) {
-        uint256 base = 0.05 ether; // mirrors FilterLauncher.baseLaunchCost default
-        uint256 m = 12; // MAX_LAUNCHES
+        uint256 base = 0.05 ether;
+        uint256 m = 12;
         uint256 s = uint256(slotIndex);
         return (base * (m * m + s * s)) / (m * m);
     }
 
-    function test_StartSeasonAndLaunch() public {
+    /// @dev Wallet generator, used to satisfy the per-wallet reservation cap by spinning up
+    ///      a fresh creator for each slot.
+    function _wallet(uint256 idx) internal returns (address w) {
+        w = address(uint160(0x1000) + uint160(idx));
+        if (w.balance < 1 ether) vm.deal(w, 100 ether);
+    }
+
+    /// @dev Reserve a slot for `creator` with auto-derived ticker `T<idx>`. Returns the
+    ///      slotIndex assigned (matches reservationCount pre-increment).
+    function _reserve(address creator, uint64 idx) internal returns (uint64) {
+        uint256 cost = _slotCost(idx);
+        vm.prank(creator);
+        launcher.reserve{value: cost}(_str(idx + 1), "ipfs://meta");
+        return idx;
+    }
+
+    // ============================================================ Pre-activation reservations
+
+    function test_StartSeason() public {
         uint256 sid = _openSeason();
         assertEq(sid, 1);
         assertEq(uint8(launcher.phaseOf(sid)), uint8(IFilterLauncher.Phase.Launch));
         assertEq(launcher.launchEndTime(sid), block.timestamp + 48 hours);
-
-        uint256 cost = _slotCost(0);
-        vm.prank(aliceCreator);
-        (address token, address locker) = launcher.launchToken{value: cost}("Pepe", "PEPE", "ipfs://x");
-        assertTrue(token != address(0));
-        assertTrue(locker != address(0));
-
-        IFilterLauncher.TokenEntry memory e = launcher.entryOf(sid, token);
-        assertEq(e.creator, aliceCreator);
-        assertEq(e.feeSplitter, locker);
-        assertEq(e.isProtocolLaunched, false);
-        assertEq(launcher.lockerOf(sid, token), locker);
-
-        IFilterLauncher.LaunchInfo memory info = launcher.launchInfoOf(sid, token);
-        assertEq(info.slotIndex, 0);
-        assertEq(info.costPaid, cost);
-        assertEq(info.stakeAmount, cost, "stake retained while refundable mode on");
+        assertEq(launcher.activated(sid), false, "fresh season not activated");
+        assertEq(launcher.aborted(sid), false, "fresh season not aborted");
+        assertEq(launcher.reservationCount(sid), 0, "no reservations yet");
     }
 
-    // ============================================================ Slot cap
-
-    function test_CannotLaunchAfter12Slots() public {
+    function test_FirstReservationEscrowsButDoesNotDeploy() public {
         _openSeason();
-        for (uint160 i = 1; i <= 12; ++i) {
-            address creator = address(uint160(0x1000) + i);
-            uint256 c = _slotCost(uint64(i - 1));
+        uint256 cost = _slotCost(0);
+        vm.prank(aliceCreator);
+        launcher.reserve{value: cost}("PEPE", "ipfs://pepe");
+
+        assertEq(launcher.reservationCount(1), 1);
+        assertEq(launcher.launchCount(1), 0, "no token deployed pre-activation");
+        assertEq(launcher.activated(1), false);
+        // Escrow holds the cost.
+        assertEq(address(launcher.launchEscrow()).balance, cost);
+        // Pending queue records the strings for activation-time deploy.
+        FilterLauncher.PendingReservation[] memory pending = launcher.pendingReservations(1);
+        assertEq(pending.length, 1);
+        assertEq(pending[0].creator, aliceCreator);
+        assertEq(pending[0].ticker, "PEPE");
+        assertEq(pending[0].slotIndex, 0);
+    }
+
+    function test_FourthReservationActivatesAndBatchDeploys() public {
+        _openSeason();
+
+        // 1..3: escrow only.
+        for (uint64 i = 0; i < 3; ++i) {
+            address creator = _wallet(i);
+            uint256 cost = _slotCost(i);
             vm.prank(creator);
-            launcher.launchToken{value: c}(_str(i), _str(i), "");
+            launcher.reserve{value: cost}(_str(i + 1), "ipfs://meta");
+            assertEq(launcher.activated(1), false, "activation premature");
+        }
+        assertEq(launcher.launchCount(1), 0, "no deploys pre-threshold");
+
+        // 4th reservation triggers activation and deploys all 4.
+        address fourth = _wallet(3);
+        uint256 cost4 = _slotCost(3);
+        vm.prank(fourth);
+        launcher.reserve{value: cost4}(_str(4), "ipfs://meta");
+
+        assertEq(launcher.activated(1), true, "activated");
+        assertEq(launcher.activatedAt(1), uint64(block.timestamp), "activatedAt stamped");
+        assertEq(launcher.launchCount(1), 4, "all 4 deployed atomically");
+        assertEq(launcher.reservationCount(1), 4);
+        // Pending queue cleared.
+        assertEq(launcher.pendingReservations(1).length, 0);
+        // Escrow balance: post-release the launcher holds the funds (refundableStakeEnabled=true).
+        assertEq(address(launcher.launchEscrow()).balance, 0, "escrow drained");
+        assertEq(address(launcher).balance, _slotCost(0) + _slotCost(1) + _slotCost(2) + _slotCost(3));
+    }
+
+    function test_PostActivationReservationDeploysImmediately() public {
+        _openSeason();
+        // Cross threshold.
+        for (uint64 i = 0; i < 4; ++i) {
+            _reserve(_wallet(i), i);
+        }
+        assertEq(launcher.launchCount(1), 4);
+
+        // Slot 5 (post-activation) deploys in the same tx.
+        address fifth = _wallet(4);
+        uint256 cost = _slotCost(4);
+        vm.prank(fifth);
+        launcher.reserve{value: cost}("FIVE", "ipfs://5");
+
+        assertEq(launcher.launchCount(1), 5);
+        assertEq(launcher.reservationCount(1), 5);
+        // No pending entry should ever land post-activation.
+        assertEq(launcher.pendingReservations(1).length, 0);
+    }
+
+    function test_FullCohortOfTwelve() public {
+        _openSeason();
+        for (uint64 i = 0; i < 12; ++i) {
+            _reserve(_wallet(i), i);
         }
         assertEq(launcher.launchCount(1), 12);
-
-        address extra = address(0xDEAD);
-        vm.deal(extra, 10 ether);
-        vm.prank(extra);
-        vm.expectRevert(FilterLauncher.LaunchCapReached.selector);
-        launcher.launchToken{value: 1 ether}("X", "ZZZZZ", "");
+        assertEq(launcher.reservationCount(1), 12);
+        // 13th reservation reverts SlotsExhausted.
+        address thirteenth = makeAddr("thirteenth");
+        vm.deal(thirteenth, 1 ether);
+        vm.prank(thirteenth);
+        vm.expectRevert(FilterLauncher.SlotsExhausted.selector);
+        launcher.reserve{value: 1 ether}("THIRT", "ipfs://x");
     }
 
-    function test_LaunchSlotFilledEmits() public {
+    function test_LaunchClosedFiresAtCapFill() public {
         _openSeason();
-        uint256 cost = _slotCost(0);
-        vm.expectEmit(true, false, false, true);
-        emit FilterLauncher.LaunchSlotFilled(1, 0);
-        vm.prank(aliceCreator);
-        launcher.launchToken{value: cost}("A", "AAA", "");
-    }
-
-    function test_CapFillEmitsLaunchClosed() public {
-        _openSeason();
-        for (uint160 i = 1; i <= 11; ++i) {
-            address creator = address(uint160(0x1000) + i);
-            uint256 c = _slotCost(uint64(i - 1));
-            vm.prank(creator);
-            launcher.launchToken{value: c}(_str(i), _str(i), "");
+        for (uint64 i = 0; i < 11; ++i) {
+            _reserve(_wallet(i), i);
         }
-        // Final slot triggers LaunchClosed.
-        address last = address(uint160(0x1000) + 12);
-        uint256 finalCost = _slotCost(11);
+        // 12th reservation triggers LaunchClosed.
+        address twelfth = _wallet(11);
+        uint256 cost = _slotCost(11);
         vm.expectEmit(true, false, false, true);
         emit FilterLauncher.LaunchClosed(1, 12);
-        vm.prank(last);
-        launcher.launchToken{value: finalCost}(_str(12), _str(12), "");
+        vm.prank(twelfth);
+        launcher.reserve{value: cost}(_str(12), "ipfs://meta");
     }
 
-    // ============================================================ Per-wallet cap
+    // ============================================================ 8-step validation
 
-    /// @notice Spec §4.6 (locked 2026-04-30) — `maxLaunchesPerWallet = 1`. The constructor
-    ///         default is bound to `SPEC_LOCK_MAX_LAUNCHES_PER_WALLET`; this test guards the
-    ///         on-chain enforcement layer (audit finding C-2, Phase 1 audit 2026-05-01).
-    ///         Pre-fix this test allowed alice 2 launches and reverted on the 3rd, which
-    ///         encoded the buggy `= 2` default and silently accepted a non-spec cap.
-    function test_PerWalletCapEnforced() public {
+    function test_RevertWhenWindowClosed() public {
         _openSeason();
-        vm.startPrank(aliceCreator);
-        launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
-        vm.expectRevert(FilterLauncher.LaunchCapReached.selector);
-        launcher.launchToken{value: _slotCost(1)}("B", "BBB", "");
-        vm.stopPrank();
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(aliceCreator);
+        vm.expectRevert(FilterLauncher.WindowClosed.selector);
+        launcher.reserve{value: _slotCost(0)}("PEPE", "ipfs://meta");
     }
 
-    function test_ProtocolLaunchBypassesCap() public {
+    function test_RevertWhenAlreadyReserved() public {
+        _openSeason();
+        vm.prank(aliceCreator);
+        launcher.reserve{value: _slotCost(0)}("PEPE", "ipfs://meta");
+        // Second reservation from same wallet reverts.
+        vm.prank(aliceCreator);
+        vm.expectRevert(FilterLauncher.AlreadyReserved.selector);
+        launcher.reserve{value: _slotCost(1)}("WOJAK", "ipfs://meta");
+    }
+
+    function test_RevertWhenTickerBlocklisted() public {
+        _openSeason();
+        bytes32 filterHash = keccak256("FILTER");
+        vm.prank(aliceCreator);
+        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerBlocklisted.selector, filterHash));
+        launcher.reserve{value: _slotCost(0)}("FILTER", "ipfs://meta");
+    }
+
+    function test_RevertWhenTickerTakenInSameSeason() public {
+        _openSeason();
+        vm.prank(aliceCreator);
+        launcher.reserve{value: _slotCost(0)}("PEPE", "ipfs://meta");
+        bytes32 pepeHash = keccak256("PEPE");
+        vm.prank(bobCreator);
+        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerTaken.selector, uint256(1), pepeHash));
+        launcher.reserve{value: _slotCost(1)}("$pepe", "ipfs://meta");
+    }
+
+    function test_RevertWhenInsufficientEscrow() public {
+        _openSeason();
+        uint256 cost = _slotCost(0);
+        vm.prank(aliceCreator);
+        vm.expectRevert(FilterLauncher.InsufficientEscrow.selector);
+        launcher.reserve{value: cost - 1}("PEPE", "ipfs://meta");
+    }
+
+    function test_ExcessValueRefundedAtReserve() public {
+        _openSeason();
+        uint256 cost = _slotCost(0);
+        uint256 balBefore = aliceCreator.balance;
+        vm.prank(aliceCreator);
+        launcher.reserve{value: cost + 1 ether}("PEPE", "ipfs://meta");
+        // Excess ether goes back to the caller; only `cost` lands in escrow.
+        assertEq(aliceCreator.balance, balBefore - cost, "excess refunded immediately");
+        assertEq(address(launcher.launchEscrow()).balance, cost, "escrow holds exactly cost");
+    }
+
+    // ============================================================ Ticker normalisation
+
+    function test_TickerNormalisationCanonicalisesSymbol() public {
+        _openSeason();
+        vm.prank(aliceCreator);
+        launcher.reserve{value: _slotCost(0)}("$pepe", "ipfs://meta");
+        // Normalised hash matches `keccak256("PEPE")`.
+        assertEq(launcher.seasonTickers(1, keccak256("PEPE")), aliceCreator);
+        // Pending queue stores canonical form for deploy.
+        FilterLauncher.PendingReservation[] memory pending = launcher.pendingReservations(1);
+        assertEq(pending[0].ticker, "PEPE");
+    }
+
+    function test_TickerInvalidFormatReverts() public {
+        _openSeason();
+        // Leading-`$`-only is too short post-strip.
+        vm.prank(aliceCreator);
+        vm.expectRevert();
+        launcher.reserve{value: _slotCost(0)}("$X", "ipfs://meta");
+    }
+
+    // ============================================================ Abort path
+
+    function test_AbortRefundsAllReservations() public {
+        _openSeason();
+        // Three reservations land — short of the activation threshold.
+        for (uint64 i = 0; i < 3; ++i) {
+            _reserve(_wallet(i), i);
+        }
+        uint256 escrowBefore = address(launcher.launchEscrow()).balance;
+        assertEq(launcher.activated(1), false);
+
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(oracle);
+        launcher.abortSeason(1);
+
+        assertEq(launcher.aborted(1), true);
+        assertEq(address(launcher.launchEscrow()).balance, 0, "escrow drained");
+        // Each creator received their original slot cost.
+        for (uint64 i = 0; i < 3; ++i) {
+            address creator = _wallet(i);
+            // 100 ether starting balance; each paid _slotCost(i); refund returned _slotCost(i).
+            assertEq(creator.balance, 100 ether, "creator made whole");
+        }
+        // Sanity on the SeasonAborted event payload.
+        assertEq(escrowBefore, _slotCost(0) + _slotCost(1) + _slotCost(2));
+    }
+
+    function test_AbortRevertsWhileWindowOpen() public {
+        _openSeason();
+        _reserve(aliceCreator, 0);
+        vm.prank(oracle);
+        vm.expectRevert(FilterLauncher.WindowStillOpen.selector);
+        launcher.abortSeason(1);
+    }
+
+    function test_AbortRevertsAfterActivation() public {
+        _openSeason();
+        for (uint64 i = 0; i < 4; ++i) {
+            _reserve(_wallet(i), i);
+        }
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(oracle);
+        vm.expectRevert(FilterLauncher.SeasonAlreadyActivated.selector);
+        launcher.abortSeason(1);
+    }
+
+    function test_NoReservationsAtH48AbortIsZeroReservationSweep() public {
+        _openSeason();
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(oracle);
+        launcher.abortSeason(1);
+        assertEq(launcher.aborted(1), true);
+    }
+
+    // ============================================================ Protocol launch
+
+    function test_ProtocolLaunchBypassesReservation() public {
         _openSeason();
         (address token, address locker) =
             launcher.launchProtocolToken("filter.fun", "FILTER", "ipfs://filter");
         IFilterLauncher.TokenEntry memory e = launcher.entryOf(1, token);
         assertEq(e.isProtocolLaunched, true);
         assertTrue(locker != address(0));
-
-        // Protocol launch does NOT count toward slot cap or per-wallet cap.
+        // Protocol launch does NOT count toward reservationCount or launchCount.
         assertEq(launcher.launchCount(1), 0);
-        assertEq(launcher.launchesByWallet(1, owner), 0);
+        assertEq(launcher.reservationCount(1), 0);
+    }
+
+    function test_ProtocolLaunchAfterActivationStillWorks() public {
+        _openSeason();
+        for (uint64 i = 0; i < 4; ++i) {
+            _reserve(_wallet(i), i);
+        }
+        // After activation, owner can still seed a protocol token.
+        (address proto,) = launcher.launchProtocolToken("filter.fun", "FILTERX", "ipfs://x");
+        assertEq(launcher.entryOf(1, proto).isProtocolLaunched, true);
     }
 
     function test_NonOwnerCannotProtocolLaunch() public {
@@ -178,319 +364,89 @@ contract FilterLauncherTest is Test {
         }
     }
 
-    function test_PricingFormula() public view {
-        // BASE * (1 + (slot/MAX)^2): slot 0 → BASE, slot 12 (boundary, not achievable) → 2x BASE.
-        uint256 base = launcher.baseLaunchCost();
-        assertEq(launcher.launchCost(0), base, "slot 0 = base");
-        // Slot 11: BASE * (144 + 121) / 144 = BASE * 265/144.
-        assertEq(launcher.launchCost(11), (base * 265) / 144, "slot 11 formula");
-        // Sanity: last slot ~1.84x base — within the spec's "2x-2.5x" target band.
-        assertGt(launcher.launchCost(11), (base * 18) / 10);
+    function test_ExpectedSurvivorCount() public view {
+        // Spec §46 cuts: bottom 50% rounded DOWN; top ⌈n/2⌉ survive.
+        assertEq(launcher.expectedSurvivorCount(4), 2);
+        assertEq(launcher.expectedSurvivorCount(5), 3);
+        assertEq(launcher.expectedSurvivorCount(7), 4);
+        assertEq(launcher.expectedSurvivorCount(8), 4);
+        assertEq(launcher.expectedSurvivorCount(11), 6);
+        assertEq(launcher.expectedSurvivorCount(12), 6);
     }
 
-    function test_InsufficientPaymentReverts() public {
-        _openSeason();
-        uint256 cost = _slotCost(0);
-        vm.prank(aliceCreator);
-        vm.expectRevert(FilterLauncher.InsufficientPayment.selector);
-        launcher.launchToken{value: cost - 1}("A", "AAA", "");
-    }
+    // ============================================================ Phase transitions / pause
 
-    function test_ExcessValueRefunded() public {
-        _openSeason();
-        uint256 cost = _slotCost(0);
-        uint256 balBefore = aliceCreator.balance;
-        vm.prank(aliceCreator);
-        launcher.launchToken{value: cost + 1 ether}("A", "AAA", "");
-        // Cost is held as stake (refundable mode on), so creator should be down exactly `cost`.
-        assertEq(aliceCreator.balance, balBefore - cost, "excess returned");
-    }
-
-    // ============================================================ Launch window
-
-    function test_LaunchWindowExpires() public {
-        _openSeason();
-        vm.warp(block.timestamp + 48 hours);
-        vm.prank(aliceCreator);
-        vm.expectRevert(FilterLauncher.LaunchWindowClosed.selector);
-        launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
-    }
-
-    function test_CanLaunchView() public {
-        assertEq(launcher.canLaunch(), false, "no season open");
-        _openSeason();
-        assertEq(launcher.canLaunch(), true);
-        // Regression (bugbot): canLaunch must reflect pause, since launchToken is whenNotPaused.
-        launcher.pause();
-        assertEq(launcher.canLaunch(), false, "paused");
-        launcher.unpause();
-        assertEq(launcher.canLaunch(), true, "unpaused");
-        vm.warp(block.timestamp + 48 hours);
-        assertEq(launcher.canLaunch(), false, "window expired");
-    }
-
-    function test_GetLaunchStatus() public {
-        _openSeason();
-        IFilterLauncher.LaunchStatus memory s = launcher.getLaunchStatus(1);
-        assertEq(s.launchCount, 0);
-        assertEq(s.maxLaunches, 12);
-        assertEq(s.timeRemaining, 48 hours);
-        assertEq(s.nextLaunchCost, _slotCost(0));
-
-        vm.prank(aliceCreator);
-        launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
-        s = launcher.getLaunchStatus(1);
-        assertEq(s.launchCount, 1);
-        assertEq(s.nextLaunchCost, _slotCost(1));
-    }
-
-    function test_GetLaunchSlotsExcludesProtocol() public {
-        _openSeason();
-        launcher.launchProtocolToken("filter.fun", "FILTER", "");
-        vm.prank(aliceCreator);
-        (address tokenA,) = launcher.launchToken{value: _slotCost(0)}("Pepe", "PEPE", "");
-        vm.prank(bobCreator);
-        (address tokenB,) = launcher.launchToken{value: _slotCost(1)}("Wojak", "WOJAK", "");
-
-        (address[] memory tokens, uint64[] memory slotIxs, address[] memory creators) =
-            launcher.getLaunchSlots(1);
-        assertEq(tokens.length, 2);
-        assertEq(tokens[0], tokenA);
-        assertEq(tokens[1], tokenB);
-        assertEq(slotIxs[0], 0);
-        assertEq(slotIxs[1], 1);
-        assertEq(creators[0], aliceCreator);
-        assertEq(creators[1], bobCreator);
-    }
-
-    // ============================================================ Symbol collision
-
-    function test_DuplicateSymbolReverts() public {
-        _openSeason();
-        vm.prank(aliceCreator);
-        launcher.launchToken{value: _slotCost(0)}("Pepe", "PEPE", "");
-        vm.prank(bobCreator);
-        vm.expectRevert(FilterLauncher.DuplicateSymbol.selector);
-        launcher.launchToken{value: _slotCost(1)}("Pepe2", "PEPE", "");
-    }
-
-    // ============================================================ Stake refund / forfeit
-
-    function test_StakeRefundedOnSurvival() public {
-        _openSeason();
-        uint256 cost = _slotCost(0);
-        vm.prank(aliceCreator);
-        (address token,) = launcher.launchToken{value: cost}("A", "AAA", "");
-
-        // Move into Filter so soft filter is callable.
-        vm.prank(oracle);
-        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
-
-        uint256 balBefore = aliceCreator.balance;
-        address[] memory survivors = new address[](1);
-        survivors[0] = token;
-        address[] memory forfeited = new address[](0);
-
-        vm.prank(oracle);
-        launcher.applySoftFilter(1, survivors, forfeited);
-
-        assertEq(aliceCreator.balance, balBefore + cost, "stake refunded");
-        IFilterLauncher.LaunchInfo memory info = launcher.launchInfoOf(1, token);
-        assertEq(info.refunded, true);
-        assertEq(info.filteredEarly, false);
-        assertEq(info.stakeAmount, 0);
-    }
-
-    function test_SoftFilterWorksWhenBaseCostZero() public {
-        // Regression: bugbot flagged that `costPaid == 0` was used as the existence sentinel,
-        // which collapses to an `UnknownToken` revert if the owner sets `baseLaunchCost = 0`.
-        // The sentinel now leans on `_entry.token` instead, so zero-cost launches still resolve.
-        launcher.setBaseLaunchCost(0);
-        _openSeason();
-        vm.prank(aliceCreator);
-        (address token,) = launcher.launchToken{value: 0}("A", "AAA", "");
-
-        vm.prank(oracle);
-        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
-
-        address[] memory survivors = new address[](1);
-        survivors[0] = token;
-        address[] memory forfeited = new address[](0);
-
-        vm.prank(oracle);
-        launcher.applySoftFilter(1, survivors, forfeited);
-
-        IFilterLauncher.LaunchInfo memory info = launcher.launchInfoOf(1, token);
-        assertEq(info.refunded, true, "zero-cost launch still resolves");
-    }
-
-    function test_SoftFilterRejectsProtocolToken() public {
-        _openSeason();
-        (address protoToken,) = launcher.launchProtocolToken("filter.fun", "FILTER", "");
-
-        vm.prank(oracle);
-        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
-
-        address[] memory survivors = new address[](1);
-        survivors[0] = protoToken;
-        address[] memory forfeited = new address[](0);
-        vm.prank(oracle);
-        vm.expectRevert(FilterLauncher.UnknownToken.selector);
-        launcher.applySoftFilter(1, survivors, forfeited);
-    }
-
-    function test_StakeForfeitedOnFilter() public {
-        _openSeason();
-        uint256 cost = _slotCost(0);
-        vm.prank(aliceCreator);
-        (address token,) = launcher.launchToken{value: cost}("A", "AAA", "");
-
-        vm.prank(oracle);
-        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
-
-        uint256 treasuryBefore = treasury.balance;
-        address[] memory survivors = new address[](0);
-        address[] memory forfeited = new address[](1);
-        forfeited[0] = token;
-
-        vm.prank(oracle);
-        launcher.applySoftFilter(1, survivors, forfeited);
-
-        assertEq(treasury.balance, treasuryBefore + cost, "stake to treasury");
-        IFilterLauncher.LaunchInfo memory info = launcher.launchInfoOf(1, token);
-        assertEq(info.filteredEarly, true);
-        assertEq(info.refunded, false);
-        assertEq(info.stakeAmount, 0);
-    }
-
-    function test_SoftFilterIdempotent() public {
-        _openSeason();
-        uint256 cost = _slotCost(0);
-        vm.prank(aliceCreator);
-        (address token,) = launcher.launchToken{value: cost}("A", "AAA", "");
-
-        vm.prank(oracle);
-        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
-
-        address[] memory survivors = new address[](1);
-        survivors[0] = token;
-        address[] memory forfeited = new address[](0);
-        vm.prank(oracle);
-        launcher.applySoftFilter(1, survivors, forfeited);
-
-        vm.prank(oracle);
-        vm.expectRevert(FilterLauncher.AlreadyResolved.selector);
-        launcher.applySoftFilter(1, survivors, forfeited);
-    }
-
-    function test_SoftFilterRequiresPostLaunchPhase() public {
-        _openSeason();
-        vm.prank(aliceCreator);
-        (address token,) = launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
-        address[] memory survivors = new address[](1);
-        survivors[0] = token;
-        address[] memory forfeited = new address[](0);
-        vm.prank(oracle);
-        vm.expectRevert(FilterLauncher.WrongPhase.selector);
-        launcher.applySoftFilter(1, survivors, forfeited);
-    }
-
-    function test_NonOracleCannotApplySoftFilter() public {
-        _openSeason();
-        vm.prank(aliceCreator);
-        (address token,) = launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
-        vm.prank(oracle);
-        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
-        address[] memory survivors = new address[](1);
-        survivors[0] = token;
-        address[] memory forfeited = new address[](0);
-        vm.prank(aliceCreator);
-        vm.expectRevert(FilterLauncher.NotOracle.selector);
-        launcher.applySoftFilter(1, survivors, forfeited);
-    }
-
-    // ============================================================ Stake-disabled (fee mode)
-
-    function test_FeeModeRoutesToTreasury() public {
-        launcher.setRefundableStakeEnabled(false);
-        _openSeason();
-        uint256 cost = _slotCost(0);
-        uint256 treasuryBefore = treasury.balance;
-        vm.prank(aliceCreator);
-        (address token,) = launcher.launchToken{value: cost}("A", "AAA", "");
-        assertEq(treasury.balance, treasuryBefore + cost, "fee forwarded");
-
-        IFilterLauncher.LaunchInfo memory info = launcher.launchInfoOf(1, token);
-        assertEq(info.stakeAmount, 0, "no stake retained in fee mode");
-        assertEq(info.costPaid, cost);
-    }
-
-    // ============================================================ Phase + pause (existing)
-
-    function test_PhaseTransitions() public {
+    function test_AdvancePhaseRequiresActivationOrAbort() public {
         uint256 sid = _openSeason();
-        vm.startPrank(oracle);
-        launcher.advancePhase(sid, IFilterLauncher.Phase.Filter);
-        launcher.advancePhase(sid, IFilterLauncher.Phase.Finals);
-        launcher.advancePhase(sid, IFilterLauncher.Phase.Settlement);
-        launcher.advancePhase(sid, IFilterLauncher.Phase.Closed);
-        vm.stopPrank();
-        assertEq(uint8(launcher.phaseOf(sid)), uint8(IFilterLauncher.Phase.Closed));
-    }
-
-    function test_AdvancingFromLaunchEmitsLaunchClosed() public {
-        uint256 sid = _openSeason();
-        vm.expectEmit(true, false, false, true);
-        emit FilterLauncher.LaunchClosed(sid, 0);
+        // No reservations at all — advancePhase out of Launch must revert.
         vm.prank(oracle);
+        vm.expectRevert(FilterLauncher.SeasonNotActivated.selector);
         launcher.advancePhase(sid, IFilterLauncher.Phase.Filter);
     }
 
-    function test_SkippingPhaseReverts() public {
+    function test_AdvancePhaseAllowedAfterActivation() public {
         uint256 sid = _openSeason();
-        vm.prank(oracle);
-        vm.expectRevert(bytes("bad transition"));
-        launcher.advancePhase(sid, IFilterLauncher.Phase.Settlement);
-    }
-
-    function test_LaunchOutsidePhaseReverts() public {
-        uint256 sid = _openSeason();
+        for (uint64 i = 0; i < 4; ++i) {
+            _reserve(_wallet(i), i);
+        }
         vm.prank(oracle);
         launcher.advancePhase(sid, IFilterLauncher.Phase.Filter);
-        vm.prank(aliceCreator);
-        vm.expectRevert(FilterLauncher.WrongPhase.selector);
-        launcher.launchToken{value: _slotCost(0)}("X", "XXX", "");
+        assertEq(uint8(launcher.phaseOf(sid)), uint8(IFilterLauncher.Phase.Filter));
     }
 
-    function test_SetFinalists() public {
-        uint256 sid = _openSeason();
-        vm.prank(aliceCreator);
-        (address token,) = launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
-        vm.prank(oracle);
-        launcher.advancePhase(sid, IFilterLauncher.Phase.Filter);
-
-        address[] memory finalists = new address[](1);
-        finalists[0] = token;
-        vm.prank(oracle);
-        launcher.setFinalists(sid, finalists);
-
-        assertEq(launcher.entryOf(sid, token).isFinalist, true);
-    }
-
-    function test_PauseBlocksLaunch() public {
+    function test_PauseBlocksReserve() public {
         _openSeason();
         launcher.pause();
         vm.prank(aliceCreator);
         vm.expectRevert();
-        launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
+        launcher.reserve{value: _slotCost(0)}("PEPE", "ipfs://meta");
         launcher.unpause();
         vm.prank(aliceCreator);
-        launcher.launchToken{value: _slotCost(0)}("A", "AAA", "");
+        launcher.reserve{value: _slotCost(0)}("PEPE", "ipfs://meta");
+    }
+
+    function test_CanReserveView() public {
+        assertEq(launcher.canReserve(), false, "no season open");
+        _openSeason();
+        assertEq(launcher.canReserve(), true);
+        launcher.pause();
+        assertEq(launcher.canReserve(), false, "paused");
+        launcher.unpause();
+        vm.warp(block.timestamp + 48 hours);
+        assertEq(launcher.canReserve(), false, "window expired");
+    }
+
+    // ============================================================ Soft-filter (post-activation)
+
+    function test_StakeRefundedOnSurvival() public {
+        _openSeason();
+        for (uint64 i = 0; i < 4; ++i) {
+            _reserve(_wallet(i), i);
+        }
+        address[] memory tokens = launcher.tokensInSeason(1);
+        assertEq(tokens.length, 4, "4 tokens deployed");
+
+        vm.prank(oracle);
+        launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
+
+        address creator0 = _wallet(0);
+        uint256 balBefore = creator0.balance;
+        address[] memory survivors = new address[](1);
+        survivors[0] = tokens[0];
+        address[] memory forfeited = new address[](0);
+
+        vm.prank(oracle);
+        launcher.applySoftFilter(1, survivors, forfeited);
+
+        assertEq(creator0.balance, balBefore + _slotCost(0), "stake refunded");
+        IFilterLauncher.LaunchInfo memory info = launcher.launchInfoOf(1, tokens[0]);
+        assertEq(info.refunded, true);
+        assertEq(info.stakeAmount, 0);
     }
 
     // ---------- helpers ----------
 
-    function _str(uint160 i) internal pure returns (string memory) {
+    function _str(uint64 i) internal pure returns (string memory) {
         // 1..12 → "T1".."T12" — short, unique, all-caps.
         if (i < 10) return string(abi.encodePacked("T", bytes1(uint8(48 + i))));
         return string(abi.encodePacked("T", bytes1(uint8(48 + i / 10)), bytes1(uint8(48 + (i % 10)))));

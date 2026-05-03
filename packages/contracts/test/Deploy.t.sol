@@ -25,8 +25,8 @@ import {MockWETH} from "./mocks/MockWETH.sol";
 ///         `SeedFilter` scripts in-process against a v4 PoolManager spun up via the
 ///         v4-core Deployers helper, then asserts:
 ///           - every deployed address is non-zero
-///           - cross-wiring is correct (factory ↔ hook ↔ launcher ↔ POL stack)
-///           - `setMaxLaunchesPerWallet` + `setRefundableStakeEnabled` were applied
+///           - cross-wiring is correct (factory ↔ hook ↔ launcher ↔ POL stack ↔ escrow)
+///           - `setRefundableStakeEnabled` and the LaunchEscrow ↔ launcher handshake match
 ///           - the manifest file lands on disk, contains the right chainId + addresses, and
 ///             has the salt cached so re-runs read it instead of re-mining
 ///           - re-running the script with a populated manifest reverts (idempotency)
@@ -54,7 +54,7 @@ contract DeployTest is Test, Deployers {
     event VerifySepoliaOK(
         uint256 chainId,
         address filterLauncher,
-        uint256 maxLaunchesPerWallet,
+        address launchEscrow,
         bool filterTokenChecked,
         address filterToken,
         uint256 tokensChecked
@@ -176,7 +176,7 @@ contract DeployTest is Test, Deployers {
         assertEq(uint160(hook) & 0x3FFF, uint160(0xA00), "hook flag bits");
 
         // Wiring assertions.
-        FilterLauncher l = FilterLauncher(launcher);
+        FilterLauncher l = FilterLauncher(payable(launcher));
         assertEq(address(l.factory()), factory, "launcher.factory");
         assertEq(address(l.polManager()), polMgr, "launcher.polManager");
         assertEq(address(l.creatorRegistry()), creatorReg, "launcher.creatorRegistry");
@@ -188,9 +188,20 @@ contract DeployTest is Test, Deployers {
         assertEq(l.treasury(), treasury, "launcher.treasury");
         assertEq(l.mechanics(), mechanics, "launcher.mechanics");
         assertEq(l.weth(), address(weth), "launcher.weth");
-        assertEq(l.maxLaunchesPerWallet(), 1, "launcher.maxLaunchesPerWallet");
         assertTrue(l.refundableStakeEnabled(), "launcher.refundableStakeEnabled");
         assertEq(l.owner(), deployerAddr, "launcher.owner is deployer (rotate post-deploy)");
+        // Spec §46: launchEscrow is deployed inline by the launcher constructor and the
+        // manifest must record the same address.
+        address manifestEscrow = vm.parseJsonAddress(m, ".addresses.launchEscrow");
+        assertEq(address(l.launchEscrow()), manifestEscrow, "launcher.launchEscrow == manifest");
+        assertTrue(manifestEscrow != address(0), "manifest.launchEscrow non-zero");
+        // Spec §4.6.1 protocol-blocklist seed.
+        assertTrue(l.tickerBlocklist(keccak256("FILTER")), "blocklist seed: FILTER");
+        assertTrue(l.tickerBlocklist(keccak256("WETH")), "blocklist seed: WETH");
+        assertTrue(l.tickerBlocklist(keccak256("ETH")), "blocklist seed: ETH");
+        assertTrue(l.tickerBlocklist(keccak256("USDC")), "blocklist seed: USDC");
+        assertTrue(l.tickerBlocklist(keccak256("USDT")), "blocklist seed: USDT");
+        assertTrue(l.tickerBlocklist(keccak256("DAI")), "blocklist seed: DAI");
 
         // Hook is initialized; reverts to re-init.
         vm.expectRevert();
@@ -205,7 +216,6 @@ contract DeployTest is Test, Deployers {
         assertEq(vm.parseJsonAddress(m, ".config.schedulerOracle"), scheduler, "config.schedulerOracle");
         assertEq(vm.parseJsonAddress(m, ".config.mechanicsWallet"), mechanics, "config.mechanicsWallet");
         assertEq(vm.parseJsonAddress(m, ".config.polVaultOwner"), polVaultOwner, "config.polVaultOwner");
-        assertEq(vm.parseJsonUint(m, ".config.maxLaunchesPerWallet"), 1, "config.maxLaunchesPerWallet");
         assertTrue(vm.parseJsonBool(m, ".config.refundableStakeEnabled"), "config.refundableStakeEnabled");
 
         // Hook salt was persisted (non-zero implies the script wrote the mined value).
@@ -262,8 +272,9 @@ contract DeployTest is Test, Deployers {
     /// passes. Avoids duplicating the boilerplate four times.
     function _deployAndStartSeason(bool openSeason) internal returns (FilterLauncher launcher) {
         deployer.run();
-        launcher =
-            FilterLauncher(vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher"));
+        launcher = FilterLauncher(
+            payable(vm.parseJsonAddress(vm.readFile(TEST_MANIFEST), ".addresses.filterLauncher"))
+        );
         if (openSeason) {
             vm.prank(scheduler);
             launcher.startSeason();
@@ -279,6 +290,22 @@ contract DeployTest is Test, Deployers {
 
     function test_SeedFilterRefusesIfPhaseNotLaunch() public freshEnv {
         FilterLauncher launcher = _deployAndStartSeason(true);
+        // Spec §46: `advancePhase` out of Launch requires the season to be activated or
+        // aborted. Cross the activation threshold first so the phase advance is legal.
+        // Pre-compute costs into locals — `vm.prank` is consumed by the launchCost staticcall
+        // otherwise, so the actual `reserve` would be msg.sender = test contract for every
+        // iteration and trip `AlreadyReserved` on the second pass.
+        uint256[4] memory costs;
+        for (uint64 i = 0; i < 4; ++i) {
+            costs[i] = launcher.launchCost(i);
+        }
+        for (uint160 i = 1; i <= 4; ++i) {
+            address creator = address(uint160(0xCAFE0000) + i);
+            vm.deal(creator, 1 ether);
+            string memory ticker = string(abi.encodePacked("PH", bytes1(uint8(48 + i))));
+            vm.prank(creator);
+            launcher.reserve{value: costs[i - 1]}(ticker, "ipfs://meta");
+        }
         vm.prank(scheduler);
         launcher.advancePhase(1, IFilterLauncher.Phase.Filter);
 
@@ -346,7 +373,7 @@ contract DeployTest is Test, Deployers {
     struct VerifyOKLog {
         uint256 chainId;
         address filterLauncher;
-        uint256 maxLaunchesPerWallet;
+        address launchEscrow;
         bool filterTokenChecked;
         address filterToken;
         uint256 tokensChecked;
@@ -355,17 +382,17 @@ contract DeployTest is Test, Deployers {
     /// Locate the single VerifySepoliaOK entry in a recorded log batch and decode it.
     /// Reverts if the event isn't present — the verifier emits exactly one on success.
     function _findOkLog(Vm.Log[] memory logs) internal pure returns (VerifyOKLog memory ev) {
-        bytes32 sig = keccak256("VerifySepoliaOK(uint256,address,uint256,bool,address,uint256)");
+        bytes32 sig = keccak256("VerifySepoliaOK(uint256,address,address,bool,address,uint256)");
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].topics.length > 0 && logs[i].topics[0] == sig) {
                 (
                     ev.chainId,
                     ev.filterLauncher,
-                    ev.maxLaunchesPerWallet,
+                    ev.launchEscrow,
                     ev.filterTokenChecked,
                     ev.filterToken,
                     ev.tokensChecked
-                ) = abi.decode(logs[i].data, (uint256, address, uint256, bool, address, uint256));
+                ) = abi.decode(logs[i].data, (uint256, address, address, bool, address, uint256));
                 return ev;
             }
         }
@@ -385,7 +412,7 @@ contract DeployTest is Test, Deployers {
 
         assertEq(ev.chainId, 84_532, "ev.chainId");
         assertEq(ev.filterLauncher, address(launcher), "ev.filterLauncher");
-        assertEq(ev.maxLaunchesPerWallet, 1, "ev.maxLaunchesPerWallet");
+        assertEq(ev.launchEscrow, address(launcher.launchEscrow()), "ev.launchEscrow");
         assertTrue(ev.filterTokenChecked, "ev.filterTokenChecked");
         assertEq(ev.filterToken, filterToken, "ev.filterToken");
         assertEq(ev.tokensChecked, 1, "ev.tokensChecked");
@@ -403,27 +430,10 @@ contract DeployTest is Test, Deployers {
 
         assertEq(ev.chainId, 84_532, "ev.chainId");
         assertEq(ev.filterLauncher, address(launcher), "ev.filterLauncher");
-        assertEq(ev.maxLaunchesPerWallet, 1, "ev.maxLaunchesPerWallet");
+        assertEq(ev.launchEscrow, address(launcher.launchEscrow()), "ev.launchEscrow");
         assertFalse(ev.filterTokenChecked, "ev.filterTokenChecked");
         assertEq(ev.filterToken, address(0), "ev.filterToken (skipped)");
         assertEq(ev.tokensChecked, 0, "ev.tokensChecked (no season)");
-    }
-
-    /// Assertion 1 — verifier hard-codes SPEC_MAX_LAUNCHES = 1 (spec §4.6). To force a
-    /// mismatch we deploy with the spec value, then directly poke the launcher's storage
-    /// via the owner-only setter to flip the on-chain cap to 2. The verifier should then
-    /// surface the assertion-1 revert.
-    function test_VerifyFailsOnMaxLaunchesMismatch() public freshEnv {
-        FilterLauncher launcher = _deployAndStartSeason(false);
-        // Owner is the deployer EOA; flip the cap to 2 so the verifier's spec-locked
-        // expected (1) doesn't match.
-        vm.prank(deployerAddr);
-        launcher.setMaxLaunchesPerWallet(2);
-
-        // skipFilter=true so we don't trip assertion 2a before reaching assertion 1
-        // (the deploy alone leaves filterToken.address=0).
-        vm.expectRevert(bytes("AssertionFailed_1: maxLaunchesPerWallet != spec 4.6 lock (1)"));
-        verify.runWithFlags(true);
     }
 
     /// Assertion 2a — manifest.filterToken.address is zero (DeploySepolia placeholder)
@@ -542,20 +552,24 @@ contract DeployTest is Test, Deployers {
     }
 
     /// Refusal path: a public launch exists in the current season → script reverts unless
-    /// ACTIVE_LAUNCH_OK=1. We open a season, set baseLaunchCost to 0 so the test wallet can
-    /// launch without funding gymnastics, then call launchToken so launchCount > 0.
+    /// ACTIVE_LAUNCH_OK=1. Under deferred activation we have to fire 4 reservations to
+    /// cross the activation threshold and actually deploy a token (single reservation only
+    /// escrows). We open a season, set baseLaunchCost to 0 so the test wallets don't need
+    /// ETH, then run 4 reservations from distinct wallets.
     function test_RedeployFactoryRefusesWithActiveLaunch() public freshEnv {
         FilterLauncher launcher = _deployAndStartSeason(true);
 
-        // Drop launch cost to zero so the prank-call below doesn't need ETH.
         vm.prank(deployerAddr);
         launcher.setBaseLaunchCost(0);
 
-        address launcherCaller = makeAddr("publicLauncher");
-        vm.deal(launcherCaller, 1 ether);
-        vm.prank(launcherCaller);
-        launcher.launchToken("token", "TKN", "ipfs://test");
-        assertEq(launcher.launchCount(1), 1, "active launch recorded");
+        for (uint160 i = 1; i <= 4; ++i) {
+            address creator = address(uint160(0xC0DE0000) + i);
+            vm.deal(creator, 1 ether);
+            string memory ticker = string(abi.encodePacked("RDP", bytes1(uint8(48 + i))));
+            vm.prank(creator);
+            launcher.reserve(ticker, "ipfs://test");
+        }
+        assertEq(launcher.launchCount(1), 4, "activation deployed cohort");
 
         vm.expectRevert(bytes("RedeployFactory: active launches present; set ACTIVE_LAUNCH_OK=1 to override"));
         redeploy.run();

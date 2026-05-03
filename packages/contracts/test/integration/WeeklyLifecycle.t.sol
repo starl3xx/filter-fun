@@ -64,15 +64,39 @@ contract WeeklyLifecycleTest is Test {
         IFilterLauncher.TokenEntry memory entry = launcher.entryOf(sid, filterToken);
         assertEq(entry.isProtocolLaunched, true);
 
-        // Day 1-2: Users launch tokens.
+        // Day 1-2: Users reserve. Spec §46 deferred-activation needs ≥4 reservations to deploy
+        // any tokens; we add two dummies (never filtered) to cross the activation threshold so
+        // the original PEPE+WOJAK losers logic is preserved.
         vm.deal(creator1, 1 ether);
         vm.deal(creator2, 1 ether);
-        uint256 cost0 = launcher.launchCost(0);
-        uint256 cost1 = launcher.launchCost(1);
+        address dummyC1 = address(0xDD01);
+        address dummyC2 = address(0xDD02);
+        vm.deal(dummyC1, 1 ether);
+        vm.deal(dummyC2, 1 ether);
+
+        // Pre-compute slot costs into locals — `vm.prank` is consumed by the next external
+        // call, including the `launchCost` staticcall. Resolving them outside the prank
+        // sequence keeps each `vm.prank → reserve` pairing intact.
+        uint256 c0 = launcher.launchCost(0);
+        uint256 c1 = launcher.launchCost(1);
+        uint256 c2 = launcher.launchCost(2);
+        uint256 c3 = launcher.launchCost(3);
+
         vm.prank(creator1);
-        (address tokenA,) = launcher.launchToken{value: cost0}("Pepe", "PEPE", "");
+        launcher.reserve{value: c0}("PEPE", "");
         vm.prank(creator2);
-        (address tokenB,) = launcher.launchToken{value: cost1}("Wojak", "WOJAK", "");
+        launcher.reserve{value: c1}("WOJAK", "");
+        vm.prank(dummyC1);
+        launcher.reserve{value: c2}("DUMA", "");
+        // Fourth reservation crosses the activation threshold and deploys all 4 atomically.
+        vm.prank(dummyC2);
+        launcher.reserve{value: c3}("DUMB", "");
+
+        address[] memory deployed = launcher.tokensInSeason(sid);
+        // 1 protocol + 4 community = 5 entries. tokensInSeason includes both kinds in
+        // creation order — protocol launched first, then the 4 reservations in slot order.
+        address tokenA = deployed[1]; // PEPE
+        address tokenB = deployed[2]; // WOJAK
 
         // Day 3: Filter phase.
         vm.warp(block.timestamp + 2 days);
