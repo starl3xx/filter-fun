@@ -1,18 +1,14 @@
 """Track-E v4: validation cohort — Spearman ρ between HP rank and FDV rank.
 
-Reads validation_corpus.csv produced by validation_cohort.py, scores each
-token with the SAME per-component scorers pipeline.py uses (imported
-directly to avoid drift — bugbot #76 finding 1 caught a divergent local
-re-implementation that computed holderConcentration as
-`tanh(holder_count/100)` instead of the spec's HHI on holder_balances_json,
-silently corrupting the rank order).
-
-Component scoring follows pipeline.py::compute_components:
-  - velocity / effectiveBuyers / stickyLiquidity → percentile-rank within
-    the cohort (already on a 0–1 scale)
-  - retention / momentum / holderConcentration → already 0–1 by construction
-
-The composite is the weighted sum × 100 (matching the spec's HP scale).
+Reads validation_corpus.csv produced by validation_cohort.py and calls
+`pipeline.compute_components` + `pipeline.composite_hp` directly so the
+HP scoring stays bit-for-bit identical to production. Bugbot #76 caught
+two flavors of drift in earlier iterations of this file:
+  - finding 1 (HIGH): local _hp_components computed holderConcentration
+    as tanh(holder_count/100) instead of HHI on balances.
+  - finding 3 (Low): even after importing the raw scorers, the local
+    percentile-rank + weighted-sum logic was a separate divergence
+    surface. Now the entire scoring path delegates to pipeline.
 
 The FDV is stashed in `notes` as `validation_cohort:fdv_eth=X.XXXXXX`
 because TokenExtraction has no fdv_eth slot.
@@ -37,14 +33,7 @@ import sys
 import pandas as pd
 from scipy.stats import spearmanr
 
-from pipeline import (
-    effective_buyers_score,
-    hhi_score,
-    momentum_score,
-    retention_score,
-    sticky_liquidity_score,
-    velocity_score,
-)
+from pipeline import composite_hp, compute_components
 
 WEIGHTS_V4_LOCKED = {
     "velocity": 0.30,
@@ -64,44 +53,7 @@ WEIGHTS_SPEC_DEFAULTS = {
     "holderConcentration": 0.10,
 }
 
-# Components that pipeline.py percentile-ranks before weighting (the raw
-# values are unbounded; the rank-then-weight is what makes the composite
-# meaningful across a corpus).
-PERCENTILE_RANKED = ("velocity", "effectiveBuyers", "stickyLiquidity")
-
 FDV_RE = re.compile(r"validation_cohort:fdv_eth=([0-9.]+)")
-
-
-def _components_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Mirror pipeline.compute_components on this cohort: raw scores, then
-    percentile-rank the unbounded ones (the pipeline normalizes to 0–1 via
-    rank within the corpus, not via tanh — see pipeline.compute_components).
-    """
-    raw = pd.DataFrame({
-        "velocity_raw": df.apply(velocity_score, axis=1),
-        "effectiveBuyers_raw": df.apply(effective_buyers_score, axis=1),
-        "stickyLiquidity_raw": df.apply(sticky_liquidity_score, axis=1),
-        "retention": df.apply(retention_score, axis=1),
-        "momentum": df.apply(momentum_score, axis=1),
-        "holderConcentration": df.apply(hhi_score, axis=1),
-    })
-    out = pd.DataFrame(index=df.index)
-    # Match pipeline.compute_components exactly (bugbot #76 finding 2): the
-    # percentile-ranked components must fillna(0.0) after rank, and the
-    # already-bounded components must be clipped to [0, 1]. Otherwise NaN
-    # raw values propagate through the weighted sum and corrupt ρ.
-    for comp in PERCENTILE_RANKED:
-        out[comp] = raw[f"{comp}_raw"].rank(method="average", pct=True).fillna(0.0)
-    for comp in ("retention", "momentum", "holderConcentration"):
-        out[comp] = raw[comp].clip(0.0, 1.0)
-    return out[
-        ["velocity", "effectiveBuyers", "stickyLiquidity",
-         "retention", "momentum", "holderConcentration"]
-    ]
-
-
-def _weighted(comps: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
-    return sum(weights[k] * comps[k] for k in weights) * 100.0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -125,9 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"⚠ n={n} too small for rank correlation — bailing.", file=sys.stderr)
         return 1
 
-    comps = _components_dataframe(df)
-    df["hp_locked"] = _weighted(comps, WEIGHTS_V4_LOCKED)
-    df["hp_spec"] = _weighted(comps, WEIGHTS_SPEC_DEFAULTS)
+    comps = compute_components(df)
+    df["hp_locked"] = composite_hp(comps, WEIGHTS_V4_LOCKED)
+    df["hp_spec"] = composite_hp(comps, WEIGHTS_SPEC_DEFAULTS)
 
     rho_locked, p_locked = spearmanr(df["hp_locked"], df["fdv_eth"])
     rho_spec, p_spec = spearmanr(df["hp_spec"], df["fdv_eth"])
@@ -142,10 +94,9 @@ def main(argv: list[str] | None = None) -> int:
         "candidates over the [180d, 30d] discovery window — see "
         "REPORT_v4_validation.md for the methodology note).",
         "",
-        "Scoring path: `pipeline.compute_components` (raw scores from "
-        "pipeline.py imported directly; the three unbounded components — "
-        "velocity, effectiveBuyers, stickyLiquidity — are percentile-ranked "
-        "within the cohort, then weighted and summed × 100).",
+        "Scoring path: `pipeline.compute_components` + `pipeline.composite_hp` "
+        "called directly (no local re-derivation — bit-for-bit identical to "
+        "the production scoring).",
         "",
         "| Weight set | Spearman ρ | p-value |",
         "|---|---:|---:|",
