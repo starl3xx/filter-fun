@@ -468,6 +468,14 @@ function buildProfileQueries(db: ApiDb): ProfileQueries {
             consoleCadenceLogger,
           );
         }
+        // Audit L-Indexer-4: legal labels are pinned by `HolderSnapshotTrigger`
+        // in snapshotCadence.ts (the audit anchor + grep target). The schema
+        // returns `string`, so this is a runtime equality check against the
+        // canonical literals — no compile-time exhaustiveness here (bugbot
+        // follow-up on PR #70 corrected the earlier draft's wrong claim about
+        // type-system enforcement). Unknown labels silently fall through, which
+        // is the right behaviour for forward-compat with a future contract that
+        // adds a third trigger we haven't shipped wiring for yet.
         if (r.trigger === "FINALIZE") {
           const winner = winnerBySeason.get(r.seasonId);
           if (winner && winner.toLowerCase() === r.token.toLowerCase()) {

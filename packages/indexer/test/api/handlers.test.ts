@@ -44,6 +44,9 @@ function mkToken(over: Partial<TokenRow> & {id: `0x${string}`; symbol: string}):
     isFinalist: false,
     liquidated: false,
     liquidationProceeds: null,
+    // Audit M-Indexer-1: creator is required on TokenRow now (Drizzle schema NOT NULL).
+    // Default to a stub address; per-test overrides supply real creators where needed.
+    creator: "0x000000000000000000000000000000000000beef",
     ...over,
   };
 }
@@ -275,6 +278,8 @@ describe("/token/:address", () => {
       isFinalist: true,
       liquidated: false,
       liquidationProceeds: null,
+      // Audit M-Indexer-1: creator now required on TokenRow / TokenDetailRow.
+      creator: "0x000000000000000000000000000000000000beef",
       name: "filter.fun",
       seasonId: 1n,
       isProtocolLaunched: true,
@@ -385,8 +390,15 @@ describe("HP component shape", () => {
 // ============================================================ Bag-lock surface
 
 describe("/tokens — bagLock", () => {
-  it("renders default `{isLocked:false, unlockTimestamp:null, creator:0x0}` when no lock recorded", async () => {
-    const tokens: TokenRow[] = [mkToken({id: addr(1), symbol: "T1"})];
+  // Audit M-Indexer-1 (Phase 1, 2026-05-02): pre-fix this test pinned the SILENT
+  // 0x0 fallback that the audit flagged as data loss. Post-fix, TokenRow.creator
+  // is required and the builder surfaces it directly — no fallback. The unlocked
+  // case now reflects the row's creator (the per-token creator-of-record from
+  // the launch event), with `isLocked: false` driven solely by the absence of a
+  // bag-lock commitment row.
+  it("renders default `{isLocked:false, unlockTimestamp:null, creator:<row creator>}` when no lock recorded", async () => {
+    const realCreator = "0x000000000000000000000000000000000000beef" as const;
+    const tokens: TokenRow[] = [mkToken({id: addr(1), symbol: "T1", creator: realCreator})];
     const r = await getTokensHandler(
       fixtureQueries({season: mkSeason({phase: "Filter"}), tokens}),
       STARTED_AT + 12n * HOUR,
@@ -395,7 +407,10 @@ describe("/tokens — bagLock", () => {
     const lock = list[0]!.bagLock as Record<string, unknown>;
     expect(lock.isLocked).toBe(false);
     expect(lock.unlockTimestamp).toBeNull();
-    expect((lock.creator as string).toLowerCase()).toBe(
+    // The bug the audit flagged: zero-address used to leak through here. Pin
+    // explicitly that we DO NOT collapse to 0x0 anymore.
+    expect((lock.creator as string).toLowerCase()).toBe(realCreator);
+    expect((lock.creator as string).toLowerCase()).not.toBe(
       "0x0000000000000000000000000000000000000000",
     );
   });

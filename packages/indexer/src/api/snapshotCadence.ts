@@ -20,6 +20,32 @@ const SECONDS_PER_HOUR = 3600n;
 export const CUT_OFFSET_HOURS = 96n;
 export const FINALIZE_OFFSET_HOURS = 168n;
 
+/// Audit L-Indexer-4 (Phase 1, 2026-05-01): canonical type alias for the holder
+/// snapshot trigger label. Bugbot follow-up on PR #70: this is a documentation
+/// type, NOT a compile-time enforcement layer. The schema column is `string`, so
+/// the consumer sites (api/index.ts holderBadgeFlagsForUser + this file's
+/// SnapshotCadenceInput) hold their comparisons against `string` and rely on
+/// runtime equality with the literal members of this union. The earlier draft
+/// typed `trigger: HolderSnapshotTrigger | string` and claimed compile-time
+/// enforcement — wrong, because TypeScript collapses that union to `string`.
+///
+/// What the alias DOES provide:
+///   - Single source of truth for the legal label set (greppable by name).
+///   - An audit anchor (`L-Indexer-4`) so a future maintainer touching trigger
+///     comparisons can locate the canonical list in seconds.
+///   - A target for an exhaustive `assertNever`-style switch if a future
+///     refactor wants to bring real compile-time enforcement (would require
+///     casting the schema string at the boundary).
+///
+/// Adding a third trigger:
+///   1. Extend this union here.
+///   2. Decide the cadence anchor in `validateSnapshotCadence` below — unknown
+///      labels currently silently accept (returning `drifted: false`), so a
+///      forgotten step is operationally non-fatal but loses observability.
+///   3. Add the new literal to every `if (r.trigger === "...")` chain in
+///      api/index.ts. (Compile-time grep, not type-system enforcement.)
+export type HolderSnapshotTrigger = "CUT" | "FINALIZE";
+
 /// Drift threshold above which we surface a warning. 5 minutes is a deliberate
 /// over-budget for normal chain timing variance: Base mainnet posts L1 batches at
 /// roughly 2-second cadence; the worst-case oracle-emit latency we've seen on Sepolia
@@ -28,7 +54,13 @@ export const FINALIZE_OFFSET_HOURS = 168n;
 export const DRIFT_THRESHOLD_SECONDS = 300n;
 
 export interface SnapshotCadenceInput {
-  trigger: "CUT" | "FINALIZE" | string;
+  /// Raw trigger label from the schema. The legal label set is `HolderSnapshotTrigger`
+  /// but the schema column is plain `string`, so this field is typed as the broader
+  /// `string` to match the source-of-truth shape. Validate at runtime via the
+  /// equality checks in `validateSnapshotCadence` below; unknown labels return
+  /// `drifted: false` (silent accept) so a future contract change adding a third
+  /// trigger doesn't break this request path.
+  trigger: string;
   /// Snapshot timestamp from the chain (`holderSnapshot.blockTimestamp`).
   blockTimestamp: bigint;
   /// Season anchor (`season.startedAt`).

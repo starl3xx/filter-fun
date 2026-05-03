@@ -10,6 +10,7 @@
 /// indexer would mean moving this state to redis pub/sub (out of scope for genesis).
 
 import {hpAsInt100, tickerWithDollar} from "../builders.js";
+import {errName, redactErrorMessage} from "./redact.js";
 import {scoreCohort} from "../hp.js";
 import {nextCutEpochSec, toApiPhase} from "../phase.js";
 
@@ -126,6 +127,17 @@ export class TickEngine {
       });
 
       const nextCutAtSec = nextCutEpochSec(seasonRow.startedAtSec, apiPhase);
+      // Audit I-Indexer-2 (Phase 1, 2026-05-01): `takenAtSec` here is the
+      // wall-clock at QUERY time (captured by the `latestSeason` query), not the
+      // wall-clock at snapshot-assembly time. For tick cadences in the seconds
+      // (`tickMs` defaults to 5_000), the gap between the query return and this
+      // assembly is sub-millisecond; for genuinely slow ticks (DB stall, GC pause,
+      // event loop saturation) the value drifts late by however long the gap was.
+      // The detectors that consume this snapshot key off the DELTA between
+      // consecutive `takenAtSec` values, so a uniformly-late capture remains
+      // self-consistent — only an ASYMMETRIC delay (one tick slow, the next fast)
+      // would skew detector windowing. Acceptable for the genesis tick rate;
+      // re-evaluate if `tickMs` ever moves into the multi-second range.
       const current: Snapshot = {
         takenAtSec: seasonRow.takenAtSec,
         seasonId: seasonRow.seasonId,
@@ -181,8 +193,21 @@ export class TickEngine {
       this.tick().catch((err) => {
         // Indexer DB hiccups shouldn't crash the events stream — log + carry on.
         // Errors arrive on the next tick after the underlying issue resolves.
+        // Audit M-Indexer-6 (Phase 1, 2026-05-01): switched from a bare `console.error`
+        // string to a structured single-line JSON record. The PII risk comes from the
+        // exception's `message` (which can quote query parameters or address values
+        // depending on the underlying error type). Routing through `redactErrorMessage`
+        // strips wallet-shaped strings before they reach the log sink. Keeping the sink
+        // as `console.error` avoids adding a pino dep just for this one site; downstream
+        // log forwarders (Railway / Datadog) auto-parse single-line JSON when a
+        // `level` field is present, so the structure is preserved.
         // eslint-disable-next-line no-console
-        console.error("[events.tick] error:", err);
+        console.error(JSON.stringify({
+          level: "error",
+          source: "events.tick",
+          message: redactErrorMessage(err),
+          name: errName(err),
+        }));
       });
     }, this.cfg.tickMs);
     // Don't keep the process alive just for this loop.

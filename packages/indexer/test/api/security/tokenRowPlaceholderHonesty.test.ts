@@ -28,6 +28,8 @@ const baseRow: TokenRow = {
   isFinalist: false,
   liquidated: false,
   liquidationProceeds: null,
+  // Audit M-Indexer-1: creator is required on TokenRow now.
+  creator: "0x000000000000000000000000000000000000beef",
 };
 
 describe("TokenRow placeholder honesty (Audit H-1)", () => {
