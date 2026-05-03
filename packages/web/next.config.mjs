@@ -46,17 +46,32 @@ const nextConfig = {
   //                                        wallet flow breaks. Keep this
   //                                        narrow — no 'unsafe-inline' /
   //                                        'unsafe-eval'.
-  //   connect-src 'self' INDEXER_URL https://api.pinata.cloud
-  //               https://*.base.org https://*.publicnode.com
+  //   connect-src 'self' INDEXER_URL https://*.base.org
+  //               https://*.publicnode.com wss://*.walletconnect.{com,org}
+  //               https://*.walletconnect.{com,org}
   //                                      — the indexer is the SSE / REST
-  //                                        surface; Pinata is the metadata
-  //                                        pin endpoint; the *.base.org and
+  //                                        surface; the *.base.org and
   //                                        *.publicnode.com hosts cover the
   //                                        viem public-RPC fallback for both
-  //                                        chains. Deploys that override
+  //                                        chains. WalletConnect needs both
+  //                                        wss:// (relay) and https://
+  //                                        (project metadata) hosts at
+  //                                        pair time. Deploys that override
   //                                        NEXT_PUBLIC_BASE_RPC_URL to a
   //                                        different provider must add that
   //                                        host here too.
+  //                                        Bugbot fix on PR #80: Pinata is
+  //                                        deliberately NOT in connect-src.
+  //                                        Pinata is reached only by the
+  //                                        server-side `/api/metadata` route
+  //                                        (`storage.ts` carries
+  //                                        `import "server-only"`), so the
+  //                                        browser never connects there
+  //                                        directly. Including it would
+  //                                        widen the policy without enabling
+  //                                        any real-world request and
+  //                                        contradicts the L-Sec-2 doc note
+  //                                        in `lib/launch/storage.ts`.
   //   style-src 'self' 'unsafe-inline'   — every component uses inline
   //                                        styles via React style props
   //                                        (the project's chosen styling
@@ -89,7 +104,7 @@ const nextConfig = {
     const csp = [
       "default-src 'self'",
       "script-src 'self' 'wasm-unsafe-eval'",
-      `connect-src 'self' ${indexerUrl} https://api.pinata.cloud https://*.base.org https://*.publicnode.com wss://*.walletconnect.com wss://*.walletconnect.org https://*.walletconnect.com https://*.walletconnect.org`,
+      `connect-src 'self' ${indexerUrl} https://*.base.org https://*.publicnode.com wss://*.walletconnect.com wss://*.walletconnect.org https://*.walletconnect.com https://*.walletconnect.org`,
       "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",
       "img-src 'self' https: data:",

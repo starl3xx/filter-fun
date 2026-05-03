@@ -71,22 +71,38 @@ describe("H-Sec-CSP: next.config.mjs ships security headers on every route", () 
   it("includes a Content-Security-Policy header with the load-bearing directives", () => {
     // The full CSP value is built dynamically (it interpolates
     // INDEXER_URL), so we can't pin the entire string. Pin the
-    // directives that matter: default-src 'self', no 'unsafe-eval'
-    // outside wasm, frame-ancestors 'none', explicit Pinata in
-    // connect-src.
+    // directives that matter: default-src 'self', no standalone
+    // 'unsafe-eval' (only the 'wasm-unsafe-eval' form), frame-
+    // ancestors 'none', and Pinata explicitly NOT in connect-src
+    // (server-only, per the bugbot fix on PR #80 — including it
+    // would widen the policy without enabling any real-world request).
     expect(src).toMatch(/key\s*:\s*["']Content-Security-Policy["']/);
     expect(src).toMatch(/default-src\s+'self'/);
     expect(src).toMatch(/script-src\s+'self'\s+'wasm-unsafe-eval'/);
     expect(src).toMatch(/frame-ancestors\s+'none'/);
-    // Use `[\s\S]*?` (lazy any-char) so the regex matches across the
-    // 'self' single-quotes, the ${indexerUrl} interpolation, and any
-    // newlines in the template literal between `connect-src` and the
-    // api.pinata.cloud token.
-    expect(src).toMatch(/connect-src[\s\S]*?api\.pinata\.cloud/);
-    // Negative: must not allow `unsafe-eval` outside the wasm form, and
-    // must not allow `*` as default-src.
-    expect(src).not.toMatch(/script-src[^"']*'unsafe-eval'(?!.*wasm)/);
-    expect(src).not.toMatch(/default-src\s+\*/);
+    // Bugbot fix on PR #80: Pinata MUST NOT appear in CSP because it's
+    // server-only. Pin the absence so a future "tighten the CSP doc"
+    // pass can't silently re-add it. The doc-comment reference to
+    // `api.pinata.cloud` (explaining WHY it's excluded) is not in the
+    // template literal, so this line-level scope is sufficient.
+    const cspLine = src.match(/connect-src[^`'\n]*/)?.[0] ?? "";
+    expect(cspLine, "connect-src directive must not include api.pinata.cloud").not.toMatch(/api\.pinata\.cloud/);
+    // Bugbot fix on PR #80: the previous regex
+    // `/script-src[^"']*'unsafe-eval'(?!.*wasm)/` was dead — `[^"']*`
+    // halts at the first `'self'` quote (so it can't reach a later
+    // `'unsafe-eval'`), and `(?!.*wasm)` always fails because the
+    // file always contains `'wasm-unsafe-eval'`. Use a negative
+    // lookbehind instead: match `'unsafe-eval'` only when NOT
+    // immediately preceded by `wasm-`. This catches a regression that
+    // adds standalone `'unsafe-eval'` while still allowing the
+    // spec-correct `'wasm-unsafe-eval'` form. Scoped to the literal
+    // `csp = [...]` array so the doc-comment phrase "no 'unsafe-eval'"
+    // (which we WANT in the source as a warning to maintainers) is
+    // not flagged.
+    const cspArray = src.match(/const\s+csp\s*=\s*\[([\s\S]*?)\]\.join/)?.[1] ?? "";
+    expect(cspArray.length, "could not locate `const csp = [...]` array in next.config.mjs").toBeGreaterThan(0);
+    expect(cspArray, "CSP array contains standalone 'unsafe-eval' (only 'wasm-unsafe-eval' is allowed)").not.toMatch(/(?<!wasm-)'unsafe-eval'/);
+    expect(cspArray).not.toMatch(/default-src\s+\*/);
   });
 
   it("includes the four non-CSP defense headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)", () => {
