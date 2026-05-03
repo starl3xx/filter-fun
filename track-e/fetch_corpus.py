@@ -1298,8 +1298,16 @@ def main():
         # until both buckets fill or max-scan is exhausted.
         candidates_to_scan = list(discovered)
         rng.shuffle(candidates_to_scan)
-        # Cap the scan at max-scan so dev iteration isn't unbounded.
-        candidates_to_scan = candidates_to_scan[:args.max_scan]
+        # Cap depends on mode:
+        #  • stratified: scan up to --max-scan candidates and bucket each
+        #    into survivors/dead until both buckets fill. Bucket caps mean
+        #    we never write more than --pilot tokens to corpus.csv.
+        #  • non-stratified: cap directly to --pilot to preserve the v3
+        #    "Run in pilot mode with N tokens" semantics. Without this
+        #    cap, --pilot 10 would scan up to 2500 tokens (bugbot #66
+        #    finding 2 — the v3 cap was lost when --max-scan landed).
+        cap = args.max_scan if args.stratified else args.pilot
+        candidates_to_scan = candidates_to_scan[:cap]
     else:
         candidates_to_scan = list(discovered)
 
@@ -1308,14 +1316,23 @@ def main():
     # Resolve timestamps only for the tokens we'll actually scan.
     resolve_launch_timestamps(rpc, candidates_to_scan)
 
+    # bugbot #66 finding 1: the platform + factory address must come from
+    # the discovery dict, not be hardcoded — Liquid tokens were being
+    # mis-tagged as Clanker in --source liquid|both runs.
+    factory_by_platform = {
+        "clanker": CLANKER_V4_ADDRESS,
+        "liquid": LIQUID_V1_ADDRESS,
+    }
     with open(DISCOVERED_PATH, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["token_address", "ticker", "platform", "version",
                     "launch_block", "launch_ts", "factory_address"])
         for t in candidates_to_scan:
             ticker = (t.get("name") or "")[:32]
-            w.writerow([t["token_address"], ticker, "clanker", t["version"],
-                        t["launch_block"], t["launch_ts"], CLANKER_V4_ADDRESS])
+            platform = t.get("platform", "clanker")
+            w.writerow([t["token_address"], ticker, platform, t["version"],
+                        t["launch_block"], t["launch_ts"],
+                        factory_by_platform.get(platform, "")])
     print(f"  wrote {len(candidates_to_scan)} discovered tokens → {DISCOVERED_PATH}")
 
     if args.stratified and args.pilot is not None:
