@@ -128,6 +128,13 @@ export function ArenaActivityFeed({events, max = 16, liveStatus = "open"}: Arena
 /// LIVE pill pattern (same padding/alpha contract). Local rather than
 /// imported so the activity feed component stays independent of the top-bar
 /// component module.
+///
+/// Bugbot follow-up on PR #73: when liveStatus is "closed", `color` is
+/// `C.faint` which is `rgba(255,235,255,0.32)` — NOT a hex string. Naively
+/// appending `1f` / `66` to a `rgba(...)` value produces invalid CSS
+/// (`rgba(...,0.32)1f`) which the browser drops, so the OFFLINE pill
+/// rendered without bg/border. The local `withAlpha` helper below handles
+/// both hex and rgba inputs correctly.
 function StreamingPill({liveStatus}: {liveStatus: NonNullable<ArenaActivityFeedProps["liveStatus"]>}) {
   const color =
     liveStatus === "open" ? C.green : liveStatus === "closed" ? C.faint : C.yellow;
@@ -148,8 +155,8 @@ function StreamingPill({liveStatus}: {liveStatus: NonNullable<ArenaActivityFeedP
         gap: 6,
         padding: "3px 8px",
         borderRadius: 99,
-        background: `${color}1f`,
-        border: `1px solid ${color}66`,
+        background: withAlpha(color, 0.12),
+        border: `1px solid ${withAlpha(color, 0.4)}`,
         color,
         fontFamily: F.mono,
         fontWeight: 800,
@@ -171,6 +178,29 @@ function StreamingPill({liveStatus}: {liveStatus: NonNullable<ArenaActivityFeedP
       {label}
     </span>
   );
+}
+
+/// Bugbot follow-up on PR #73: returns `color` tinted with the given alpha,
+/// handling BOTH hex (`#RRGGBB`) and rgba (`rgba(R, G, B, A)`) inputs. Pre-fix
+/// StreamingPill used the hex-suffix shortcut (`${color}1f`) which produces
+/// invalid CSS when the input is already an rgba string — the browser silently
+/// drops invalid declarations, so the OFFLINE pill rendered without bg/border.
+///
+/// Why not use `color-mix(...)`? Wide browser support (Safari < 16.4 lacks it)
+/// and our existing palette already uses both hex and rgba forms, so a
+/// runtime helper is simpler than touching every consumer to switch palettes.
+function withAlpha(color: string, alpha: number): string {
+  if (color.startsWith("#")) {
+    const a = Math.round(alpha * 255).toString(16).padStart(2, "0");
+    return `${color}${a}`;
+  }
+  if (color.startsWith("rgba(")) {
+    return color.replace(/,\s*[\d.]+\s*\)$/, `, ${alpha})`);
+  }
+  if (color.startsWith("rgb(")) {
+    return color.replace(/^rgb\(/, "rgba(").replace(/\)$/, `, ${alpha})`);
+  }
+  return color;
 }
 
 function priorityColor(p: TickerEvent["priority"]): string {

@@ -157,6 +157,37 @@ describe("M-Arena-3: activity feed header carries 📡 + STREAMING pill", () => 
     expect(offlinePill?.style.color).toBe("rgba(255, 235, 255, 0.32)");
   });
 
+  // Bugbot follow-up on PR #73: pre-fix the StreamingPill computed bg/border
+  // via `${color}1f` / `${color}66`. That hex-suffix trick fails for the
+  // OFFLINE state because `C.faint` is `rgba(...)` not `#hex` — appending
+  // `1f` to an rgba string produces invalid CSS (`rgba(...,0.32)1f`),
+  // which the browser silently drops. The OFFLINE pill rendered without
+  // bg or border. Post-fix: `withAlpha(color, alpha)` handles both forms.
+  it("bugbot fix: OFFLINE pill renders a valid rgba background + border (no invalid `rgba(...)1f`)", () => {
+    const {container} = render(<ArenaActivityFeed events={[]} liveStatus="closed" />);
+    const pill = container.querySelector("[data-pill='streaming']") as HTMLElement | null;
+    expect(pill).not.toBeNull();
+    // Both bg + border should resolve to valid `rgba(...)` values, NOT
+    // contain the literal `1f` / `66` hex-suffix garbage.
+    const bg = pill?.style.background ?? "";
+    const border = pill?.style.border ?? "";
+    expect(bg).toMatch(/^rgba\(/);
+    expect(border).toMatch(/rgba\(/);
+    expect(bg).not.toMatch(/\)1f/);
+    expect(border).not.toMatch(/\)66/);
+  });
+
+  it("bugbot fix: OPEN pill (hex C.green) still renders the `#hex+1f`-shape result via withAlpha", () => {
+    const {container} = render(<ArenaActivityFeed events={[]} liveStatus="open" />);
+    const pill = container.querySelector("[data-pill='streaming']") as HTMLElement | null;
+    expect(pill).not.toBeNull();
+    // C.green = #52ff8b → withAlpha(C.green, 0.12) → #52ff8b1f (jsdom
+    // normalises to lower-case rgba). Either form is browser-valid; just
+    // assert the pill HAS a non-empty background that's a valid colour.
+    expect(pill?.style.background).not.toBe("");
+    expect(pill?.style.border).not.toBe("");
+  });
+
   it("header still surfaces the items count for situational awareness", () => {
     const events = Array.from({length: 5}, (_, i) => ({
       id: i,
