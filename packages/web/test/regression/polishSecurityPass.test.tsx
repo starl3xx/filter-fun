@@ -120,6 +120,16 @@ describe("H-Sec-CSP: next.config.mjs ships security headers on every route", () 
     const connectSrcLine = cspArray.match(/`connect-src[^`]*`/)?.[0] ?? "";
     expect(connectSrcLine.length, "could not locate `connect-src ...` template literal inside the csp array").toBeGreaterThan("`connect-src `".length);
     expect(connectSrcLine, "connect-src directive must not include api.pinata.cloud (server-only)").not.toMatch(/api\.pinata\.cloud/);
+    // Production-incident regression (2026-05-03): post-PR #80 the CSP
+    // dropped `https://static.cloudflareinsights.com`, which Railway /
+    // Cloudflare Pages auto-injects into every <head> as the analytics
+    // beacon. The site stayed up but the console showed a "Refused to
+    // load …/beacon.min.js" CSP-violation error on every page load,
+    // and any future tightening of the CSP that drops this entry
+    // would re-introduce the same noise. Pin both the script-src
+    // (beacon load) and connect-src (beacon telemetry POST) entries.
+    expect(cspArray, "script-src must allow https://static.cloudflareinsights.com (Cloudflare Insights beacon)").toMatch(/script-src[^"]*https:\/\/static\.cloudflareinsights\.com/);
+    expect(connectSrcLine, "connect-src must allow https://cloudflareinsights.com (beacon telemetry POST)").toMatch(/https:\/\/cloudflareinsights\.com/);
   });
 
   it("includes the four non-CSP defense headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)", () => {
