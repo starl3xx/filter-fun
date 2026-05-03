@@ -156,6 +156,39 @@ curl -s "$INDEXER_URL/tokens" | jq '.[] | {token, hp, hpUpdatedAt: .hpUpdatedAt}
 - [ ] HP values are bounded `[0, 100]`. Out-of-range = scoring bug; rollback indexer
       immediately and freeze the season.
 
+#### Active weight set (Epic 1.17a, 2026-05-03 v4 lock)
+
+```sh
+curl -s "$INDEXER_URL/scoring/weights" | jq
+```
+
+- [ ] `version` matches the live `HP_WEIGHTS_VERSION` (currently `2026-05-03-v4-locked`).
+      A mismatch means the indexer is running stale code — redeploy before next snapshot.
+- [ ] `weights` sums to `1.000` and matches spec §6.5: velocity 0.30, effectiveBuyers 0.15,
+      stickyLiquidity 0.30, retention 0.15, momentum 0.00, holderConcentration 0.10.
+- [ ] `flags.HP_MOMENTUM_ENABLED == false` and `flags.HP_CONCENTRATION_ENABLED == true`
+      under the v4 lock. Any deviation must be tied to a published env-override decision
+      (the flag flip is itself a weight change for transparency purposes — see
+      `docs.filter.fun/protocol/scoring-weights`).
+- [ ] `phaseDifferentiation == false` under v4. A future v5 may flip this; if it does,
+      the deploy that flipped it should also bump `version`.
+
+Spot-check a recent `hpSnapshot` row to confirm provenance is being stamped:
+
+```sh
+psql "$INDEXER_DATABASE_URL" -c "
+  SELECT weights_version, flags_active, COUNT(*)
+  FROM hp_snapshot
+  GROUP BY 1, 2
+  ORDER BY 3 DESC LIMIT 5;
+"
+```
+
+- [ ] All recent rows tagged `weights_version = '2026-05-03-v4-locked'`. Pre-1.17a rows
+      backfilled to `'pre-lock'`; if you still see `pre-lock` writes after the deploy,
+      treat as an incident (the writer isn't reading the version stamp).
+- [ ] `flags_active` = `{"momentum":false,"concentration":true}` for all live writes.
+
 ### 2.2 Scheduler heartbeats
 
 ```sh

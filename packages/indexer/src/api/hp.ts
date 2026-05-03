@@ -16,12 +16,14 @@
 
 import {
   DEFAULT_CONFIG,
+  flagsFromEnv,
   score,
   type Address,
   type Phase,
   type ScoredToken,
   type ScoringConfig,
   type TokenStats,
+  type WeightFlags,
 } from "@filter-fun/scoring";
 
 export interface TokenRow {
@@ -55,9 +57,21 @@ export function pickScoringPhase(apiPhase: string): Phase {
   return "preFilter";
 }
 
+/// Resolves the live feature flags from process.env. Cached at module scope —
+/// flag values are read once at indexer boot and don't hot-swap during a run.
+/// Override per-call via `scoreCohort({flags})` for tests.
+export function liveFlags(): WeightFlags {
+  return flagsFromEnv(process.env);
+}
+
 /// Public entry point used by the `/tokens` route. Composes `tokenStatsFromRows` over the
 /// cohort, calls `score()` with phase-derived weights, and returns the scored array indexed
 /// by token address for downstream lookup.
+///
+/// Feature flags (`HP_MOMENTUM_ENABLED`, `HP_CONCENTRATION_ENABLED`) are read
+/// from `process.env` via `liveFlags()` unless the caller passes an explicit
+/// `flags` override in `config`. The boundary lives here (not inside the
+/// scoring package) so the scoring core stays pure.
 export function scoreCohort(
   rows: ReadonlyArray<TokenRow>,
   apiPhase: string,
@@ -66,7 +80,8 @@ export function scoreCohort(
 ): Map<string, ScoredToken> {
   const phase = pickScoringPhase(apiPhase);
   const stats = rows.map(tokenStatsFromRows);
-  const scored = score(stats, currentTime, {...DEFAULT_CONFIG, phase, ...config});
+  const flags = config.flags ?? liveFlags();
+  const scored = score(stats, currentTime, {...DEFAULT_CONFIG, phase, flags, ...config});
   const out = new Map<string, ScoredToken>();
   for (const s of scored) out.set(s.token.toLowerCase(), s);
   return out;

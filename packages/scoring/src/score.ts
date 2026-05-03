@@ -1,28 +1,41 @@
+import * as components from "./components.js";
 import {
   COMPONENT_LABELS,
   DEFAULT_CONFIG,
+  DEFAULT_FLAGS,
+  HP_WEIGHTS_VERSION,
+  LOCKED_WEIGHTS,
   type Address,
   type ScoredToken,
   type ScoringConfig,
   type ScoringWeights,
   type TokenStats,
+  type WeightFlags,
   weightsForPhase,
 } from "./types.js";
 
-/// Computes the v3 composite HP for each token in the cohort.
+/// Computes the v4-locked composite HP for each token in the cohort.
 ///
-/// HP = w_velocity * velocity
-///    + w_effectiveBuyers * effectiveBuyers
-///    + w_stickyLiquidity * stickyLiquidity
-///    + w_retention * retention
-///    + w_momentum * momentum
+/// HP = w_velocity            * velocity
+///    + w_effectiveBuyers     * effectiveBuyers
+///    + w_stickyLiquidity     * stickyLiquidity
+///    + w_retention           * retention
+///    + w_momentum            * momentum               (gated by flags.momentum)
+///    + w_holderConcentration * holderConcentration    (gated by flags.concentration)
 ///
-/// All five components are normalized to [0, 1] across the cohort. The final
-/// HP is also in [0, 1] (since weights sum to 1). Pure function — caller
-/// supplies `currentTime` so output is reproducible (matters for the oracle).
+/// Velocity / effective-buyers / sticky-liquidity are min-max normalized
+/// across the cohort; retention + holderConcentration are already in [0, 1]
+/// by construction; momentum is bounded in [0, momentumCap].
 ///
-/// `priorBaseComposite` on each token is producer-managed state: store the
-/// returned `baseComposite` and feed it back next tick to drive momentum.
+/// **Feature flags.** When `flags.momentum === false` the momentum component
+/// short-circuits to 0 *without* invoking `computeMomentumComponent` (so a
+/// test can spy on the boundary and assert no compute happened). When
+/// `flags.concentration === false` the holderConcentration coefficient is
+/// excluded and the remaining five weights are renormalized to sum to 1.0,
+/// preserving HP ∈ [0, 1].
+///
+/// Pure function — caller supplies `currentTime` so output is reproducible
+/// (matters for the oracle's Merkle root).
 export function score(
   tokens: ReadonlyArray<TokenStats>,
   currentTime: bigint,
@@ -30,89 +43,113 @@ export function score(
 ): ScoredToken[] {
   if (tokens.length === 0) return [];
 
-  const weights: ScoringWeights = config.weights ?? weightsForPhase(config.phase);
+  const flags: WeightFlags = config.flags ?? DEFAULT_FLAGS;
+  const baseWeights: ScoringWeights = config.weights ?? weightsForPhase(config.phase);
+  const effectiveWeights = applyFlagsToWeights(baseWeights, flags);
 
-  // 1. Raw component values per token.
+  // 1. Raw component values per token. Velocity / effective-buyers /
+  //    sticky-liquidity are unbounded — normalized below. Retention and
+  //    holderConcentration are already in [0, 1].
   const raw = tokens.map((t) => ({
     token: t.token,
     velocity: computeVelocity(t, currentTime, config),
     effectiveBuyers: computeEffectiveBuyers(t, config),
     stickyLiquidity: computeStickyLiquidity(t, config),
     retention: computeRetention(t, config),
+    holderConcentration: flags.concentration ? components.computeHolderConcentration(t) : 0,
     priorBaseComposite: t.priorBaseComposite,
   }));
 
-  // 2. Normalize the unbounded components across the cohort.
-  // Retention is already in [0, 1] — we leave it alone so a "100% retention
-  // across the board" doesn't get min-maxed back to 0; it stays maxed.
+  // 2. Normalize unbounded components.
+  // Retention + holderConcentration are NOT min-maxed: a "100% retention"
+  // or "perfectly distributed" cohort shouldn't be reset to 0 just because
+  // every token shares the same value.
   const normVel = normalizeMinMax(raw.map((r) => r.velocity));
   const normBuy = normalizeMinMax(raw.map((r) => r.effectiveBuyers));
   const normLiq = normalizeMinMax(raw.map((r) => r.stickyLiquidity));
 
-  // The non-momentum slice's weight share — used to renormalize the
-  // baseComposite back into [0, 1] regardless of the configured momentum
-  // weight. This keeps `baseComposite` comparable across configurations.
+  // The non-momentum weight share — used to renormalize the baseComposite
+  // back into [0, 1] regardless of the configured momentum weight, so the
+  // baseComposite stays comparable across configurations even after flags
+  // shift the active weight set.
   const nonMomentumSum =
-    weights.velocity + weights.effectiveBuyers + weights.stickyLiquidity + weights.retention;
+    effectiveWeights.velocity +
+    effectiveWeights.effectiveBuyers +
+    effectiveWeights.stickyLiquidity +
+    effectiveWeights.retention +
+    effectiveWeights.holderConcentration;
 
   const scored = raw.map((r, i) => {
     const v = normVel[i] ?? 0;
     const b = normBuy[i] ?? 0;
     const l = normLiq[i] ?? 0;
     const ret = clamp01(r.retention);
+    const hc = clamp01(r.holderConcentration);
 
     const baseComposite =
       nonMomentumSum > 0
-        ? (weights.velocity * v +
-            weights.effectiveBuyers * b +
-            weights.stickyLiquidity * l +
-            weights.retention * ret) /
+        ? (effectiveWeights.velocity * v +
+            effectiveWeights.effectiveBuyers * b +
+            effectiveWeights.stickyLiquidity * l +
+            effectiveWeights.retention * ret +
+            effectiveWeights.holderConcentration * hc) /
           nonMomentumSum
         : 0;
 
-    // Momentum compares this tick's base composite against the prior's. If
-    // there's no prior (first tick), momentum is neutral 0.5 so a token can't
-    // be punished for not having history yet — the cap is deliberately NOT
-    // applied to the neutral baseline (operators tightening `momentumCap`
-    // below 0.5 must not retroactively penalize tokens with zero history).
-    // For tokens with a prior, the post-normalization momentum is clipped to
-    // `momentumCap` so operators can bound momentum's contribution tighter
-    // than the natural [0, weight] range produced by normalization.
-    let momentum: number;
-    if (typeof r.priorBaseComposite === "number") {
-      const delta = baseComposite - r.priorBaseComposite;
-      const clipped = Math.max(-1, Math.min(1, delta / config.momentumScale));
-      momentum = Math.min((clipped + 1) / 2, config.momentumCap);
-    } else {
-      momentum = 0.5;
-    }
+    // Momentum: gated by HP_MOMENTUM_ENABLED. The flag-off path returns 0
+    // without invoking `computeMomentumComponent` so a spy at the boundary
+    // can assert the compute path was skipped. Flag-on path runs the full
+    // calculation against `priorBaseComposite`.
+    const momentum = flags.momentum
+      ? components.computeMomentumComponent(r.priorBaseComposite, baseComposite, config)
+      : 0;
 
     const hp =
-      weights.velocity * v +
-      weights.effectiveBuyers * b +
-      weights.stickyLiquidity * l +
-      weights.retention * ret +
-      weights.momentum * momentum;
+      effectiveWeights.velocity * v +
+      effectiveWeights.effectiveBuyers * b +
+      effectiveWeights.stickyLiquidity * l +
+      effectiveWeights.retention * ret +
+      effectiveWeights.momentum * momentum +
+      effectiveWeights.holderConcentration * hc;
 
     return {
       token: r.token,
       hp,
       phase: config.phase,
       baseComposite,
+      weightsVersion: HP_WEIGHTS_VERSION,
+      flagsActive: flags,
       components: {
-        velocity: {score: v, weight: weights.velocity, label: COMPONENT_LABELS.velocity},
+        velocity: {
+          score: v,
+          weight: effectiveWeights.velocity,
+          label: COMPONENT_LABELS.velocity,
+        },
         effectiveBuyers: {
           score: b,
-          weight: weights.effectiveBuyers,
+          weight: effectiveWeights.effectiveBuyers,
           label: COMPONENT_LABELS.effectiveBuyers,
         },
         stickyLiquidity: {
           score: l,
-          weight: weights.stickyLiquidity,
+          weight: effectiveWeights.stickyLiquidity,
           label: COMPONENT_LABELS.stickyLiquidity,
         },
-        retention: {score: ret, weight: weights.retention, label: COMPONENT_LABELS.retention},
-        momentum: {score: momentum, weight: weights.momentum, label: COMPONENT_LABELS.momentum},
+        retention: {
+          score: ret,
+          weight: effectiveWeights.retention,
+          label: COMPONENT_LABELS.retention,
+        },
+        momentum: {
+          score: momentum,
+          weight: effectiveWeights.momentum,
+          label: COMPONENT_LABELS.momentum,
+        },
+        holderConcentration: {
+          score: hc,
+          weight: effectiveWeights.holderConcentration,
+          label: COMPONENT_LABELS.holderConcentration,
+        },
       },
     };
   });
@@ -121,13 +158,54 @@ export function score(
   return scored.map((s, idx) => ({...s, rank: idx + 1}));
 }
 
+/// Applies feature flags to a weight set:
+/// - `flags.concentration === false` → zero holderConcentration and
+///   renormalize the remaining five weights to sum to the original total
+///   (preserves HP ∈ [0, 1]).
+/// - `flags.momentum === false` → zero momentum's *weight* in addition to
+///   the score (the score short-circuit happens in `score`); this guarantees
+///   `flagsActive.momentum:false` rows have momentum.weight = 0 in the
+///   stamped breakdown, so consumers reading historical rows can see that
+///   the gate was off without ambiguity.
+export function applyFlagsToWeights(
+  base: ScoringWeights,
+  flags: WeightFlags,
+): ScoringWeights {
+  let w: ScoringWeights = {...base};
+  if (!flags.momentum) {
+    w = {...w, momentum: 0};
+  }
+  if (!flags.concentration) {
+    const dropped = w.holderConcentration;
+    const remainingSum =
+      w.velocity + w.effectiveBuyers + w.stickyLiquidity + w.retention + w.momentum;
+    if (remainingSum > 0 && dropped > 0) {
+      // Scale the remaining weights so the total sum is preserved
+      // (i.e. we redistribute the dropped concentration mass proportionally
+      // across the other components). After scaling, the remaining sum
+      // equals `remainingSum + dropped` = original total.
+      const scale = (remainingSum + dropped) / remainingSum;
+      w = {
+        velocity: w.velocity * scale,
+        effectiveBuyers: w.effectiveBuyers * scale,
+        stickyLiquidity: w.stickyLiquidity * scale,
+        retention: w.retention * scale,
+        momentum: w.momentum * scale,
+        holderConcentration: 0,
+      };
+    } else {
+      w = {...w, holderConcentration: 0};
+    }
+  }
+  return w;
+}
+
 /// Decayed net buy inflow with sybil dampening + churn discount.
 ///
 /// - Each buy contributes its WETH amount × `2^(-age/halfLife)` (recency).
 /// - Each sell subtracts the same way; sells that fall within `churnWindowSec`
 ///   of a same-wallet buy are doubled (pump-and-dump signal).
-/// - Per-wallet net is clamped at 0 (a wallet that exits net-negative doesn't
-///   *help* HP — it just stops contributing).
+/// - Per-wallet net is clamped at 0.
 /// - Per-wallet net is divided by `log2(1 + walletTotal/floor)`, so whales
 ///   contribute log-scaled rather than linearly.
 function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): number {
@@ -165,7 +243,6 @@ function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): num
     if (age < 0) continue;
     const decay = Math.pow(0.5, age / halfLife);
 
-    // Latest same-wallet buy at or before this sell.
     const arr = buyTimestampsByWallet.get(sell.wallet);
     let lastBuyBeforeSell: bigint | null = null;
     if (arr) {
@@ -196,21 +273,6 @@ function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): num
 
 /// Effective buyers — sum of `f(walletBuyVolume)` across wallets above the
 /// dust floor, where `f` is the configured dampening function (spec §6.4.2).
-///
-/// **sqrt (default).** Economic-significance weighted: 30 wallets at 1 WETH
-/// produce 30 × √(1e18) ≈ 3.0e10, a single whale at 1000 WETH produces
-/// √(1e21) ≈ 3.16e10 — the whale's commitment is roughly equivalent to 30
-/// distributed buyers. Distributed buying still wins on headcount (and the
-/// sybil dust floor still filters 1-wei swarms) but a real whale is not
-/// completely flattened.
-///
-/// **log.** Heavy headcount preference: 30 × log(1e18) ≈ 1242 vs whale's
-/// log(1e21) ≈ 48 — distributed dominates the whale by ~25×. Useful when
-/// breadth is the entire signal.
-///
-/// Dust wallets (below `buyerDustFloorWeth`) contribute exactly zero —
-/// filtered out before the formula is applied, so a sea of 1-wei sybils
-/// does not produce any signal regardless of the chosen function.
 function computeEffectiveBuyers(t: TokenStats, config: ScoringConfig): number {
   const dust = bigintToFloat(config.buyerDustFloorWeth);
   const dampen = config.effectiveBuyersFunc === "log"
@@ -226,19 +288,6 @@ function computeEffectiveBuyers(t: TokenStats, config: ScoringConfig): number {
 }
 
 /// Time-weighted sticky liquidity, with a recent-withdrawal penalty.
-///
-/// `avgLiquidityDepthWeth` is the trailing time-weighted average from the
-/// indexer. If unset (genesis) we fall back to current depth.
-/// `recentLiquidityRemovedWeth / avgDepth` × α (`recentWithdrawalPenalty`) is
-/// the fractional haircut. With default α=1.0 (spec §6.4.3) a 100%-of-depth
-/// recent withdrawal fully zeroes the score; a 50%-of-depth withdrawal
-/// halves it.
-///
-/// **Indexer responsibility.** Protocol-controlled LP unwinds (filter-event
-/// liquidations, settlement teardowns) are system actions, not market
-/// signal — the indexer must exclude those tx hashes from
-/// `recentLiquidityRemovedWeth` upstream of scoring. Scoring trusts whatever
-/// is supplied; it cannot tell them apart on its own.
 function computeStickyLiquidity(t: TokenStats, config: ScoringConfig): number {
   const avg = t.avgLiquidityDepthWeth ?? t.liquidityDepthWeth;
   const avgF = bigintToFloat(avg);
@@ -248,9 +297,8 @@ function computeStickyLiquidity(t: TokenStats, config: ScoringConfig): number {
   return Math.max(0, avgF * (1 - Math.min(1, penalty)));
 }
 
-/// Two-anchor retention: `long` (e.g. 24h ago) for conviction, `short` (e.g.
-/// 1h ago) so a token that's bleeding fresh holders can't coast on day-old
-/// stickiness. Weighted by the configured long/short split.
+/// Two-anchor retention: `long` for conviction, `short` so a token bleeding
+/// fresh holders can't coast on day-old stickiness.
 function computeRetention(t: TokenStats, config: ScoringConfig): number {
   const longFrac = retentionFraction(t.holdersAtRetentionAnchor, t.currentHolders);
   if (!t.holdersAtRecentAnchor) return longFrac;
@@ -271,8 +319,10 @@ function retentionFraction(
   return still / anchor.size;
 }
 
-/// Min-max scale to [0, 1]. Uniform values map to 0 (no signal in this
-/// component for this cohort).
+// Re-export the component helpers so `index.ts` can surface them at the
+// package boundary.
+export {computeHolderConcentration, computeMomentumComponent} from "./components.js";
+
 function normalizeMinMax(values: number[]): number[] {
   if (values.length === 0) return [];
   let min = values[0]!;
@@ -292,6 +342,8 @@ function clamp01(n: number): number {
 }
 
 function bigintToFloat(b: bigint): number {
-  // Lossy at very large magnitudes but fine for WETH-scale token volume.
   return Number(b);
 }
+
+// Re-export for convenience (tests + boundary code spy on these).
+export {LOCKED_WEIGHTS, HP_WEIGHTS_VERSION};

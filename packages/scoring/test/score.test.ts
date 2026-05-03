@@ -4,12 +4,25 @@ import {
   COMPONENT_LABELS,
   DEFAULT_CONFIG,
   FINALS_WEIGHTS,
+  LOCKED_WEIGHTS,
   PRE_FILTER_WEIGHTS,
   score,
   type Address,
   type ScoringConfig,
   type TokenStats,
 } from "../src/index.js";
+
+/// v4 lock (`HP_WEIGHTS_VERSION = "2026-05-03-v4-locked"`) defaults
+/// `flags.momentum=false`. The legacy momentum tests below rely on momentum
+/// being computed, so they pass this flag bundle explicitly. New v4-lock
+/// behavior (momentum-off by default) is covered in `v4_lock_smoke.test.ts`.
+const MOMENTUM_ON: ScoringConfig = {
+  ...DEFAULT_CONFIG,
+  flags: {momentum: true, concentration: true},
+};
+function momentumOnPhase(phase: ScoringConfig["phase"]): ScoringConfig {
+  return {...MOMENTUM_ON, phase};
+}
 
 const tokenA = "0x000000000000000000000000000000000000000a" as Address;
 const tokenB = "0x000000000000000000000000000000000000000b" as Address;
@@ -343,16 +356,29 @@ describe("score (v3)", () => {
       priorBaseComposite: 1, // was already at the top last tick
     });
 
-    const ranked = score([surger, coaster], NOW);
+    const ranked = score([surger, coaster], NOW, MOMENTUM_ON);
     const surgerRow = ranked.find((r) => r.token === tokenA)!;
     const coasterRow = ranked.find((r) => r.token === tokenB)!;
     expect(surgerRow.components.momentum.score).toBeGreaterThan(coasterRow.components.momentum.score);
 
-    // Momentum's contribution is bounded by its weight (0.10 by default), so
-    // the gap between surger HP and coaster HP can't exceed ~0.10.
-    expect(Math.abs(surgerRow.hp - coasterRow.hp)).toBeLessThanOrEqual(
-      DEFAULT_CONFIG.weights?.momentum ?? PRE_FILTER_WEIGHTS.momentum,
-    );
+    // Momentum's contribution is bounded by its weight in the active set; under
+    // the v4 lock the weight is 0, so we exercise this with a non-zero weight
+    // override matching the legacy 0.10 cap to validate the bound.
+    const legacyMomentumWeight = 0.10;
+    const ranked2 = score([surger, coaster], NOW, {
+      ...MOMENTUM_ON,
+      weights: {
+        velocity: 0.35,
+        effectiveBuyers: 0.20,
+        stickyLiquidity: 0.20,
+        retention: 0.15,
+        momentum: legacyMomentumWeight,
+        holderConcentration: 0,
+      },
+    });
+    const sH = ranked2.find((r) => r.token === tokenA)!.hp;
+    const cH = ranked2.find((r) => r.token === tokenB)!.hp;
+    expect(Math.abs(sH - cH)).toBeLessThanOrEqual(legacyMomentumWeight + 1e-9);
   });
 
   it("momentum is neutral when no prior base composite is provided", () => {
@@ -363,27 +389,20 @@ describe("score (v3)", () => {
       currentHolders: new Set([wallet(1)]),
       holdersAtRetentionAnchor: new Set([wallet(1)]),
     });
-    const ranked = score([t], NOW);
+    const ranked = score([t], NOW, MOMENTUM_ON);
     expect(ranked[0]?.components.momentum.score).toBe(0.5);
   });
 
-  it("phase weights change the ranking when components disagree", () => {
-    // 3-token cohort designed so V and E winners are different tokens — that
-    // way under finals (where V+E = S+R = 0.45 at the *group* level), neither
-    // a pure-discovery nor pure-conviction token sits at exactly 0.45 from
-    // its group; the within-group emphasis shift creates a deterministic
-    // rank flip rather than a floating-point tie.
+  it("phase API returns the same locked weight set under v4 (no rank flip)", () => {
+    // Under `HP_WEIGHTS_VERSION = "2026-05-03-v4-locked"` per-phase
+    // differentiation collapses — both phases resolve to LOCKED_WEIGHTS.
+    // The phase-aware API is preserved as a thin wrapper so a future v5 can
+    // revive per-phase weights without an indexer/oracle/web refactor; this
+    // test pins the current behavior.
     //
     //   tokenA: heavy per-wallet volume (wins velocity) but few buyers.
-    //   tokenC: many distributed buyers (wins effective-buyers) but lower
-    //           per-wallet volume → mid-pack velocity.
-    //   tokenB: tiny activity but huge LP + sticky holders (wins sticky-liq
-    //           and retention).
-    //
-    // Pre-filter (40/25/15/10/10) — discovery-heavy: A leads (top V + good E).
-    // Finals (30/15/25/20/10) — discovery and conviction at parity: A's V
-    // lead is halved (40→30) and C's E lead is similarly cut (25→15), so
-    // their HP drops below B's full S+R contribution.
+    //   tokenC: many distributed buyers (wins effective-buyers).
+    //   tokenB: tiny activity but huge LP + sticky holders.
     const aBuys = Array.from({length: 6}, (_, i) => ({
       wallet: wallet(i + 1),
       ts: NOW - 100n,
@@ -427,20 +446,18 @@ describe("score (v3)", () => {
     });
 
     const preFilter = score([a, b, c], NOW, configWithPhase("preFilter"));
-    expect(preFilter[0]?.token).toBe(tokenA);
-
     const finals = score([a, b, c], NOW, configWithPhase("finals"));
-    expect(finals[0]?.token).toBe(tokenB);
 
-    // Sanity: spec weights actually flow through. Finals does NOT make
-    // conviction outweigh discovery at the group level — both sit at 0.45.
-    // The phase test passes because A's V dominance and C's E dominance are
-    // each individually cut, while B's full S+R sweep stays intact.
-    expect(preFilter[0]?.components.velocity.weight).toBe(PRE_FILTER_WEIGHTS.velocity);
-    expect(finals[0]?.components.stickyLiquidity.weight).toBe(FINALS_WEIGHTS.stickyLiquidity);
-    expect(
-      FINALS_WEIGHTS.velocity + FINALS_WEIGHTS.effectiveBuyers,
-    ).toBeCloseTo(FINALS_WEIGHTS.stickyLiquidity + FINALS_WEIGHTS.retention, 6);
+    // Same locked weights → same ordering across phases.
+    expect(preFilter[0]?.token).toBe(finals[0]?.token);
+    expect(preFilter.map((r) => r.token)).toEqual(finals.map((r) => r.token));
+
+    // Pinned weight values flow through identically for both phases.
+    expect(preFilter[0]?.components.velocity.weight).toBe(LOCKED_WEIGHTS.velocity);
+    expect(finals[0]?.components.stickyLiquidity.weight).toBe(LOCKED_WEIGHTS.stickyLiquidity);
+    // Both phase constants alias LOCKED_WEIGHTS in v4.
+    expect(PRE_FILTER_WEIGHTS).toEqual(LOCKED_WEIGHTS);
+    expect(FINALS_WEIGHTS).toEqual(LOCKED_WEIGHTS);
   });
 
   it("a high-HP small-mcap token outranks a whale-pumped fat one", () => {
@@ -689,11 +706,11 @@ describe("score (v3)", () => {
       priorBaseComposite: 1,
     });
 
-    const uncapped = score([surger, coaster], NOW);
+    const uncapped = score([surger, coaster], NOW, MOMENTUM_ON);
     const surgerUncapped = uncapped.find((r) => r.token === tokenA)!;
     expect(surgerUncapped.components.momentum.score).toBe(1);
 
-    const capped = score([surger, coaster], NOW, {...DEFAULT_CONFIG, momentumCap: 0.6});
+    const capped = score([surger, coaster], NOW, {...MOMENTUM_ON, momentumCap: 0.6});
     const surgerCapped = capped.find((r) => r.token === tokenA)!;
     const coasterCapped = capped.find((r) => r.token === tokenB)!;
     expect(surgerCapped.components.momentum.score).toBe(0.6);
@@ -729,7 +746,7 @@ describe("score (v3)", () => {
       priorBaseComposite: 0,
     });
 
-    const tight = score([fresh, surger], NOW, {...DEFAULT_CONFIG, momentumCap: 0.3});
+    const tight = score([fresh, surger], NOW, {...MOMENTUM_ON, momentumCap: 0.3});
     const freshRow = tight.find((r) => r.token === tokenA)!;
     const surgerRow = tight.find((r) => r.token === tokenB)!;
     // Neutral baseline preserved, despite cap < 0.5.
@@ -782,18 +799,25 @@ describe("score (v3)", () => {
     expect(softer[0]?.token).toBe(tokenA);
   });
 
-  it("finals weights match spec §6.5 (30/15/25/20/10)", () => {
+  it("FINALS_WEIGHTS aliases the v4 LOCKED_WEIGHTS (30/15/30/15/0/10)", () => {
+    // Pre-v4 spec §6.5 had 30/15/25/20/10 across the original five components.
+    // v4 collapses per-phase differentiation and adds holderConcentration:
+    // 30/15/30/15/0/10 (sums to 1.0). Both phase aliases now resolve to the
+    // same locked set — see types.ts.
+    expect(FINALS_WEIGHTS).toEqual(LOCKED_WEIGHTS);
     expect(FINALS_WEIGHTS.velocity).toBe(0.30);
     expect(FINALS_WEIGHTS.effectiveBuyers).toBe(0.15);
-    expect(FINALS_WEIGHTS.stickyLiquidity).toBe(0.25);
-    expect(FINALS_WEIGHTS.retention).toBe(0.20);
-    expect(FINALS_WEIGHTS.momentum).toBe(0.10);
+    expect(FINALS_WEIGHTS.stickyLiquidity).toBe(0.30);
+    expect(FINALS_WEIGHTS.retention).toBe(0.15);
+    expect(FINALS_WEIGHTS.momentum).toBe(0.0);
+    expect(FINALS_WEIGHTS.holderConcentration).toBe(0.10);
     const sum =
       FINALS_WEIGHTS.velocity +
       FINALS_WEIGHTS.effectiveBuyers +
       FINALS_WEIGHTS.stickyLiquidity +
       FINALS_WEIGHTS.retention +
-      FINALS_WEIGHTS.momentum;
+      FINALS_WEIGHTS.momentum +
+      FINALS_WEIGHTS.holderConcentration;
     expect(sum).toBeCloseTo(1, 6);
   });
 });
