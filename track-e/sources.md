@@ -168,6 +168,30 @@ indexed once and `burn_events` is keyed by block so any snapshot can read
 incorrectly used the [t+72h, t+96h] window, which gave 0% non-zero across
 the corpus because V4 lockers hold the position past the first day.)
 
+## Validation cohort selection (v5 — liquidity-first scan)
+
+The v4 validation cohort (`validation_cohort.py`) used random-sample-then-FDV-filter
+and returned n=7 because only ~0.14% of a 5,120-token random subsample had any
+recent swap activity (the active-token base rate on Clanker V4 is much lower than
+the survival-half base rate). The v5 cohort (`validation_cohort_v5.py`) inverts
+the funnel:
+
+1. Discover all Clanker V4 + Liquid V1 candidates over the 180d→30d-ago window
+   (same window as the main corpus — these are the cross-reference universe).
+2. Scan the Uniswap V4 PoolManager (`0x498581ff…`) for `Swap` events over the
+   last 7d. Decode `topic[1]` as `pool_id` and the data payload for amount0/amount1.
+3. Filter swaps by pool_id ∈ candidate index. Group by pool_id, rank by swap count
+   (primary) and accumulated `|amount0| + |amount1|` (tie-breaker).
+4. FDV-sample the top-N most-active pools (default top-500 of typically ~1,000
+   active matches). FDV uses the same decimals-correct path as PR #76.
+5. Take top-N per platform by FDV → cohort. Resolve timestamps + extract features
+   via the same path as `fetch_corpus.py`. FDV is stashed in `notes` so
+   `validate_hp_rank.py` reads it unchanged.
+
+Estimated cost: ~15-30 min total (vs PR #76's 40 min for a smaller cohort).
+Bandwidth-heavy step is the unfiltered PoolManager Swap scan (~2.5M logs over 7d
+on Base). The `get_logs` helper auto-chunks on `log_limit` errors.
+
 ## Outcome label sampling
 
 `outcome_{30d,60d,90d}_*` labels are computed by sparse weekly sampling of pool

@@ -51,6 +51,20 @@ Provenance constants:
 - `HP_WEIGHTS_ACTIVATED_AT = "2026-05-03T00:00:00Z"` — wall-clock activation.
 - `HP_WEIGHTS_SPEC_REF` — anchor to the spec §6.5 entry that authored this set.
 
+### Validation status
+
+| Run | Cohort | n | LOCKED ρ vs FDV | Outcome |
+|---|---|---:|---:|---|
+| Track E v4 main corpus | stratified 50/50 (Clanker V4) | 100 | — (composite signal; L2 fit) | Authored the lock |
+| Track E v4 validation cohort | random-sample → FDV | 7 | +0.32 (p=0.48) | Inconclusive — too small |
+| **Track E v5 validation cohort** | **liquidity-first → FDV (top-50/platform)** | **43** | **+0.364 (p=0.016)** | **Validated at α=0.05** |
+
+The pre-v4 spec defaults (momentum=10%) edge LOCKED by Δρ≈0.045 on
+the v5 cohort (ρ=+0.409, p=0.006 at n=43). LOCKED is
+**validated, with momentum's drop flagged as the most fragile call in
+§6.5** for post-mainnet refit. See `track-e/REPORT_v5_validation.md`
+for the full analysis and v6 follow-up list.
+
 ---
 
 ## 3. How to verify what's live
