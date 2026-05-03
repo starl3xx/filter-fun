@@ -19,6 +19,13 @@ import {CreatorRegistryAbi} from "@/lib/token/abis";
 /// return zero in `pendingAdminOf` and an empty string for `metadataURIOf`;
 /// `adminOf` and `recipientOf` resolve to `creatorOf` per the registry's
 /// default-resolution rules.
+///
+/// Audit M-Perf-2 (Phase 1, 2026-05-03): each query carries an explicit
+/// `staleTime` matching its `refetchInterval` (30 s for the address fields,
+/// 60 s for `metadataURI` which mutates via tx and rarely otherwise). The
+/// default react-query staleTime is 0, which would re-fetch all 5 fields
+/// on every window-focus / mount / reconnect even when the active poll
+/// just pulled them — staleTime suppresses the redundant focus refetches.
 
 export type TokenAdminInfo = {
   /// `null` means "unknown yet" (loading or unregistered token). Consumers
@@ -47,35 +54,35 @@ export function useTokenAdmin(token: Address | null): UseTokenAdminResult {
     abi: CreatorRegistryAbi,
     functionName: "creatorOf",
     args: token ? [token] : undefined,
-    query: {enabled, refetchInterval: 30_000},
+    query: {enabled, refetchInterval: 30_000, staleTime: 30_000},
   });
   const admin = useReadContract({
     address: REGISTRY_ADDRESS,
     abi: CreatorRegistryAbi,
     functionName: "adminOf",
     args: token ? [token] : undefined,
-    query: {enabled, refetchInterval: 30_000},
+    query: {enabled, refetchInterval: 30_000, staleTime: 30_000},
   });
   const recipient = useReadContract({
     address: REGISTRY_ADDRESS,
     abi: CreatorRegistryAbi,
     functionName: "recipientOf",
     args: token ? [token] : undefined,
-    query: {enabled, refetchInterval: 30_000},
+    query: {enabled, refetchInterval: 30_000, staleTime: 30_000},
   });
   const pendingAdmin = useReadContract({
     address: REGISTRY_ADDRESS,
     abi: CreatorRegistryAbi,
     functionName: "pendingAdminOf",
     args: token ? [token] : undefined,
-    query: {enabled, refetchInterval: 30_000},
+    query: {enabled, refetchInterval: 30_000, staleTime: 30_000},
   });
   const metadataURI = useReadContract({
     address: REGISTRY_ADDRESS,
     abi: CreatorRegistryAbi,
     functionName: "metadataURIOf",
     args: token ? [token] : undefined,
-    query: {enabled, refetchInterval: 60_000},
+    query: {enabled, refetchInterval: 60_000, staleTime: 60_000},
   });
 
   const reads = [creator, admin, recipient, pendingAdmin, metadataURI];

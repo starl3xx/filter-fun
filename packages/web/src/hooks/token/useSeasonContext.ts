@@ -12,6 +12,14 @@ import {FilterLauncherReadAbi} from "@/lib/token/abis";
 /// past-season tokens (which hide live panels). Polls on a 30s tick — phase
 /// changes are rare and the scheduler advances them deterministically at the
 /// hour anchors (96 / 168) so high-frequency polling is wasted RPC.
+///
+/// Audit M-Perf-2 (Phase 1, 2026-05-03): explicit `staleTime: 30_000` on each
+/// query. Default react-query staleTime is 0 — without this, every window-
+/// focus / mount / reconnect event re-fetches even when the 30 s poll just
+/// pulled the same data. Matching staleTime to refetchInterval makes
+/// focus events a no-op when the cache is fresh. Arena-live hooks
+/// (`hooks/arena/*`) intentionally keep the default 0 because real-time
+/// staleness is the contract there.
 
 export type SeasonContext = {
   seasonId: bigint | null;
@@ -28,7 +36,7 @@ export function useSeasonContext(): {context: SeasonContext; isLoading: boolean}
     address: LAUNCHER_ADDRESS,
     abi: FilterLauncherReadAbi,
     functionName: "currentSeasonId",
-    query: {enabled, refetchInterval: 30_000},
+    query: {enabled, refetchInterval: 30_000, staleTime: 30_000},
   });
 
   const sid = seasonId.data as bigint | undefined;
@@ -38,7 +46,7 @@ export function useSeasonContext(): {context: SeasonContext; isLoading: boolean}
     abi: FilterLauncherReadAbi,
     functionName: "phaseOf",
     args: sid !== undefined ? [sid] : undefined,
-    query: {enabled: enabled && sid !== undefined, refetchInterval: 30_000},
+    query: {enabled: enabled && sid !== undefined, refetchInterval: 30_000, staleTime: 30_000},
   });
 
   return {

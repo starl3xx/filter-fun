@@ -44,7 +44,10 @@ export function useStakeStatus(token: Address | null, seasonId: bigint | null): 
     abi: FilterLauncherReadAbi,
     functionName: "launchInfoOf",
     args: token && seasonId !== null ? [seasonId, token] : undefined,
-    query: {enabled, refetchInterval: 30_000},
+    // Audit M-Perf-2 (Phase 1, 2026-05-03): explicit staleTime matches the
+    // refetchInterval so window-focus / mount events don't duplicate the
+    // already-active poll. The default 0 would re-fetch on every focus.
+    query: {enabled, refetchInterval: 30_000, staleTime: 30_000},
   });
 
   const entry = useReadContract({
@@ -52,7 +55,10 @@ export function useStakeStatus(token: Address | null, seasonId: bigint | null): 
     abi: FilterLauncherReadAbi,
     functionName: "entryOf",
     args: token && seasonId !== null ? [seasonId, token] : undefined,
-    query: {enabled, refetchInterval: 60_000},
+    // M-Perf-2: see note above. `entryOf` only mutates at season start
+    // (entry registration), so a 60 s poll + 60 s staleTime is appropriate
+    // for the admin-page consumer.
+    query: {enabled, refetchInterval: 60_000, staleTime: 60_000},
   });
 
   const isLoading = enabled && (launchInfo.isLoading || entry.isLoading);
