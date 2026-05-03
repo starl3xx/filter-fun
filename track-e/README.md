@@ -47,10 +47,12 @@ Generates `synthetic_corpus.csv` (500 tokens, deterministic) and writes `SYNTHET
    cd track-e && uv sync
    ```
 
-3. **Run a pilot** (50 tokens, ~5–10 minutes, ~5–10M Alchemy CUs):
+3. **Run a pilot** (250 tokens, ~30–45 minutes, ~50–80M Alchemy CUs):
    ```sh
-   uv run python3 fetch_corpus.py --pilot 50
+   uv run python3 fetch_corpus.py --pilot 250
    ```
+   Pilot mode in v3 time-stratifies the sample across the window into 3 equal
+   bins (deterministic seed=42, no over-fetching, no live-token filter).
 
 4. **Validate against the analysis pipeline:**
    ```sh

@@ -4,7 +4,7 @@ Authoritative reference for every factory contract, event signature, and pool
 dependency the corpus fetcher (`fetch_corpus.py`) reads. Every entry links to
 Basescan so a third party can independently regenerate the corpus.
 
-Last verified: 2026-05-01.
+Last verified: 2026-05-02 (v3).
 
 ## Clanker (multi-version) — Base mainnet
 
@@ -28,42 +28,56 @@ parentheses where it differs.
 
 Full ABI signatures are in `fetch_corpus.py::CLANKER_VERSIONS`.
 
+**Version activity in the v3 corpus window (2026-02-01 → 2026-04-30, verified
+2026-05-02):** V1, V2, V3, V3.1, V3.5 all emit **zero** events from their
+factories in the 3-month window. V4 emits 41,211 `TokenCreated` events. The
+v3 corpus is therefore Clanker-V4-only — version-stratified sampling is
+moot — and we time-stratify within V4 instead (3 equal time bins across the
+window, sampled in proportion to launch density per bin, deterministic
+seed=42).
+
 ## Bankr — Base mainnet
 
-**Status: factory address not located as of 2026-05-01.**
+**Status (v3, 2026-05-02): Bankr is a Clanker frontend, not a separate
+factory.** Bankr launches go through the Clanker factory; tokens already
+appear in the V4 corpus. Per-token attribution to Bankr requires either:
 
-Bankr token launches happen via the bankr.bot AI agent, but the deployed
-factory contract address is not published in their docs
-([docs.bankr.bot](https://docs.bankr.bot/)) or the
-[github.com/bankrbot](https://github.com/bankrbot) org. BankrCoin (BNKR)
-itself lives at
-[0x22af33fe…6f3b](https://basescan.org/token/0x22af33fe49fd1fa80c7149773dde5890d3c76f3b)
-but that's the BNKR token, not the factory.
+1. The `castHash` field in V2/V3/V3.1 `TokenCreated` events (Farcaster-cast
+   provenance). Not applicable for v3 because V2/V3/V3.1 are dormant.
+2. Inspecting V4's `tokenContext` (string, often JSON) for cast/farcaster
+   hints. Format isn't documented; reverse-engineering it across sample
+   events is feasible but heuristic.
+3. Cross-referencing deployer wallets against a known-Bankr deployer list
+   sourced from public Bankr posts.
 
-**Action:** Skipped from v1 corpus. Follow-up: reach out to Bankr team or scrape
-recent token-creation transactions from their backend to identify the factory.
+**Action for v3:** Bankr attribution is **deferred** — the v3 corpus is
+treated as Clanker-V4 in aggregate (with the implicit understanding that
+some fraction is Bankr-originated). Follow-up: reverse-engineer V4
+`tokenContext` JSON format and add a `bankr_attributed: bool` column.
 
 ## Liquid — Base mainnet
 
-**Status: ambiguous identification.**
+**Status (v3, 2026-05-02): factory address not yet verified.**
 
-- [LiquidLaunch (liquidlaunch.app)](https://liquidlaunch.app/) is on
-  Hyperliquid EVM, not Base — out of scope.
-- Uniswap's "Liquidity Launchpad" / CCA factory is referenced for Base in
-  [docs.uniswap.org/contracts/liquidity-launchpad](https://docs.uniswap.org/contracts/liquidity-launchpad/Overview)
-  but the Deployments page errors and the
-  [Uniswap/liquidity-launcher](https://github.com/Uniswap/liquidity-launcher)
-  GitHub repo doesn't list a Base mainnet address. The system is single-address
-  CREATE2-deterministic across chains but the address isn't surfaced on the
-  doc page that loaded successfully.
+Two candidate addresses were investigated and ruled out:
 
-The "Liquid-style" architecture reference in filter.fun's spec (per
-ROADMAP.md) means *own factory + hook + LP-locker, not a Clanker wrap* — so
-"Liquid" in the Track E corpus prompt is treated as a comparable launchpad,
-not filter.fun's own design pattern.
+- [`0xCb22…0f85`](https://basescan.org/address/0xcb22ed2b12da1365539283e2891bb93ba10a0f85)
+  — EOA (no contract bytecode), nonce 16, ~3.2e10 wei balance, **zero log
+  activity ever** (90d/180d/365d windows). A regular wallet, not a factory.
+- [`0xab37…64fe`](https://basescan.org/address/0xab3754736c1a426461259764ed28115d01bb64fe)
+  — also an EOA, nonce 52, ~9.8e14 wei balance, **zero log activity ever**.
+  A regular user wallet that bridges + swaps via various contracts (V4
+  PoolManager, a Relay bridge at `0x4cd00e387622c35bddb9b4c962c136462338bc31`,
+  etc.) — none of which are token factories.
 
-**Action:** Skipped from v1 corpus. Follow-up: clarify which "Liquid" the
-spec means and locate its Base factory address.
+Liquid Protocol's marketing references "Uniswap V4 pools, locked liquidity,
+MEV protection" but the deployed Base factory address has not been located
+in their public materials.
+
+**Action for v3:** Liquid corpus is **deferred** pending a verified factory
+address. The v3 corpus is Clanker-V4-only. Follow-up: source the verified
+Liquid factory address from their team or docs, then add a `LIQUID_VERSIONS`
+constant mirroring `CLANKER_VERSIONS` in `fetch_corpus.py`.
 
 ## Filterfun (own project)
 
@@ -106,6 +120,17 @@ Addresses excluded from `holder_count` and `holder_balances_json` (codified in
   [0xDef1C0de…51](https://basescan.org/address/0xDef1C0ded9bec7F1a1670819833240f027b25EfF)
 - Heuristic: any wallet that holds ≥ 50 distinct corpus tokens simultaneously
   is flagged as a contract/aggregator and excluded.
+
+## LP-burn indexing (v3)
+
+`lp_removed_24h_eth` is the spec rug-indicator: WETH-side volume of LP burns
+in the **first 24h after launch**. v3 sources it from V4 `ModifyLiquidity`
+events with `liquidityDelta < 0`, mapped to WETH via `v4_full_range_weth_wei()`
+using the nearest-block `sqrtPriceX96`. The full launch→t+168h window is
+indexed once and `burn_events` is keyed by block so any snapshot can read
+"removed in 24h prior to <block>" in O(1) without re-fetching logs. (v2
+incorrectly used the [t+72h, t+96h] window, which gave 0% non-zero across
+the corpus because V4 lockers hold the position past the first day.)
 
 ## Outcome label sampling
 

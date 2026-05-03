@@ -40,6 +40,7 @@ import csv
 import json
 import math
 import os
+import random
 import sys
 import time
 from collections import defaultdict
@@ -79,13 +80,24 @@ BASE_BLOCK_TIME_S = 2.0
 BLOCKS_PER_DAY = int(86400 / BASE_BLOCK_TIME_S)
 BLOCKS_PER_HOUR = int(3600 / BASE_BLOCK_TIME_S)
 
-# Pilot-mode "live token" thresholds. Clanker V4 auto-deploys generate ~80%
-# dead-on-arrival tokens (no swaps, no holders); without filtering, the corpus
-# is dominated by zero-row tokens and every input field looks degenerate.
-LIVE_MIN_BUY_ETH = 0.05  # at least 0.05 ETH bought in t+96h window
-LIVE_MIN_BUYERS = 2      # at least 2 distinct buyer wallets
-# Scan up to this many candidates per pilot slot to find live tokens.
-OVERFETCH_MULTIPLIER = 8
+# Default 5-component HP weights (no momentum) used to score the per-token
+# trajectory at intra-window snapshots [t+24h,+48h,+72h,+96h]. Renormalized
+# from spec §6.5 defaults (30/15/20/15/10/10) by dropping the momentum slot
+# and rescaling the remainder to sum to 1.0.
+HP_5COMP_WEIGHTS = {
+    "velocity": 30 / 90,
+    "effectiveBuyers": 15 / 90,
+    "stickyLiquidity": 20 / 90,
+    "retention": 15 / 90,
+    "holderConcentration": 10 / 90,
+}
+
+# Survival gate at t+168h (one full filter.fun week, the closest retrospective
+# proxy to "would have made the h96 cut"). Track-E v3 dispatch: closer to the
+# actionable signal than the existing 30/60/90d outcome labels.
+SURVIVED_HOLDERS_MIN = 5
+SURVIVED_LP_MIN_ETH = 0.5
+SURVIVED_VOL_MIN_ETH = 0.0  # strict positivity — any swap volume in the trailing 24h
 
 
 # ---------------------------------------------------------------------------
@@ -503,14 +515,49 @@ class TokenExtraction:
     outcome_90d_price_floor: int = 0
     outcome_90d_volume_slope: int = 0
     outcome_90d_composite: int = 0
+    # Track-E v3 additions
+    survived_to_day_7: int = 0       # binary, on-chain only
+    hp_trajectory_json: str = "[]"   # 5-comp raw HP at [+24h,+48h,+72h,+96h]
     notes: str = ""
     # Cache-schema fingerprint. Bump when extraction semantics change so stale
     # caches written by an earlier code version get re-extracted instead of
     # silently producing degenerate values in the corpus.
-    cache_schema: int = 3
+    cache_schema: int = 5
 
 
-CACHE_SCHEMA = 3
+CACHE_SCHEMA = 5
+
+
+def hhi_score_from_balances(balances: list[int]) -> float:
+    """HHI(balances) → 0-1 concentration score. Mirrors pipeline.hhi_score so
+    snapshot HP in the fetcher matches the corpus-level scoring math."""
+    total = sum(balances)
+    if total <= 0 or len(balances) == 0:
+        return 0.0
+    shares = [b / total for b in balances]
+    hhi = 10000.0 * sum(s * s for s in shares)
+    return max(0.0, min(1.0, 1.0 - math.log10(max(hhi, 1.0)) / math.log10(10000.0)))
+
+
+def hp_raw_5comp(velocity_eth_decayed: float,
+                 sum_sqrt_buyer_volumes: float,
+                 lp_depth_eth_at: float,
+                 lp_removed_eth_at: float,
+                 retention_frac: float,
+                 hhi_concentration_score: float) -> float:
+    """5-component raw HP at a snapshot. Used for the per-token trajectory and
+    hp_delta_recent. Raw (un-percentile-ranked) by necessity — corpus context
+    isn't available inside per-token extraction. Velocity + effectiveBuyers +
+    stickyLiquidity are unbounded so the absolute value isn't comparable
+    across tokens, but intra-token deltas are well-defined."""
+    sticky = max(0.0, lp_depth_eth_at - lp_removed_eth_at)
+    return (
+        HP_5COMP_WEIGHTS["velocity"] * velocity_eth_decayed
+        + HP_5COMP_WEIGHTS["effectiveBuyers"] * sum_sqrt_buyer_volumes
+        + HP_5COMP_WEIGHTS["stickyLiquidity"] * sticky
+        + HP_5COMP_WEIGHTS["retention"] * retention_frac
+        + HP_5COMP_WEIGHTS["holderConcentration"] * hhi_concentration_score
+    )
 
 
 def v4_full_range_weth_wei(liquidity: int, sqrtPriceX96: int, target_is_token0: bool) -> float:
@@ -553,8 +600,10 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
     launch_block = token["launch_block"]
     launch_ts = token["launch_ts"]
     blk_24h = launch_block + 24 * BLOCKS_PER_HOUR
+    blk_48h = launch_block + 48 * BLOCKS_PER_HOUR
     blk_72h = launch_block + 72 * BLOCKS_PER_HOUR
     blk_96h = launch_block + 96 * BLOCKS_PER_HOUR
+    blk_168h = launch_block + 168 * BLOCKS_PER_HOUR  # 7d, for survived_to_day_7
     blk_30d = launch_block + 30 * BLOCKS_PER_DAY
     blk_60d = launch_block + 60 * BLOCKS_PER_DAY
     blk_90d = launch_block + 90 * BLOCKS_PER_DAY
@@ -596,17 +645,12 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             json.dump(ext.__dict__, f)
         return ext
 
-    # Compute swap-derived features at t+96h
+    # Compute swap-derived features at t+96h. velocity windowing for momentum
+    # is handled below in the multi-snapshot HP loop (Track-E v3 Fix 2); the
+    # v2 buy-velocity-rate formula was removed in this PR.
     buyer_volumes: dict[str, float] = defaultdict(float)
     total_buy = 0.0
     decayed_buy = 0.0
-    # Per spec §6.4.5: rate-of-change of buy velocity in two overlapping 48h
-    # windows ending at t+72h and t+96h. Captures whether interest is decaying
-    # or accelerating across the second half of the t+96h horizon.
-    blk_24_72 = (blk_24h, blk_72h)         # [t+24h, t+72h)  → velocity_at_t72h
-    blk_48_96 = (blk_24h + 24 * BLOCKS_PER_HOUR, blk_96h)   # [t+48h, t+96h)
-    velocity_24_72 = 0.0
-    velocity_48_96 = 0.0
     last_swap_in_window: dict | None = None  # for V4 LP-depth proxy
 
     for sw in swaps:
@@ -621,10 +665,6 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             total_buy += eth_signed
             days_before_t96 = (blk_96h - sw["block"]) / BLOCKS_PER_DAY
             decayed_buy += eth_signed * math.exp(-0.5 * max(0.0, days_before_t96))
-            if blk_24_72[0] <= sw["block"] < blk_24_72[1]:
-                velocity_24_72 += eth_signed
-            if blk_48_96[0] <= sw["block"] < blk_48_96[1]:
-                velocity_48_96 += eth_signed
         if last_swap_in_window is None or sw["block"] > last_swap_in_window["block"]:
             last_swap_in_window = sw
 
@@ -646,23 +686,19 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
         )
         ext.lp_depth_eth = round(weth_wei / 1e18, 6)
 
-    # hp_delta_recent: (velocity_at_t96h - velocity_at_t72h) / max(velocity_at_t72h, 1e-9),
-    # clipped to [-1, 1]. Pipeline.py applies the spec §6.4.5 cap when scoring.
-    if velocity_24_72 > 0 or velocity_48_96 > 0:
-        delta = (velocity_48_96 - velocity_24_72) / max(velocity_24_72, 1e-9)
-        ext.hp_delta_recent = round(max(-1.0, min(1.0, delta)), 4)
-
-    # ----- ModifyLiquidity (LP) events 72-96h -----
-    mod_logs = get_logs(
+    # ----- ModifyLiquidity (LP) events: full launch→96h window, with
+    # cumulative-by-block index so we can read "removed in 24h prior to <snap>"
+    # at any snapshot block (used by survived_to_day_7 + hp trajectory). The
+    # canonical lp_removed_24h_eth is "in [launch, t+24h]" per spec, capturing
+    # creator/early-LP withdrawals that signal a rug-style launch.
+    mod_logs_full = get_logs(
         rpc, address=V4_POOL_MANAGER_BASE,
         topics=[topic0(MODIFY_LIQ_SIG), pool_id],
-        from_block=blk_72h, to_block=blk_96h,
+        from_block=launch_block, to_block=min(blk_168h + 1, end_block),
     )
-    # Approximate WETH-side of liquidity removal via v4_full_range_weth_wei.
-    lp_removed_eth = 0.0
-    if mod_logs and swaps:
-        # For each negative-delta event, find nearest swap's sqrtPriceX96 to estimate WETH side.
-        for log in mod_logs:
+    burn_events: list[dict] = []  # [{block, weth_eth_removed}]
+    if mod_logs_full and swaps:
+        for log in mod_logs_full:
             ev = decode_modify_liquidity(log)
             if ev["liquidityDelta"] >= 0:
                 continue
@@ -672,8 +708,18 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
                 continue
             removed_liq = -ev["liquidityDelta"]
             weth_amt = v4_full_range_weth_wei(removed_liq, sqrtP, target_is_token0) / 1e18
-            lp_removed_eth += weth_amt
-    ext.lp_removed_24h_eth = round(lp_removed_eth, 6)
+            burn_events.append({"block": ev["block"], "weth_eth": weth_amt})
+    burn_events.sort(key=lambda e: e["block"])
+
+    def lp_removed_in_24h_pre(snap_block: int) -> float:
+        lo = snap_block - 24 * BLOCKS_PER_HOUR
+        return sum(b["weth_eth"] for b in burn_events if lo <= b["block"] <= snap_block)
+
+    # spec: lp_removed_24h_eth is in the FIRST 24h after launch (rug indicator).
+    ext.lp_removed_24h_eth = round(
+        sum(b["weth_eth"] for b in burn_events if launch_block <= b["block"] <= blk_24h),
+        6,
+    )
 
     # ----- Token Transfer events for holder snapshots -----
     transfer_logs = get_logs(
@@ -681,7 +727,14 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
         from_block=launch_block, to_block=end_block,
     )
 
-    snapshot_blocks = sorted({blk_24h, blk_96h, blk_30d, blk_60d, blk_90d, end_block})
+    # Track-E v3: snapshot at every 24h tick through the launch week so we
+    # can build the HP trajectory + survived_to_day_7 from a single Transfer
+    # log replay. blk_48h and blk_72h are needed for HP@72h vs HP@96h delta;
+    # blk_168h is the survival gate.
+    snapshot_blocks = sorted({
+        blk_24h, blk_48h, blk_72h, blk_96h, blk_168h,
+        blk_30d, blk_60d, blk_90d, end_block,
+    })
     snapshot_blocks = [s for s in snapshot_blocks if s <= end_block]
     snapshots: dict[int, dict[str, int]] = {}
     balances: dict[str, int] = defaultdict(int)
@@ -722,6 +775,116 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
     ext.holder_count = len(snap_96h_filt)
     # HHI is scale-invariant; store raw counts for stable JSON
     ext.holder_balances_json = json.dumps(sorted(snap_96h_filt.values(), reverse=True))
+
+    # ----- Multi-snapshot HP trajectory (Track-E v3 dispatch Fix 2) -----
+    # Compute the 5-component raw HP at each of [t+24h, t+48h, t+72h, t+96h]
+    # using already-fetched logs (no extra RPC). hp_delta_recent is then the
+    # normalized (HP@96 − HP@72) / max(HP@72, ε) clipped to [-1,1]. The full
+    # 4-point trajectory is stored as JSON for follow-up analysis.
+    #
+    # CAVEAT: this is the RAW 5-component HP (un-percentile-ranked, no
+    # momentum component). pipeline.py's corpus-relative HP differs by
+    # rank-normalizing velocity/effectiveBuyers/stickyLiquidity across the
+    # corpus. The intra-token delta is well-defined regardless.
+    snap_pts = [blk_24h, blk_48h, blk_72h, blk_96h]
+    hp_traj: list[float] = []
+    swaps_sorted = sorted(swaps, key=lambda s: s["block"])
+    for snap_b in snap_pts:
+        # Velocity + effectiveBuyers from cumulative buys ≤ snap_b
+        buyers_at: dict[str, float] = defaultdict(float)
+        v_decayed = 0.0
+        for sw in swaps_sorted:
+            if sw["block"] > snap_b:
+                break
+            eth_signed = amount0_from_swap_to_eth(sw, target_is_token0)
+            tgt_signed = target_amount_signed(sw, target_is_token0)
+            if eth_signed > 0 and tgt_signed < 0:
+                buyers_at[sw["sender"]] += eth_signed
+                days_before = (snap_b - sw["block"]) / BLOCKS_PER_DAY
+                v_decayed += eth_signed * math.exp(-0.5 * max(0.0, days_before))
+        sum_sqrt = sum(math.sqrt(max(0.0, v)) for v in buyers_at.values())
+
+        # LP depth at snap_b: first swap of the highest block ≤ snap_b. The
+        # strict `>` matches `last_swap_in_window` above (used to populate
+        # ext.lp_depth_eth) so trajectory@96h's stickyLiquidity component
+        # reads the same pool state as the published lp_depth_eth field.
+        last_sw_pre = None
+        for sw in swaps_sorted:
+            if sw["block"] > snap_b:
+                break
+            if last_sw_pre is None or sw["block"] > last_sw_pre["block"]:
+                last_sw_pre = sw
+        depth_at = 0.0
+        if last_sw_pre and last_sw_pre["liquidity"] > 0 and last_sw_pre["sqrtPriceX96"] > 0:
+            depth_at = v4_full_range_weth_wei(
+                last_sw_pre["liquidity"], last_sw_pre["sqrtPriceX96"], target_is_token0
+            ) / 1e18
+        removed_at = lp_removed_in_24h_pre(snap_b)
+
+        # Retention: only meaningful from t+48h onward (t+24h sets the early
+        # cohort). At t+24h, retention is 1.0 if the cohort is non-empty —
+        # but 0.0 if there are no holders at all (a dead launch shouldn't
+        # contribute the retention component's full weight to its hp_raw).
+        snap_at_filt = filtered(snapshots.get(snap_b, {}))
+        if not early_set:
+            retention_at = 0.0
+        elif snap_b == blk_24h:
+            retention_at = 1.0
+        else:
+            retention_at = sum(1 for a in early_set if a in snap_at_filt) / len(early_set)
+
+        hhi_at = hhi_score_from_balances(sorted(snap_at_filt.values(), reverse=True))
+
+        hp = hp_raw_5comp(v_decayed, sum_sqrt, depth_at, removed_at, retention_at, hhi_at)
+        hp_traj.append(round(hp, 6))
+
+    ext.hp_trajectory_json = json.dumps(hp_traj)
+    hp_72 = hp_traj[2]
+    hp_96 = hp_traj[3]
+    if hp_72 > 1e-9 or hp_96 > 1e-9:
+        delta = (hp_96 - hp_72) / max(hp_72, 1e-9)
+        ext.hp_delta_recent = round(max(-1.0, min(1.0, delta)), 4)
+    # else: leave at 0.0 default — no HP signal in the t+72h→t+96h window
+
+    # ----- survived_to_day_7 (Track-E v3 dispatch Fix 4d) -----
+    # On-chain proxy for "would have made the filter.fun h96 cut": at t+168h
+    # the token must still have ≥5 holders, ≥0.5 ETH liquidity, and at least
+    # one swap in the trailing 24h. Pure on-chain — no thresholds vs. peak.
+    if blk_168h <= head_block:
+        snap_168h = filtered(snapshots.get(blk_168h, {}))
+        # 168h LP depth: first swap of the highest block ≤ blk_168h. Uses
+        # the same strict-`>` convention as last_swap_in_window and the
+        # trajectory loop so survived_to_day_7's depth check is consistent
+        # with the rest of the fetcher's LP-depth reads.
+        last_sw_168 = None
+        for sw in swaps_sorted:
+            if sw["block"] > blk_168h:
+                break
+            if last_sw_168 is None or sw["block"] > last_sw_168["block"]:
+                last_sw_168 = sw
+        depth_168 = 0.0
+        if last_sw_168 and last_sw_168["liquidity"] > 0 and last_sw_168["sqrtPriceX96"] > 0:
+            depth_168 = v4_full_range_weth_wei(
+                last_sw_168["liquidity"], last_sw_168["sqrtPriceX96"], target_is_token0
+            ) / 1e18
+        # trailing 24h swap volume (any direction — buys + sells) per the
+        # spec for survived_to_day_7. WETH-side magnitude captures both:
+        # buys send WETH in (eth_v > 0), sells take WETH out (eth_v < 0);
+        # |eth_v| sums them as total flow either way.
+        lo_168 = blk_168h - 24 * BLOCKS_PER_HOUR
+        vol_24h_168 = 0.0
+        for sw in swaps_sorted:
+            if sw["block"] < lo_168 or sw["block"] > blk_168h:
+                continue
+            eth_v = amount0_from_swap_to_eth(sw, target_is_token0)
+            if eth_v != 0:
+                vol_24h_168 += abs(eth_v)
+        if (
+            len(snap_168h) >= SURVIVED_HOLDERS_MIN
+            and depth_168 >= SURVIVED_LP_MIN_ETH
+            and vol_24h_168 > SURVIVED_VOL_MIN_ETH
+        ):
+            ext.survived_to_day_7 = 1
 
     # ----- Outcome labels -----
     sample_interval = 7 * BLOCKS_PER_DAY
@@ -795,9 +958,16 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
         cur_price = sample_prices.get(sb_h, 0.0)
         cur_vol7d = sample_trailing_vol.get(sb_h, 0.0)
 
+        # Track-E v3 dispatch Fix 4: retuned thresholds.
+        # v2 saw price_floor uniformly True at 0.30 (sqrtPriceX96 was nearly
+        # static for dead pools, so the ratio held trivially) and
+        # volume_slope uniformly False at peak-relative 0.20 (90d-old tokens
+        # have zero weekly volume by then). Raising the price floor to 0.50
+        # (half of peak) and switching volume_slope to an absolute floor
+        # (≥0.01 ETH/week) gives discriminating labels.
         retention = int(peak_holder > 0 and cur_holder > 0.5 * peak_holder)
-        floor = int(peak_price > 0 and cur_price >= 0.30 * peak_price)
-        slope = int(peak_vol7d > 0 and cur_vol7d >= 0.20 * peak_vol7d)
+        floor = int(peak_price > 0 and cur_price >= 0.50 * peak_price)
+        slope = int(cur_vol7d >= 0.01)  # absolute weekly-volume floor in ETH
         composite = int(retention and floor and slope)
 
         setattr(ext, f"{prefix}_holder_retention", retention)
@@ -830,6 +1000,8 @@ CSV_COLUMNS = [
     "outcome_60d_volume_slope", "outcome_60d_composite",
     "outcome_90d_holder_retention", "outcome_90d_price_floor",
     "outcome_90d_volume_slope", "outcome_90d_composite",
+    "survived_to_day_7",
+    "hp_trajectory_json",
     "name", "creator_address", "notes",
 ]
 
@@ -867,8 +1039,14 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--pilot", type=int, default=None,
                    help="Run in pilot mode with N tokens.")
-    p.add_argument("--start-days-ago", type=int, default=180)
-    p.add_argument("--end-days-ago", type=int, default=90)
+    # v3 default window: 90d→8d ago. Earlier 180d→90d window had only flat-
+    # tail tokens; the new window captures still-active launches but stops
+    # short of the most recent 8d so survived_to_day_7 (t+168h) is always
+    # computable. 30/60/90d outcomes will be missing for tokens whose
+    # horizons extend past head_block — that's expected and surfaced in the
+    # data-quality section.
+    p.add_argument("--start-days-ago", type=int, default=90)
+    p.add_argument("--end-days-ago", type=int, default=8)
     p.add_argument("--reset", action="store_true")
     args = p.parse_args()
 
@@ -912,17 +1090,50 @@ def main():
     discovered = discover_tokens(rpc, from_block=start_block, to_block=end_block, state=state)
     save_state(state)
 
-    # Pilot mode: over-fetch candidates from the recent end of the window and
-    # accept only those with non-trivial trading activity, until we hit `pilot`
-    # live tokens. Clanker V4 auto-deploys ~80% dead tokens (no swaps ever);
-    # the original "most-recent N" pick produced a corpus where every aggregate
-    # input field was uniformly zero.
-    if args.pilot is not None:
-        candidates = discovered[-(args.pilot * OVERFETCH_MULTIPLIER):]
-        candidates.reverse()  # most-recent first → we walk back until we have N live
-        print(f"  pilot mode: scanning up to {len(candidates)} candidates "
-              f"to assemble {args.pilot} live tokens (≥ {LIVE_MIN_BUY_ETH} ETH "
-              f"buy volume, ≥ {LIVE_MIN_BUYERS} unique buyers)")
+    # Track-E v3 dispatch Fix 3: drop the live-token gate. Earlier filtering
+    # produced a survivor-biased corpus that could only answer "what predicts
+    # retention given a launch already had real trading?" — it could not
+    # answer "what distinguishes traction from death?" Now every discovered
+    # token enters the corpus; zero-activity tokens get null/zero component
+    # values that pipeline.py already handles via missing-data logic.
+    #
+    # Stratified sampling: V1–V3.5 are dormant on Base (verified 2026-05-02:
+    # zero TokenCreated events in the 2026-02-01→2026-04-30 window, see
+    # sources.md), so we stratify by time within V4 instead of by version.
+    # Three equal time bins through the window, sampled in proportion to
+    # launch density per bin.
+    if args.pilot is not None and args.pilot < len(discovered):
+        sorted_disc = sorted(discovered, key=lambda t: t["launch_block"])
+        n = len(sorted_disc)
+        third = n // 3
+        bins = [sorted_disc[:third], sorted_disc[third:2*third], sorted_disc[2*third:]]
+        per_bin = args.pilot // 3
+        rem = args.pilot - per_bin * 3
+        rng = random.Random(42)  # deterministic — re-running yields the same corpus
+        # Pre-shuffle each bin so we can take a prefix; then redistribute any
+        # under-filled bin's shortfall to the next bin in a second pass. With
+        # 596k discovered tokens this never trips, but a 5-token corpus with
+        # --pilot 4 used to silently return 3 because bin 0's shortfall wasn't
+        # passed to bin 2.
+        shuffled = []
+        for b in bins:
+            sb = list(b)
+            rng.shuffle(sb)
+            shuffled.append(sb)
+        targets = [per_bin + (1 if i < rem else 0) for i in range(3)]
+        candidates: list[dict] = []
+        carry = 0
+        # Forward-carry pass: any bin's shortfall flows to the next bin's
+        # quota. Provably zero residual after the third bin given the outer
+        # `args.pilot < len(discovered)` guard (sum of bin sizes ≥ pilot, so
+        # bin 2 always has enough headroom to absorb upstream carry).
+        for i in range(3):
+            want = targets[i] + carry
+            actually = min(want, len(shuffled[i]))
+            candidates.extend(shuffled[i][:actually])
+            carry = want - actually
+        print(f"  pilot mode: time-stratified sample of {len(candidates)} tokens "
+              f"across the window (3 bins of ~{per_bin} each, seed=42)")
     else:
         candidates = list(discovered)
 
@@ -941,11 +1152,10 @@ def main():
                         t["launch_block"], t["launch_ts"], CLANKER_V4_ADDRESS])
     print(f"  wrote {len(candidates)} discovered tokens → {DISCOVERED_PATH}")
 
-    target = args.pilot if args.pilot is not None else len(candidates)
-    print(f"\nPhase 2: extracting features + outcomes; target {target} live tokens…")
+    print(f"\nPhase 2: extracting features + outcomes for {len(candidates)} tokens…")
     CACHE_DIR.mkdir(exist_ok=True)
     extractions: list[TokenExtraction] = []
-    n_dead = 0
+    n_zero_activity = 0
     for i, tok in enumerate(candidates):
         symbol = (tok.get("symbol") or "")[:12]
         print(f"  [{i+1}/{len(candidates)}] {symbol:<12} {tok['token_address']}…",
@@ -959,27 +1169,30 @@ def main():
         if ext is None:
             print(" skipped (non-WETH paired or invalid pool)")
             continue
-        is_live = (
-            ext.total_buy_volume_eth >= LIVE_MIN_BUY_ETH
-            and ext.unique_buyers >= LIVE_MIN_BUYERS
-        )
         dt = time.monotonic() - t0
-        if not is_live:
-            n_dead += 1
-            ext.notes = (ext.notes + ";" if ext.notes else "") + "dead-on-arrival"
-            print(f" dead ({dt:.1f}s, {ext.unique_buyers} buyers, "
-                  f"{ext.total_buy_volume_eth:.4f} ETH bought)")
-            continue
+        # "zero-activity" means the token had no buy activity in the t+96h
+        # extraction window. A token can survive_to_day_7 (which checks
+        # late-window holders + liquidity + buy volume in [t+144h, t+168h])
+        # while being early-dead-on-arrival. Don't tag those as zero-activity
+        # since the survival outcome contradicts it for the reader.
+        if (
+            ext.unique_buyers == 0
+            and ext.total_buy_volume_eth == 0
+            and ext.survived_to_day_7 == 0
+        ):
+            n_zero_activity += 1
+            ext.notes = (ext.notes + ";" if ext.notes else "") + "zero-activity"
+            print(f" zero-activity ({dt:.1f}s, retained for unbiased corpus)")
+        else:
+            print(f" ✓ ({dt:.1f}s, {ext.unique_buyers} buyers, {ext.holder_count} holders, "
+                  f"lp_depth={ext.lp_depth_eth:.3f} ETH, "
+                  f"survived={ext.survived_to_day_7})")
         extractions.append(ext)
-        print(f" ✓ ({dt:.1f}s, {ext.unique_buyers} buyers, {ext.holder_count} holders, "
-              f"lp_depth={ext.lp_depth_eth:.3f} ETH)")
-        if len(extractions) >= target:
-            break
 
     save_state(state)
 
     print(f"\nPhase 3: writing corpus.csv "
-          f"({len(extractions)} live, {n_dead} dead-on-arrival skipped)…")
+          f"({len(extractions)} tokens; {n_zero_activity} zero-activity included)…")
     write_corpus(extractions, CORPUS_PATH)
 
 

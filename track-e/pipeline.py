@@ -441,6 +441,22 @@ def _data_quality_section(df: pd.DataFrame, components_df: pd.DataFrame,
                     f"`{col}` is uniformly {'True' if t == n else 'False'} — "
                     "any model fit against this label is degenerate"
                 )
+    # Track-E v3: survived_to_day_7 is the primary outcome label going forward
+    # (on-chain only, no thresholds). Show it alongside the legacy 30/60/90d
+    # × 4-label grid; it's not yet folded into the correlation/weight-fit
+    # loops (deferred to a follow-up PR per the v3 dispatch's analysis-logic
+    # constraint). pipeline.py's iteration over OUTCOME_HORIZONS × OUTCOME_LABELS
+    # ignores it.
+    if "survived_to_day_7" in df.columns:
+        t = int(pd.to_numeric(df["survived_to_day_7"], errors="coerce").fillna(0).astype(int).sum())
+        f_ = n - t
+        rate = 100.0 * t / max(n, 1)
+        out.append(f"| `survived_to_day_7` (primary, on-chain) | {t} | {f_} | {rate:.0f}% |")
+        if t == 0 or t == n:
+            flags.append(
+                f"`survived_to_day_7` is uniformly {'True' if t == n else 'False'} — "
+                "the primary outcome cannot be modeled"
+            )
 
     # Same-name input/outcome leakage check: if the HP component built from a
     # raw field is near-perfectly Spearman-correlated with a similarly-named
