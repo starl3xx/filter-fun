@@ -85,10 +85,15 @@ def _components_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         "momentum": df.apply(momentum_score, axis=1),
         "holderConcentration": df.apply(hhi_score, axis=1),
     })
-    out = raw.copy()
+    out = pd.DataFrame(index=df.index)
+    # Match pipeline.compute_components exactly (bugbot #76 finding 2): the
+    # percentile-ranked components must fillna(0.0) after rank, and the
+    # already-bounded components must be clipped to [0, 1]. Otherwise NaN
+    # raw values propagate through the weighted sum and corrupt ρ.
     for comp in PERCENTILE_RANKED:
-        # rank(method='average', pct=True) → values in (0, 1].
-        out[comp] = raw[f"{comp}_raw"].rank(method="average", pct=True)
+        out[comp] = raw[f"{comp}_raw"].rank(method="average", pct=True).fillna(0.0)
+    for comp in ("retention", "momentum", "holderConcentration"):
+        out[comp] = raw[comp].clip(0.0, 1.0)
     return out[
         ["velocity", "effectiveBuyers", "stickyLiquidity",
          "retention", "momentum", "holderConcentration"]
