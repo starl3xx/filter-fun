@@ -98,7 +98,28 @@ function mapsEqual(
   for (const [k, va] of a) {
     const vb = b.get(k);
     if (!vb) return false;
-    if (va.computedAt !== vb.computedAt || va.hp !== vb.hp) return false;
+    // Compare every field that downstream consumers read. `computedAt`
+    // alone is *almost* enough because the indexer's SQL coalescing skips
+    // re-writes for the same `(token, blockTimestamp)` — but this guards
+    // defensively against same-computedAt frames carrying different
+    // component scores (e.g., a cohort-wide trigger and a SWAP trigger
+    // landing on identical block timestamps), which would otherwise
+    // silently elide the second frame and leave detail panels showing
+    // stale component breakdowns. Bugbot L on PR #83.
+    if (
+      va.computedAt !== vb.computedAt ||
+      va.hp !== vb.hp ||
+      va.trigger !== vb.trigger ||
+      va.receivedAtIso !== vb.receivedAtIso ||
+      va.components.velocity !== vb.components.velocity ||
+      va.components.effectiveBuyers !== vb.components.effectiveBuyers ||
+      va.components.stickyLiquidity !== vb.components.stickyLiquidity ||
+      va.components.retention !== vb.components.retention ||
+      va.components.momentum !== vb.components.momentum ||
+      va.components.holderConcentration !== vb.components.holderConcentration
+    ) {
+      return false;
+    }
   }
   return true;
 }
