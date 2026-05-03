@@ -13,6 +13,8 @@ None.
 ## MEDIUM
 
 ### [Brand] Bricolage Grotesque weight 900 used but not loaded
+**Status:** ✅ **FIXED** in `audit/polish-brand` (Polish 6 — Audit M-Brand-1). The audit's diagnosis was right (15+ inline `fontWeight: 900` sites silently fell back to 800) but its recommendation was wrong: Google's distribution of Bricolage Grotesque does NOT publish weight 900 — `next build` throws "Unknown weight `900` for font `Bricolage Grotesque`. Available weights: 200, 300, 400, 500, 600, 700, 800, variable." The available weights cap at 800. Real fix: migrate every inline `fontWeight: 900` → `fontWeight: 800` so code-truth matches rendered-truth (drops the silent fallback). 14 inline sites migrated across 9 files (LaunchForm, LaunchHero, SlotGrid×2, BagLockCard, ArenaTicker, ArenaTokenDetail, FilterEventReveal, ArenaLeaderboard×4, RecapCard×2). The 5-weight `next/font` import (400/500/600/700/800) is unchanged — that import already covers the spec-mandated weights from the Arena audit. Pinned by `polishBrandPass.test.tsx` (1 test grepping `packages/web/src` for any remaining `fontWeight: 900` and asserting zero matches).
+
 **Severity:** Medium
 **Files:** packages/web/src/app/layout.tsx:8-13, 15+ inline `fontWeight: 900` sites across components
 **Spec ref:** brand-kit + ARENA_SPEC §2.1
@@ -27,6 +29,8 @@ The next/font import declares weights `["400", "700", "800"]`. Components freque
 **Effort:** XS
 
 ### [Brand] Multiple pulse cadences in use; brand spec locks 2.4s for the mark
+**Status:** 📋 **DOC** in `audit/polish-brand` (Polish 6 — Audit M-Brand-2). Recommendation (a) chosen — the 2.4s cadence is intentionally reserved for the literal ▼ MARK glyph (identity), and the faster 1.2s / 1.4s cadences on AT_RISK chips, the urgent cut-line band, and generic urgency strips are intentional UX (faster pulse = faster heartrate = urgency). A doc block was added above the `@keyframes ff-pulse` definition in `packages/web/src/app/globals.css` enumerating each cadence + its purpose so a future maintainer can see the split is the spec, not a regression. Pinned by `polishBrandPass.test.tsx` (1 test reading globals.css and asserting the M-Brand-2 doc block is present).
+
 **Severity:** Medium
 **Files:** packages/web/src/app/globals.css (`ff-pulse` 1.4s, `ff-arena-cutline-urgent` 1.2s, `ff-filter-moment-clock-pulse` 2.4s, `ff-filter-moment-rollover-pulse` 2.4s)
 **Spec ref:** brand-kit lock — ▼ pulses at 2.4s
@@ -39,6 +43,8 @@ Brand kit specifies the mark pulses at 2.4s ease-in-out. Code has at least three
 **Effort:** XS (documentation) or M (consolidation)
 
 ### [Brand] No React wordmark component; SVG asset exists in brand kit but is not integrated
+**Status:** 📋 **DOC** in `audit/polish-brand` (Polish 6 — Audit M-Brand-3). Recommendation (b) chosen — text composition is canonical for in-app surfaces because it inherits the same Bricolage 800 / kerning / colour tokens (C.text + C.pink) the rest of the app uses, stays crisp at every zoom, and avoids an extra network fetch. The brand-kit `wordmark.svg` and `lockup-tagline.svg` exist as export-only artifacts for off-app surfaces (social card, press kit, OG image) where the consumer doesn't have our font stack. A doc block was added inside the `Brand` component in `packages/web/src/components/arena/ArenaTopBar.tsx` explaining the choice and warning future maintainers not to swap to `<img src="wordmark.svg" />`. Pinned by `polishBrandPass.test.tsx` (1 test reading ArenaTopBar.tsx and asserting the M-Brand-3 doc block is present).
+
 **Severity:** Medium
 **Files:** packages/web/src/components/ (no wordmark component) vs filter.fun-brand-kit/wordmark.svg
 **Spec ref:** brand-kit / ARENA_SPEC §6.1
@@ -55,6 +61,8 @@ ArenaTopBar `Brand` component renders text "filter.fun" (and currently in single
 ## LOW
 
 ### [Brand] Unused CSS var `--ff-grad-mark`
+**Status:** ↩ **CLOSE-INCIDENTAL** in `audit/polish-brand` (Polish 6 — Audit L-Brand-1). Already deleted in Polish 3 — `grep -rn 'ff-grad-mark' packages/web` returns zero matches. Triangle.tsx is the canonical owner of the mark gradient (180deg pink→red, hardcoded inline). No code change in this PR.
+
 **Severity:** Low
 **Files:** packages/web/src/app/globals.css:27
 **Spec ref:** n/a
@@ -66,6 +74,8 @@ ArenaTopBar `Brand` component renders text "filter.fun" (and currently in single
 **Effort:** XS
 
 ### [Brand] LaunchHero gradient direction differs from mark gradient
+**Status:** 📋 **DOC** in `audit/polish-brand` (Polish 6 — Audit L-Brand-2). Treated as intentional brand expansion (audit's preferred disposition). Hero is a different surface than the mark — long horizontal text vs. a small triangle glyph — so the 90deg direction + added yellow stop reads as deliberate. The yellow tail picks up the C.yellow "winner" colour from the "one gets funded" line below. Comment block added directly above the gradient definition in `packages/web/src/components/launch/LaunchHero.tsx` documenting the reasoning and warning against syncing the two gradients. Pinned by `polishBrandPass.test.tsx` (1 test reading LaunchHero.tsx and asserting the L-Brand-2 doc block is present).
+
 **Severity:** Low → Info
 **Files:** packages/web/src/components/launch/LaunchHero.tsx:78
 **Spec ref:** brand-kit
@@ -81,12 +91,16 @@ ArenaTopBar `Brand` component renders text "filter.fun" (and currently in single
 ## INFO
 
 ### [Brand] Color palette matches brand-kit/palette.json exactly (10 named colors)
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-brand` (Polish 6 — Audit I-Brand-1). Re-inspection confirms `packages/web/src/lib/tokens.ts` still exports the 10 named colors verbatim from palette.json. No code change in this PR.
+
 **Severity:** Info — PASS
 **Files:** packages/web/src/lib/tokens.ts, packages/web/src/app/globals.css
 
 All 10 named colors (pink #ff3aa1, pinkLight #ff5fb8, red #ff2d55, cyan #00f0ff, yellow #ffe933, green #52ff8b, purple #9c5cff, ink #1a012a, cream #fef2ff, bg #0a0612, bg2 #140828) match palette.json.
 
 ### [Brand] Locked tagline used verbatim across all surfaces
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-brand` (Polish 6 — Audit I-Brand-2). Re-inspection confirms `"Get filtered or get funded ▼"` is verbatim across README.md, packages/web/README.md, and packages/web/src/app/layout.tsx (3×). No variants. No code change in this PR.
+
 **Severity:** Info — PASS
 **Files:** README.md, packages/web/README.md, packages/web/src/app/layout.tsx (3×)
 

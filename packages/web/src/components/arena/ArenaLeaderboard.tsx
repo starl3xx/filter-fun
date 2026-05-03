@@ -241,7 +241,7 @@ function CutLine({urgent}: {urgent?: boolean}) {
         }}
       >
         <Triangle size={11} inline />
-        <span style={{fontSize: 11, fontFamily: F.display, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", color: C.red}}>
+        <span style={{fontSize: 11, fontFamily: F.display, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase", color: C.red}}>
           CUT LINE
         </span>
         <span style={{fontSize: 10, fontFamily: F.mono, color: C.dim}}>everything below gets filtered</span>
@@ -352,7 +352,7 @@ function Row({
             transform: "translateY(-50%)",
             color: C.red,
             fontSize: 22,
-            fontWeight: 900,
+            fontWeight: 800,
             textShadow: `0 0 14px ${C.red}cc`,
             pointerEvents: "none",
           }}
@@ -380,7 +380,7 @@ function Row({
           display: "grid",
           placeItems: "center",
           fontSize: 9,
-          fontWeight: 900,
+          fontWeight: 800,
           color: "#1a012a",
           fontFamily: F.display,
           boxShadow: finalist ? `0 0 10px ${tickerColor(stripDollar(token.ticker))}aa` : "none",
@@ -434,7 +434,10 @@ function Row({
           §6.4.3 calls for a `›` glyph 14/900, pink when the row is selected
           else faint. Click is already wired on the parent <button>; the
           chevron is a visual affordance that confirms "this row drills down
-          to the detail panel." */}
+          to the detail panel."
+          M-Brand-1 (Phase 1, 2026-05-03): 900 lowered to 800 — Bricolage
+          Grotesque tops out at 800 in the Google distribution; 900 silently
+          fell back to 800 anyway, so this is rendered-truth-preserving. */}
       <span
         aria-hidden
         style={{
@@ -442,7 +445,7 @@ function Row({
           textAlign: "right",
           fontFamily: F.display,
           fontSize: 14,
-          fontWeight: 900,
+          fontWeight: 800,
           color: isSelected ? C.pink : C.faint,
           lineHeight: 1,
         }}

@@ -166,7 +166,7 @@ function LockedState({unlockTimestampSec}: {unlockTimestampSec: number}) {
       }}
     >
       <div style={{display: "flex", alignItems: "baseline", gap: 8}}>
-        <span style={{fontSize: 18, fontWeight: 900, color: C.text, fontFamily: F.display}}>▼</span>
+        <span style={{fontSize: 18, fontWeight: 800, color: C.text, fontFamily: F.display}}>▼</span>
         <span style={{fontSize: 14, fontWeight: 800, color: C.text, fontFamily: F.display}}>
           Locked
         </span>

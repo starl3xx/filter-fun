@@ -174,7 +174,7 @@ function FilledCard({slot, slotLabel}: {slot: LaunchSlot; slotLabel: string}) {
             display: "grid",
             placeItems: "center",
             fontSize: 11,
-            fontWeight: 900,
+            fontWeight: 800,
             color: "#1a012a",
             fontFamily: F.display,
             boxShadow: finalist ? `0 0 10px ${tickerColor(stripped)}aa` : "none",
@@ -288,7 +288,7 @@ function ClaimNowCard({
           ◆ OPEN
         </span>
       </div>
-      <div style={{fontFamily: F.display, fontWeight: 900, fontSize: 22}}>Claim now</div>
+      <div style={{fontFamily: F.display, fontWeight: 800, fontSize: 22}}>Claim now</div>
       <div style={{fontSize: 11, color: C.dim}}>You're up next.</div>
       <div
         style={{

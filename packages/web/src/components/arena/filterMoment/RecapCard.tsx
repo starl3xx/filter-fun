@@ -112,7 +112,7 @@ function Header() {
           gap: 10,
           fontFamily: F.display,
           fontSize: "clamp(24px, 4vw, 36px)",
-          fontWeight: 900,
+          fontWeight: 800,
           letterSpacing: "0.06em",
           color: C.text,
         }}
@@ -178,7 +178,7 @@ function SurvivorTile({token}: {token: TokenResponse}) {
           display: "grid",
           placeItems: "center",
           color: "#1a012a",
-          fontWeight: 900,
+          fontWeight: 800,
           fontSize: 10,
           fontFamily: F.display,
         }}

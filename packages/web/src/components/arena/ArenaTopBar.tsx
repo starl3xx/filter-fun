@@ -89,6 +89,17 @@ function Brand() {
   // ARENA_SPEC §6.1 — wordmark renders `filter` in white + `.fun` in pink.
   // Audit H-Arena-6 caught the pre-fix all-white render which lost the brand
   // colour signal at the most prominent surface in the app.
+  //
+  // Audit M-Brand-3 (Phase 1, 2026-05-03): the brand kit ships
+  // `filter.fun-brand-kit/wordmark.svg` and `lockup-tagline.svg` but they
+  // are NOT wired into this component on purpose. Text composition is the
+  // canonical render path for in-app surfaces — it inherits the same font
+  // (Bricolage 800), kerning, and colour tokens (C.text + C.pink) the rest
+  // of the app uses, and stays crisp at every zoom level without an extra
+  // network fetch. The SVG assets exist as export-only artifacts for
+  // off-app surfaces (social card, press kit, OG image) where the consumer
+  // doesn't have our font stack. If you're tempted to swap this for an
+  // <img src="wordmark.svg" />, don't — the reasons above still apply.
   return (
     <span style={{display: "flex", alignItems: "center", gap: 6}}>
       <span aria-hidden style={{display: "inline-flex", filter: `drop-shadow(0 0 6px ${C.red}88)`}}>

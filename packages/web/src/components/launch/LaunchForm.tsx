@@ -329,7 +329,7 @@ export function LaunchForm({
           border: "none",
           padding: "14px 16px",
           borderRadius: 10,
-          fontWeight: 900,
+          fontWeight: 800,
           fontSize: 14,
           cursor: submitDisabled ? "not-allowed" : "pointer",
           letterSpacing: "0.04em",

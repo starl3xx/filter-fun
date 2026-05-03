@@ -138,7 +138,7 @@ function Heading({token}: {token: TokenResponse}) {
           display: "grid",
           placeItems: "center",
           fontSize: 12,
-          fontWeight: 900,
+          fontWeight: 800,
           color: "#1a012a",
           fontFamily: F.display,
         }}
