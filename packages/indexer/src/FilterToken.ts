@@ -1,6 +1,9 @@
 import {ponder} from "@/generated";
 
 import {holderBalance} from "../ponder.schema";
+import {recomputeAndStampHp} from "./api/hpRecomputeWriter.js";
+import {withLatencySla} from "./api/coalescing.js";
+import {broadcastHpUpdated} from "./api/events/hpBroadcast.js";
 
 /// Maintains running per-(token, holder) balances by replaying every Transfer.
 ///
@@ -70,4 +73,18 @@ ponder.on("FilterToken:Transfer", async ({event, context}) => {
       });
     }
   }
+
+  // Epic 1.17b — holder rebalancing changes the HHI input to
+  // holderConcentration; recompute HP for the affected token. Per-token 1s
+  // coalescing inside `recomputeAndStampHp` keeps swarms of small Transfers
+  // from generating a row per event.
+  await withLatencySla("holder-recompute", 3000, async () => {
+    await recomputeAndStampHp(context, {
+      tokenAddress: tokenAddr,
+      trigger: "HOLDER_SNAPSHOT",
+      blockNumber: event.block.number,
+      blockTimestamp: ts,
+      onWritten: broadcastHpUpdated,
+    });
+  });
 });

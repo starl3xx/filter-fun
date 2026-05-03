@@ -2,6 +2,9 @@ import {ponder} from "@/generated";
 
 import {pool, swap, token as tokenTable} from "../ponder.schema";
 import {readDeployment, type ChainNetwork} from "./deployment.js";
+import {recomputeAndStampHp} from "./api/hpRecomputeWriter.js";
+import {withLatencySla} from "./api/coalescing.js";
+import {broadcastHpUpdated} from "./api/events/hpBroadcast.js";
 
 /// V4 PoolManager `Swap` handler. Filters chain-wide Swap events down to filter.fun
 /// pools by joining `Swap.id` (a `PoolId` = bytes32) against our `pool` table. Foreign
@@ -109,5 +112,19 @@ ponder.on("V4PoolManager:Swap", async ({event, context}) => {
     txHash: event.transaction.hash,
     blockNumber: event.block.number,
     blockTimestamp: event.block.timestamp,
+  });
+
+  // Epic 1.17b — fire HP recompute on every swap. Per-token 1s coalescing
+  // happens inside `recomputeAndStampHp` (skips if a recent row exists for
+  // this token within the past second of block-time). Latency SLA: the full
+  // path should fit in ≤3s; logging here surfaces a warning if it doesn't.
+  await withLatencySla("swap-recompute", 3000, async () => {
+    await recomputeAndStampHp(context, {
+      tokenAddress: poolRow.token,
+      trigger: "SWAP",
+      blockNumber: event.block.number,
+      blockTimestamp: event.block.timestamp,
+      onWritten: broadcastHpUpdated,
+    });
   });
 });

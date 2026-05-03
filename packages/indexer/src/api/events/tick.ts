@@ -69,13 +69,20 @@ export interface TickEngineOpts {
   queries: EventsQueries;
   /// Hub to broadcast into.
   hub: Hub;
+  /// Optional shared monotonic id source. When set, this engine consumes
+  /// from the shared counter so its frame ids interleave correctly with
+  /// HP_UPDATED frames emitted directly from Ponder handlers (Epic 1.17b).
+  /// Default: a private instance counter starting at 1 (preserves test
+  /// fixtures that assert on specific ids).
+  nextId?: () => number;
 }
 
 export class TickEngine {
   readonly cfg: EventsConfig;
   private prevSnapshot: Snapshot | null = null;
   private pipelineState: PipelineState = makeState();
-  private nextEventId = 1;
+  private instanceNextId = 1;
+  private nextIdFn: () => number;
   private timer: ReturnType<typeof setInterval> | null = null;
   /// Re-entry guard. `setInterval` doesn't await the async callback, so a slow tick can
   /// be lapped by the next interval firing. Without this, two `tick()` calls overlap and
@@ -87,6 +94,7 @@ export class TickEngine {
   constructor(private opts: TickEngineOpts) {
     this.cfg = opts.cfg ?? loadConfigFromEnv();
     this.nowFn = opts.now ?? (() => Date.now());
+    this.nextIdFn = opts.nextId ?? (() => this.instanceNextId++);
   }
 
   /// Run a single tick — pulls a snapshot, diffs, broadcasts. Returns the broadcast
@@ -170,7 +178,7 @@ export class TickEngine {
       const clock: PipelineClock = {
         nowMs: this.nowFn,
         now: () => {
-          const id = this.nextEventId++;
+          const id = this.nextIdFn();
           return {iso: new Date(this.nowFn()).toISOString(), id};
         },
       };

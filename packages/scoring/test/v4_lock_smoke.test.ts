@@ -232,7 +232,7 @@ describe("v4 lock — applyFlagsToWeights helper", () => {
     expect(w.holderConcentration).toBe(LOCKED_WEIGHTS.holderConcentration);
   });
 
-  it("concentration-off renormalizes the rest to sum to 1.0", () => {
+  it("concentration-off renormalizes the rest to sum to baseSum", () => {
     const w = applyFlagsToWeights(LOCKED_WEIGHTS, {momentum: true, concentration: false});
     expect(w.holderConcentration).toBe(0);
     const sum = w.velocity + w.effectiveBuyers + w.stickyLiquidity + w.retention + w.momentum;
@@ -242,6 +242,51 @@ describe("v4 lock — applyFlagsToWeights helper", () => {
       LOCKED_WEIGHTS.velocity / LOCKED_WEIGHTS.effectiveBuyers,
       6,
     );
+  });
+
+  it("BOTH flags off + base.momentum > 0 still preserves baseSum (Bugbot PR #71 regression)", () => {
+    // Bugbot caught a stacking bug in the prior two-pass implementation:
+    // momentum-off zeroed momentum without renormalizing, then concentration-off
+    // renormalized the post-zeroed set, so the final weights summed to
+    // `baseSum - base.momentum` instead of baseSum. Harmless under
+    // LOCKED_WEIGHTS (momentum = 0), but a custom set with non-zero momentum
+    // would silently violate HP ∈ [0, 1]. The squash-merge of #71 dropped
+    // the fix commit; re-applied in 1.17b. This test pins it.
+    const customBase = {
+      velocity: 0.35,
+      effectiveBuyers: 0.20,
+      stickyLiquidity: 0.20,
+      retention: 0.10,
+      momentum: 0.05, // <- non-zero — would be lost under the buggy two-pass
+      holderConcentration: 0.10,
+    };
+    const w = applyFlagsToWeights(customBase, {momentum: false, concentration: false});
+    expect(w.momentum).toBe(0);
+    expect(w.holderConcentration).toBe(0);
+    const sum =
+      w.velocity + w.effectiveBuyers + w.stickyLiquidity + w.retention +
+      w.momentum + w.holderConcentration;
+    expect(sum).toBeCloseTo(1.0, 9);
+    // Velocity:retention ratio preserved across the renormalization.
+    expect(w.velocity / w.retention).toBeCloseTo(customBase.velocity / customBase.retention, 6);
+  });
+
+  it("BOTH flags off preserves baseSum even when baseSum != 1.0 (no implicit 1.0 target)", () => {
+    // Defensive: callers may pass an unnormalized base. The function must
+    // preserve whatever total the caller gave it, not silently clamp to 1.0.
+    const unnormalizedBase = {
+      velocity: 0.6,
+      effectiveBuyers: 0.3,
+      stickyLiquidity: 0.6,
+      retention: 0.3,
+      momentum: 0.0,
+      holderConcentration: 0.2, // total = 2.0
+    };
+    const w = applyFlagsToWeights(unnormalizedBase, {momentum: false, concentration: false});
+    const sum =
+      w.velocity + w.effectiveBuyers + w.stickyLiquidity + w.retention +
+      w.momentum + w.holderConcentration;
+    expect(sum).toBeCloseTo(2.0, 9);
   });
 });
 
