@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useState, type ReactNode} from "react";
+import {useEffect, useState, type CSSProperties, type ReactNode} from "react";
 import type {Address, Hex} from "viem";
 import {isAddress} from "viem";
 import {
@@ -14,6 +14,7 @@ import {
 
 import type {ContractCallShape} from "@filter-fun/scheduler";
 
+import {C} from "@/lib/tokens";
 import {chain as expectedChain} from "@/lib/wagmi";
 
 /// Shape of a single user's claim entry, parsed from the JSON the oracle publishes.
@@ -137,7 +138,7 @@ export function ClaimForm({
   return (
     <main>
       <h1 style={{fontSize: 24, marginBottom: 8}}>{title}</h1>
-      <p style={{color: "var(--muted)", marginTop: 0, marginBottom: 32}}>{subtitle}</p>
+      <p style={{color: C.dim, marginTop: 0, marginBottom: 32}}>{subtitle}</p>
 
       <Section label="1. Paste your claim entry">
         <textarea
@@ -148,8 +149,8 @@ export function ClaimForm({
           style={{
             width: "100%",
             background: "#18181b",
-            color: "var(--fg)",
-            border: "1px solid var(--border)",
+            color: C.text,
+            border: `1px solid ${C.line}`,
             borderRadius: 6,
             padding: 12,
             fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
@@ -170,18 +171,29 @@ export function ClaimForm({
           </Row>
           <Row k={numericLabel}>{parsed.numeric.toString()}</Row>
           <Row k="Proof depth">{parsed.proof.length}</Row>
-          {isConnected && (
-            <Row k="Status">
+          {/* Audit M-Web-1 (Phase 1, 2026-05-02): always render the Status
+              row so a wallet connect (or the eligibility read settling) does
+              not cause a layout shift. The badge itself reserves a fixed
+              min-height so the text swap from "checking…" → "eligible" /
+              "already claimed" doesn't flicker the row height. The
+              disconnected message is informational and replaces the badge
+              instead of hiding the entire row. */}
+          <Row k="Status">
+            {isConnected ? (
               <StatusBadge claimed={isClaimed} unknown={alreadyClaimed === undefined && !isMined} />
-            </Row>
-          )}
+            ) : (
+              <span style={{color: C.dim, display: "inline-block", minHeight: 18, lineHeight: "18px"}}>
+                Connect wallet to check status
+              </span>
+            )}
+          </Row>
         </Section>
       )}
 
       {parsed && (
         <Section label="3. Submit">
           {!isConnected ? (
-            <p style={{color: "var(--muted)"}}>Connect a wallet to claim.</p>
+            <p style={{color: C.dim}}>Connect a wallet to claim.</p>
           ) : (
             <>
               {/* Audit C-6 preflight: render the targeted reason BEFORE the
@@ -208,7 +220,7 @@ export function ClaimForm({
                 {isClaimed ? "Already claimed" : isMining ? "Confirming…" : isSubmitting ? "Submitting…" : "Claim"}
               </button>
               {txHash && (
-                <p style={{marginTop: 12, color: "var(--muted)", fontSize: 14}}>
+                <p style={{marginTop: 12, color: C.dim, fontSize: 14}}>
                   tx: <code>{txHash}</code>
                 </p>
               )}
@@ -277,16 +289,25 @@ export function computeClaimPreflight(input: ClaimPreflightInputs): ClaimPreflig
   return {ok: true};
 }
 
+/// Audit M-Web-1 (Phase 1, 2026-05-02): the badge renders into a
+/// fixed-min-height inline-block so the text swap from "checking…" → final
+/// state doesn't shift the surrounding Status row. Pre-fix the badge was a
+/// bare span whose intrinsic height matched whatever string was in it; in
+/// practice the strings are all ~14 chars so the visible flicker came from
+/// the row itself appearing/disappearing on disconnect, but reserving the
+/// height also stops a future variant ("⏳ verifying merkle proof…", say)
+/// from re-introducing the same bug.
 function StatusBadge({claimed, unknown}: {claimed: boolean; unknown: boolean}) {
-  if (unknown) return <span style={{color: "var(--muted)"}}>checking…</span>;
-  if (claimed) return <span style={{color: "var(--muted)"}}>already claimed</span>;
-  return <span style={{color: "var(--fg)"}}>eligible</span>;
+  const baseStyle: CSSProperties = {display: "inline-block", minHeight: 18, lineHeight: "18px"};
+  if (unknown) return <span style={{...baseStyle, color: C.dim}}>checking…</span>;
+  if (claimed) return <span style={{...baseStyle, color: C.dim}}>already claimed</span>;
+  return <span style={{...baseStyle, color: C.text}}>eligible</span>;
 }
 
 function Section({label, children}: {label: string; children: ReactNode}) {
   return (
     <section style={{marginBottom: 32}}>
-      <h2 style={{fontSize: 14, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, margin: "0 0 12px"}}>
+      <h2 style={{fontSize: 14, color: C.dim, textTransform: "uppercase", letterSpacing: 1, margin: "0 0 12px"}}>
         {label}
       </h2>
       {children}
@@ -296,15 +317,15 @@ function Section({label, children}: {label: string; children: ReactNode}) {
 
 function Row({k, children}: {k: string; children: ReactNode}) {
   return (
-    <div style={{display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)"}}>
-      <span style={{color: "var(--muted)"}}>{k}</span>
+    <div style={{display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.line}`}}>
+      <span style={{color: C.dim}}>{k}</span>
       <span>{children}</span>
     </div>
   );
 }
 
 function ErrorRow({children}: {children: ReactNode}) {
-  return <p style={{color: "var(--accent)", marginTop: 12, fontSize: 14}}>{children}</p>;
+  return <p style={{color: C.pink, marginTop: 12, fontSize: 14}}>{children}</p>;
 }
 
 /// Audit C-6 (Phase 1 audit 2026-05-01) preflight chip. Renders inline above
@@ -327,9 +348,9 @@ function PreflightWarning({
         marginBottom: 12,
         padding: "10px 12px",
         borderRadius: 6,
-        border: "1px solid var(--border)",
+        border: `1px solid ${C.line}`,
         background: "rgba(255, 85, 119, 0.08)",
-        color: "var(--fg)",
+        color: C.text,
         fontSize: 13,
         display: "flex",
         flexDirection: "column",

@@ -94,7 +94,28 @@ export function LaunchForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitted(true);
-    if (submitDisabled) return;
+    // Audit M-Web-2 (Phase 1, 2026-05-02): `submitDisabled` is computed via
+    // `useMemo` and re-evaluates on render. If the user types into a field
+    // and clicks submit in the same React event tick (faster than the
+    // re-render lands the new validation state), the click handler can fire
+    // with a stale `submitDisabled = false` even though the new field value
+    // is invalid. Re-derive validation against the live `fields` here so the
+    // submit gate is decided on the values *as they exist at click time*,
+    // not as they existed during the most recent render.
+    const liveErrors = validateLaunchFields(fields);
+    const liveCollision = cohort.some(
+      (t) => stripDollar(t.ticker).toUpperCase() === canonicalSymbol(fields.ticker),
+    );
+    const liveBlocked =
+      !isConnected ||
+      Object.keys(liveErrors).length > 0 ||
+      liveCollision ||
+      !acknowledged ||
+      phase === "pinning" ||
+      phase === "signing" ||
+      phase === "broadcasting" ||
+      phase === "success";
+    if (submitDisabled || liveBlocked) return;
     // Fire-and-forget: the parent's handler is async (pin → launch) and owns
     // its error surface via the `error` prop. `void` marks the intentional
     // discard so any rejection that escapes the parent's try/catch becomes a
