@@ -7,16 +7,37 @@ covering task #28 — the validation cohort's HP-vs-FDV rank correlation.
 
 We ran the validation cohort end-to-end. Pipeline works. The cohort
 materialized at **n=7** tokens (well below the planned 50), and the
-resulting Spearman ρ between HP rank and FDV rank is **+0.321 (p=0.48)**
-under both the locked §6.5 weights and the pre-v4 spec defaults.
+resulting Spearman ρ between HP rank and current FDV rank is:
 
-**This is not a meaningful validation of the §6.5 lock.** It does not
-falsify the weights either. The cohort was too small and too tightly
-clustered in FDV to discriminate. The lock should still be considered
-provisional, with the next iteration revisiting it under a larger cohort.
+  - **§6.5 LOCKED (Scenario B, momentum=0)**: ρ = **+0.571** (p=0.180)
+  - **Pre-v4 spec defaults (momentum=10%)**:  ρ = **+0.679** (p=0.094)
 
-The blocker is methodological — see "Why the cohort came back small"
-below. The fix is straightforward and is filed as the v5 follow-up.
+Both are positive (the right direction), but neither reaches significance
+at n=7. **Notably, the spec defaults edge out the §6.5 LOCKED weights on
+this cohort** — i.e., putting some weight on momentum produces a slightly
+better rank correlation than dropping it entirely. That contradicts the
+main-corpus L2 fit (which assigned momentum 0% on the 100-token
+stratified corpus and motivated the LOCKED proposal in the first place).
+
+**This is not enough evidence to override the main-corpus lock decision**
+(n=7 vs n=100, p=0.094 vs concrete L2 + RF importance), but it IS
+evidence that momentum's empirical contribution is sensitive to which
+slice of the population you look at — recent-active tokens (this cohort,
+by construction) may be exactly the regime where momentum signal
+matters, while flat_post_72h tokens dominate the main corpus and
+suppress it.
+
+**Recommendation:** keep the §6.5 LOCKED weights as proposed in
+`REPORT_v4.md` for mainnet, but treat momentum's drop as the most
+fragile of the four weight changes. The v5 follow-up (proper
+liquidity-first selection, n≈50) should explicitly re-test LOCKED vs
+spec defaults — if the momentum-included version continues to
+out-correlate FDV at larger n, the lock should be revisited before
+post-mainnet refit.
+
+The cohort-size blocker is methodological — see "Why the cohort came
+back small" below. The fix is straightforward and is filed as the v5
+follow-up.
 
 ## Run details
 
@@ -54,20 +75,21 @@ scan (~4 hours), and even that wouldn't span the true top-25 of the
 
 ## Cohort + scores
 
-ρ_locked = ρ_spec = +0.321 because the rank ordering happens to be
-identical between the two weight sets on this cohort (the only weight
-deltas — momentum 10%→0% and sticky 20%→30% — redistribute symmetrically
-across these 7 tokens).
+Scoring path: `pipeline.compute_components` (raw scores from
+`pipeline.py` imported directly; the three unbounded components —
+velocity, effectiveBuyers, stickyLiquidity — are percentile-ranked
+within the cohort, then weighted and summed × 100, matching the
+production composite).
 
 | token | platform | fdv_eth | hp_locked | hp_spec |
 |---|---|---:|---:|---:|
-| `0x2665a0a3…` (MOLLIE) | clanker | 19.878 | 0.373 | 0.301 |
-| `0xdf25a0f9…` (CASH) | clanker | 11.911 | 0.937 | 0.837 |
-| `0x5abb22df…` (NODELINE) | clanker | 9.877 | 0.247 | 0.218 |
-| `0x88ec27f8…` (Base Agent) | clanker | 9.871 | 0.256 | 0.222 |
-| `0x95b49d0c…` (IClaw) | clanker | 9.871 | 0.475 | 0.379 |
-| `0x7dc54322…` (MOLTX) | clanker | 9.871 | 0.441 | 0.345 |
-| `0x9481f43a…` (Liquid Test Token) | liquid | 7.663 | 0.228 | 0.202 |
+| `0x2665a0a3…` (MOLLIE) | clanker | 19.878 | 65.20 | 59.48 |
+| `0xdf25a0f9…` (CASH) | clanker | 11.911 | 87.46 | 77.46 |
+| `0x5abb22df…` (NODELINE) | clanker | 9.877 | 42.86 | 40.00 |
+| `0x88ec27f8…` (Base Agent) | clanker | 9.871 | 54.16 | 49.87 |
+| `0x95b49d0c…` (IClaw) | clanker | 9.871 | 79.29 | 70.71 |
+| `0x7dc54322…` (MOLTX) | clanker | 9.871 | 43.08 | 35.93 |
+| `0x9481f43a…` (Liquid Test Token) | liquid | 7.663 | 32.14 | 30.71 |
 
 Five of the seven cluster within 0.01 ETH of each other (≈ 9.87). Most
 likely cause: the last-recorded sqrtPriceX96 for these pools is at or
@@ -76,16 +98,43 @@ since launch, leaving sqrtPriceX96 at its post-add-liquidity baseline).
 That further weakens any FDV signal — the rank order at the bottom of
 the cohort is essentially noise.
 
-`CASH` is the standout: fdv 11.9 ETH but hp_locked 0.937 (top of the
-cohort). This is the kind of point the validation is meant to catch
-— *would the §6.5 weights have flagged it as a winner before its FDV
-ranked it as one?* On n=7 we can't answer yes or no with confidence.
+`CASH` and `IClaw` are the standouts: HP scores well above their FDV
+rank under either weight set. This is the kind of point the validation
+is meant to catch — *would the §6.5 weights have flagged them as
+winners before their FDV did?* The answer here is yes: both score in
+the top 2 by HP (LOCKED and spec) despite middling FDV. With n=7 we
+can't generalize, but the directional positive ρ is real.
+
+### Methodology note on the scorer (was wrong in initial commit)
+
+The first version of `validate_hp_rank.py` had a critical bug caught
+by bugbot #76 finding 1: `holderConcentration` was computed as
+`tanh(holder_count / 100)` — measuring **count of holders** — instead
+of the spec's HHI on `holder_balances_json`. With holderConcentration
+at 10% weight, this corrupted the HP scores and produced ρ = +0.321
+for both weight sets (artificially identical because the bug + the
+tanh-everywhere normalization happened to flatten the rank delta).
+
+The current implementation imports the per-component scorers
+(`velocity_score`, `effective_buyers_score`, `sticky_liquidity_score`,
+`retention_score`, `momentum_score`, `hhi_score`) directly from
+`pipeline.py` to prevent this class of drift in the future. Same pattern
+as the `survival_gate` extraction in #66 — single source of truth.
 
 ## Conclusion for the §6.5 lock
 
 The lock from `REPORT_v4.md` (drop momentum, redistribute its 10% to
-stickyLiquidity → 30/15/30/15/0/10) is **unchanged** by this run. The
-validation cohort did not produce evidence to refine or reject it.
+stickyLiquidity → 30/15/30/15/0/10) is **unchanged** by this run, but
+not unconditionally:
+
+- The corrected validation analysis shows pre-v4 spec defaults
+  (momentum=10%) producing ρ = +0.679 vs LOCKED's ρ = +0.571 on n=7.
+- This is in tension with the main-corpus L2 fit, which assigned
+  momentum 0% weight on the 100-token stratified sample.
+- The likely reconciling story: the validation cohort is a recent-
+  active subpopulation by construction, and momentum signal may be
+  more informative there than in the main corpus where flat_post_72h
+  tokens dominate.
 
 The argument for shipping the lock as-is for mainnet:
 1. The empirical case from `REPORT_v4.md` — RF importance, L2 fit,
