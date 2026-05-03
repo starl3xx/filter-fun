@@ -1342,7 +1342,15 @@ def main():
         print(f"\nPhase 2: extracting features + outcomes for {len(candidates_to_scan)} tokens…")
     CACHE_DIR.mkdir(exist_ok=True)
 
-    snapshot_log_fp = open(args.snapshot_log, "w") if args.snapshot_log else None
+    # buffering=1 → line-buffered text mode. Without this, Python uses the
+    # default 8KB block buffer, which means diagnostic_hp_delta.py can't read
+    # in-progress data during a multi-hour fetch (the survivor lines for the
+    # first ~30+ tokens are queued in memory and only land on disk when the
+    # fetch ends). Line buffering trades a tiny per-write syscall cost for
+    # observable progress.
+    snapshot_log_fp = (
+        open(args.snapshot_log, "w", buffering=1) if args.snapshot_log else None
+    )
 
     survivors: list[TokenExtraction] = []
     dead: list[TokenExtraction] = []
