@@ -228,7 +228,7 @@ export default function HomePage() {
             firingMode={firingMode}
             recentlyFilteredAddresses={filterMoment.filteredAddresses}
           />
-          <ArenaActivityFeed events={events} />
+          <ArenaActivityFeed events={events} liveStatus={liveStatus} />
         </div>
 
         <div className="ff-arena-col-right" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>

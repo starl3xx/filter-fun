@@ -48,7 +48,19 @@ export type ArenaLeaderboardProps = {
   recentlyFilteredAddresses?: Set<`0x${string}`>;
 };
 
-const COL_TEMPLATE = "32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px";
+/// Audit M-Arena-1 + M-Arena-8 + L-Arena-3 (Phase 1, 2026-05-02): column widths re-aligned
+/// to ARENA_SPEC §6.4.2 (`34 28 1fr 86 84 70 96 24`) with two deliberate departures
+/// documented in `audit/2026-05-PHASE-1-AUDIT/web-general.md` M-Web-3 / arena.md M-Arena-7
+/// "responsive design decision":
+///   - Name slot stays `minmax(0, 1fr)` (responsive variant of the spec's bare `1fr`).
+///   - A 60 px Trend column sits between 24h and chevron — the inline mini-spark is a
+///     deliberate addition to the spec, NOT a drift; documented here so a future audit
+///     reads the 9-column shape as intentional.
+///
+/// L-Arena-3 is closed by the trailing 24 px chevron column added below; the row's 8th
+/// (Trend) and 9th (chevron) cells are populated by `MiniSpark` and the chevron span.
+/// ColumnHeader mirrors the same template + adds a blank header for the chevron column.
+const COL_TEMPLATE = "34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px";
 const CUT_INDEX = 6; // Cut line lives between rows[5] and rows[6] — i.e. between rank 6 and rank 7.
 
 export const ArenaLeaderboard = memo(function ArenaLeaderboard({
@@ -180,6 +192,11 @@ function ColumnHeader() {
       <div style={{textAlign: "right"}}>Price</div>
       <div style={{textAlign: "right"}}>24h</div>
       <div style={{textAlign: "right"}}>Trend</div>
+      {/* Audit L-Arena-3 (Phase 1, 2026-05-02): blank chevron-column header.
+          The Row body renders the chevron glyph itself per row; the header
+          stays empty because the column is a navigational affordance rather
+          than a labeled metric. */}
+      <div></div>
     </div>
   );
 }
@@ -267,7 +284,16 @@ function Row({
   // Firing-mode treatments override the default below/finalist styling.
   // Filtered rows fade + get a red ▼ stamp (CSS class drives the timing
   // ramp); survivor rows in the top 6 get a brief gold halo.
-  const rowOpacity = firingMode && filtered ? 0.42 : below ? 0.62 : 1;
+  //
+  // Audit L-Arena-1 (Phase 1, 2026-05-02): pre-fix every row below the cut
+  // (indices 6-11, ranks 7-12) was rendered at opacity 0.62 — uniform fade
+  // for the bottom half. ARENA_SPEC §3.3 calls for opacity 0.5 only at the
+  // bottom 2 (indices 10-11, ranks 11-12) and full opacity for indices 6-9
+  // (ranks 7-10), which carries the visual emphasis the spec intends:
+  // ranks 7-10 are still in the running for next week's launches; only the
+  // last two are in active danger. Firing mode overrides this with a much
+  // dimmer 0.42 for filtered rows (unchanged).
+  const rowOpacity = firingMode && filtered ? 0.42 : index >= 10 ? 0.5 : 1;
   const rowClass = firingMode
     ? filtered
       ? "ff-arena-row-filtered"
@@ -403,6 +429,26 @@ function Row({
       <div style={{display: "flex", justifyContent: "flex-end"}}>
         <MiniSpark values={spark} color={sparkColor} />
       </div>
+
+      {/* Audit L-Arena-3 (Phase 1, 2026-05-02): chevron column. ARENA_SPEC
+          §6.4.3 calls for a `›` glyph 14/900, pink when the row is selected
+          else faint. Click is already wired on the parent <button>; the
+          chevron is a visual affordance that confirms "this row drills down
+          to the detail panel." */}
+      <span
+        aria-hidden
+        style={{
+          display: "block",
+          textAlign: "right",
+          fontFamily: F.display,
+          fontSize: 14,
+          fontWeight: 900,
+          color: isSelected ? C.pink : C.faint,
+          lineHeight: 1,
+        }}
+      >
+        ›
+      </span>
     </button>
   );
 }

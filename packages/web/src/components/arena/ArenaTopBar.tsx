@@ -45,8 +45,14 @@ export function ArenaTopBar({season, liveStatus}: ArenaTopBarProps) {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: 12,
-        padding: "12px 18px",
+        // Audit L-Arena-4 (Phase 1, 2026-05-02): gap was 12; spec ARENA_SPEC §6.1 calls
+        // for 22 between sections of the top bar.
+        gap: 22,
+        // Audit L-Arena-5 (Phase 1, 2026-05-02): padding was "12px 18px"; spec calls for
+        // "0 22px" with the bar's vertical chrome supplied by an explicit min-height: 56
+        // (instead of stacking vertical padding on top of the content's intrinsic height).
+        padding: "0 22px",
+        minHeight: 56,
         borderBottom: `1px solid ${C.line}`,
         background: "rgba(20,8,40,0.55)",
         backdropFilter: "blur(8px)",
@@ -162,7 +168,9 @@ function Stat({
       <span
         className={glow ? "ff-arena-glow" : undefined}
         style={{
-          fontSize: 16,
+          // Audit M-Arena-6 (Phase 1, 2026-05-02): font size was 16; ARENA_SPEC §2.3 (T7)
+          // calls for 14 on the top-bar stat values.
+          fontSize: 14,
           fontWeight: 800,
           fontFamily: mono ? F.mono : F.display,
           color: accent ?? C.text,
