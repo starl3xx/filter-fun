@@ -133,9 +133,19 @@ export function clientIpFromContext(c: MwContext): string {
     if (typeof remote === "string") socket = remote;
   } catch {
     // Test environments that synthesize a fetch-style request without a Node socket
-    // fall through to "unknown" via resolveClientIp's fallback.
+    // fall through to resolveClientIp's fingerprint fallback.
   }
-  return resolveClientIp(xff, socket, rateCfg.trustProxy);
+  // Audit M-Indexer-5 (Phase 1, 2026-05-02; bugbot follow-up on PR #70): when both
+  // xff and socket fall through, resolveClientIp uses these fingerprint headers to
+  // derive a per-client bucket-id. Without passing them here, the production path
+  // collapsed every socket-less client into one "unknown" bucket — the exact DoS
+  // vector M-Indexer-5 was supposed to fix (the source-side fix was correct; the
+  // call-site wiring was missing).
+  const fingerprint = {
+    userAgent: c.req.header("user-agent") ?? null,
+    acceptLanguage: c.req.header("accept-language") ?? null,
+  };
+  return resolveClientIp(xff, socket, rateCfg.trustProxy, fingerprint);
 }
 
 // ============================================================ Rate-limit (GET)

@@ -21,6 +21,7 @@ import {buildTokensResponse, type TokenRow} from "../../../src/api/builders.js";
 import {errName, redactErrorMessage} from "../../../src/api/events/redact.js";
 import {bucketize, getTokenHistoryHandler, parseRange, type HistoryQueries, type HistoryResponse}
   from "../../../src/api/history.js";
+import {clientIpFromContext, type MwContext} from "../../../src/api/middleware.js";
 import {resolveClientIp} from "../../../src/api/ratelimit.js";
 import {type HolderSnapshotTrigger} from "../../../src/api/snapshotCadence.js";
 
@@ -134,6 +135,41 @@ describe("M-Indexer-5: IP fallback uses fingerprint headers, no longer collapses
   it("socketAddr wins over fingerprint when both are present", () => {
     const ip = resolveClientIp(null, "10.0.0.1", false, {userAgent: "M/1", acceptLanguage: "en"});
     expect(ip).toBe("10.0.0.1");
+  });
+
+  // Bugbot follow-up on PR #70: the source-side `resolveClientIp` change was correct
+  // but the production caller `clientIpFromContext` in middleware.ts wasn't passing
+  // `fingerprint`, so prod still collapsed every socket-less client into "unknown".
+  // This test pins the END-TO-END wiring: a Hono-shaped MwContext with no socket but
+  // with UA + Accept-Language headers must NOT resolve to "unknown".
+  it("END-TO-END: clientIpFromContext threads UA + Accept-Language through to resolveClientIp", () => {
+    // Synthesize a minimal MwContext shape: no env (no socket binding), no
+    // x-forwarded-for, but UA + Accept-Language present (the realistic
+    // local-dev / test-environment shape).
+    const mkCtx = (ua: string, al: string): MwContext => ({
+      req: {
+        url: "http://localhost/season",
+        header: (name: string) => {
+          const lower = name.toLowerCase();
+          if (lower === "user-agent") return ua;
+          if (lower === "accept-language") return al;
+          return undefined;
+        },
+      },
+      header: () => {},
+      json: () => new Response(),
+      // env intentionally undefined — forces the socket fall-through path
+    });
+
+    const ipA = clientIpFromContext(mkCtx("MozillaA/1.0", "en-US"));
+    const ipB = clientIpFromContext(mkCtx("MozillaB/2.0", "en-US"));
+
+    // The bug bugbot caught: pre-fix both would resolve to "unknown".
+    expect(ipA).not.toBe("unknown");
+    expect(ipB).not.toBe("unknown");
+    expect(ipA).not.toBe(ipB); // distinct fingerprints → distinct buckets
+    expect(ipA.startsWith("fp:")).toBe(true);
+    expect(ipB.startsWith("fp:")).toBe(true);
   });
 });
 
