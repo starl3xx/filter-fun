@@ -397,19 +397,23 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
 };
 
-/// Audit L-A11y-1 (Phase 1, 2026-05-03): error/success copy in the launch
-/// form lives outside the page-level `<NoticeCard role="status" aria-live>`
-/// region (the form is rendered as a sibling, not a child). Without
-/// `role="alert"` + `aria-live="polite"` here, a screen reader user would
-/// never hear field-validation errors or the post-pin / post-tx error chip
-/// surface — the text would simply appear silently in the DOM. `role="alert"`
-/// is the implicit-`aria-live="assertive"` pattern; we override to "polite"
-/// because the form errors aren't urgent enough to interrupt the user's
-/// current speech. Same posture matches the page-level NoticeCard.
+/// Audit L-A11y-1 (Phase 1, 2026-05-03; bugbot follow-up on PR #74):
+/// error/success copy in the launch form lives outside the page-level
+/// `<NoticeCard aria-live="polite">` region. Without an aria-live region
+/// here, a screen-reader user would silently miss field-validation
+/// errors and post-pin / post-tx errors.
+///
+/// Bugbot follow-up: the earlier draft used `role="alert" aria-live="polite"`,
+/// but `role="alert"` carries an implicit `aria-live="assertive"` per the
+/// WAI-ARIA spec, and overriding with `polite` produces inconsistent SR
+/// behaviour. The spec-correct pairing for polite announcements is
+/// `role="status"` (which has an implicit `aria-live="polite"`). The
+/// explicit `aria-live="polite"` is kept for parity with NoticeCard's
+/// posture and to make intent obvious to a future reader.
 function ErrorNotice({children}: {children: React.ReactNode}) {
   return (
     <div
-      role="alert"
+      role="status"
       aria-live="polite"
       style={{
         padding: 10,

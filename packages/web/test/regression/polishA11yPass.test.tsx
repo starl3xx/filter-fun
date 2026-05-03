@@ -117,19 +117,38 @@ describe("M-A11y-2: link inputs have visible labels (not aria-label only)", () =
 // Pre-fix: ErrorNotice rendered as a bare <div>. The launch form sits
 // outside the page-level `aria-live` NoticeCard, so a screen-reader user
 // would silently miss field-validation errors and post-pin / post-tx
-// errors. Post-fix: role="alert" + aria-live="polite".
-describe("L-A11y-1: ErrorNotice carries role=alert + aria-live=polite", () => {
+// errors. Post-fix: role="status" + aria-live="polite".
+//
+// Bugbot follow-up on PR #74: the earlier draft used `role="alert"` with
+// `aria-live="polite"`. `role="alert"` carries an implicit
+// `aria-live="assertive"`; overriding with polite produces inconsistent
+// SR behaviour. The spec-correct pairing for polite announcements is
+// `role="status"` (implicit polite). Pin both the post-fix shape AND the
+// absence of the rejected `role="alert"` on the ErrorNotice surface.
+describe("L-A11y-1: ErrorNotice carries role=status + aria-live=polite", () => {
   it("a rendered error region has both attributes", () => {
     const {container} = render(
       <LaunchForm {...mkProps({error: "test error message"})} />,
     );
-    // Find a <div> with the error copy + the alert role.
-    const alerts = container.querySelectorAll("[role='alert']");
-    expect(alerts.length).toBeGreaterThan(0);
-    const errorAlert = Array.from(alerts).find(
+    // Find a <div role="status"> with the error copy.
+    const statuses = container.querySelectorAll("[role='status']");
+    const errorStatus = Array.from(statuses).find(
       (el) => (el.textContent ?? "").includes("test error message"),
     );
-    expect(errorAlert).toBeDefined();
-    expect(errorAlert?.getAttribute("aria-live")).toBe("polite");
+    expect(errorStatus).toBeDefined();
+    expect(errorStatus?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("the rejected role='alert' is no longer on the ErrorNotice region (bugbot fix)", () => {
+    const {container} = render(
+      <LaunchForm {...mkProps({error: "another test error message"})} />,
+    );
+    // The error region must not carry role="alert" — that pairing's
+    // implicit aria-live="assertive" conflicts with the explicit polite.
+    const alerts = Array.from(container.querySelectorAll("[role='alert']"));
+    const errorAlert = alerts.find(
+      (el) => (el.textContent ?? "").includes("another test error message"),
+    );
+    expect(errorAlert).toBeUndefined();
   });
 });
