@@ -48,10 +48,19 @@ const EVENT_TYPE_STYLES: Record<EventType, {icon: string; color: string}> = {
   FILTER_FIRED:      {icon: "▼",  color: C.red},
   FILTER_COUNTDOWN:  {icon: "🎯", color: C.yellow},
   PHASE_ADVANCED:    {icon: "✨", color: C.pink},
+  // Epic 1.17c — HP_UPDATED is a data-refresh signal, not a ticker line.
+  // It carries empty `message` and we filter it out of the feed before
+  // render (see `items` below). Listed here so the closed-set Record stays
+  // exhaustive — a future audit reading the union won't see a hole.
+  HP_UPDATED:        {icon: "·",  color: C.faint},
 };
 
 export function ArenaActivityFeed({events, max = 16, liveStatus = "open"}: ArenaActivityFeedProps) {
-  const items = events.slice(0, max);
+  // Epic 1.17c — HP_UPDATED frames are a data-refresh carrier (the
+  // leaderboard's live HP overlay reads them via useHpUpdates). They have
+  // empty `message` and would render as blank rows here; filter them out
+  // before slicing the rolling feed buffer.
+  const items = events.filter((e) => e.type !== "HP_UPDATED").slice(0, max);
   return (
     <section
       aria-label="Activity feed"

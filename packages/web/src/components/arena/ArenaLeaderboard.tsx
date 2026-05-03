@@ -46,6 +46,11 @@ export type ArenaLeaderboardProps = {
   /// Addresses to mark as "just filtered" — drives the red ▼ stamp and
   /// the fade. Lower-case canonical (indexer form) comparison.
   recentlyFilteredAddresses?: Set<`0x${string}`>;
+  /// Epic 1.17c — addresses (lowercase) whose HP just updated via the
+  /// SSE HP_UPDATED stream within the recency window. Drives a brief
+  /// pulse on the row's HP bar so the user sees the leaderboard react
+  /// to swaps in real-time. Empty / absent → no pulse.
+  recentlyHpUpdatedAddresses?: ReadonlySet<string>;
 };
 
 /// Audit M-Arena-1 + M-Arena-8 + L-Arena-3 (Phase 1, 2026-05-02): column widths re-aligned
@@ -73,6 +78,7 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
   urgentCutline,
   firingMode,
   recentlyFilteredAddresses,
+  recentlyHpUpdatedAddresses,
 }: ArenaLeaderboardProps) {
   const sorted = useMemo(() => sortByRank(tokens), [tokens]);
   const showCutLine = !hideCutLine && sorted.length > CUT_INDEX;
@@ -112,6 +118,7 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
               firingMode={!!firingMode}
               filtered={firingMode && filteredLower ? filteredLower.has(t.token.toLowerCase()) : false}
               survivor={firingMode && filteredLower ? !filteredLower.has(t.token.toLowerCase()) && i < CUT_INDEX : false}
+              hpJustUpdated={recentlyHpUpdatedAddresses?.has(t.token.toLowerCase()) ?? false}
             />
           )).flatMap((row, i) => (showCutLine && i === CUT_INDEX ? [<CutLine key="cut" urgent={!!urgentCutline} />, row] : [row]))}
         </div>
@@ -261,6 +268,7 @@ function Row({
   firingMode,
   filtered,
   survivor,
+  hpJustUpdated,
 }: {
   token: TokenResponse;
   index: number;
@@ -272,6 +280,7 @@ function Row({
   firingMode?: boolean;
   filtered?: boolean;
   survivor?: boolean;
+  hpJustUpdated?: boolean;
 }) {
   const finalist = token.status === "FINALIST";
   const display = displayRank(token.rank, index);
@@ -393,7 +402,13 @@ function Row({
         <span style={{fontSize: 13, fontWeight: 800, fontFamily: F.display, letterSpacing: "-0.01em"}}>{token.ticker}</span>
       </div>
 
-      <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
+      <div
+        data-hp-fresh={hpJustUpdated ? "true" : undefined}
+        className={hpJustUpdated ? "ff-arena-row-hp-fresh" : undefined}
+        style={{display: "flex", alignItems: "center", minWidth: 0}}
+      >
+        <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
+      </div>
 
       <div style={{display: "flex", alignItems: "center", gap: 5, minWidth: 0}}>
         <StatusBadge status={token.status} compact />

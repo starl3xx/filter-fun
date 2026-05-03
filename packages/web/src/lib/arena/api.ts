@@ -95,7 +95,38 @@ export type EventType =
   | "LARGE_TRADE"
   | "FILTER_FIRED"
   | "FILTER_COUNTDOWN"
-  | "PHASE_ADVANCED";
+  | "PHASE_ADVANCED"
+  /// Epic 1.17b — fires on every hpSnapshot row write (per-swap, per-balance-
+  /// change, per-block-tick, plus phase-boundary / CUT / FINALIZE recomputes).
+  /// `priority: "LOW"` so LP-shedding under backpressure preserves HIGH events.
+  /// Empty `message` — the data carrier is structured (see HpUpdatedData), not
+  /// a ticker line.
+  | "HP_UPDATED";
+
+/// Structured payload on HP_UPDATED events. The web treats the polled
+/// `/tokens` response as the authoritative cohort (rank, status, prices) and
+/// overlays the live HP from these events onto each row — see
+/// `useHpUpdates` + `mergeHpUpdates`. `computedAt` is unix-seconds at the
+/// indexer's block-time, used to tie-break stale-vs-fresh when both polls
+/// and SSE messages arrive interleaved.
+export type HpUpdatedData = {
+  /// 0–100 integer (matches TokenResponse.hp).
+  hp: number;
+  /// Raw [0,1] component scores — same shape as TokenResponse.components.
+  components: {
+    velocity: number;
+    effectiveBuyers: number;
+    stickyLiquidity: number;
+    retention: number;
+    momentum: number;
+    holderConcentration: number;
+  };
+  weightsVersion: string;
+  /// Unix-seconds — the block timestamp the recompute was based on.
+  computedAt: number;
+  /// Discriminator from `packages/indexer/src/api/hpRecompute.ts`.
+  trigger: "BLOCK_TICK" | "SWAP" | "HOLDER_SNAPSHOT" | "PHASE_BOUNDARY" | "CUT" | "FINALIZE";
+};
 
 export type TickerEvent = {
   /// Monotonic per-process id from the indexer; doubles as SSE id.

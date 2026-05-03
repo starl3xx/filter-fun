@@ -284,6 +284,24 @@ code {
   .ff-arena-glow { animation: none !important; }
 }
 
+/* Epic 1.17c — HP_UPDATED freshness pulse. Fires on the HP-bar wrapper
+   when an SSE HP_UPDATED frame arrives within the recency window. The
+   cyan tint matches the brand "live data" hue used elsewhere (the SSE
+   liveStatus indicator, the cohort glow). 1.4s single-shot — long enough
+   to register, short enough to not stack visibly during a swap burst. */
+@keyframes ff-arena-row-hp-fresh {
+  0%   { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0); }
+  35%  { box-shadow: 0 0 12px 2px rgba(0, 240, 255, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0); }
+}
+.ff-arena-row-hp-fresh {
+  border-radius: 6px;
+  animation: ff-arena-row-hp-fresh 1.4s ease-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ff-arena-row-hp-fresh { animation: none !important; }
+}
+
 /* Hover-pause for the ticker marquee — applies to any element the marquee
    class is on, including the pre-filter near-cut strip. */
 .ff-ticker:hover .ff-ticker__track,
