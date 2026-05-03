@@ -5,6 +5,7 @@ import type {Address, Hex} from "viem";
 import {claimRolloverCall, SeasonVaultAbi} from "@filter-fun/scheduler";
 
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
+import {toIntegerBigInt} from "@/lib/claim/parseInteger";
 import {validateProof} from "@/lib/claim/validateProof";
 
 /// Expected JSON shape (matches the per-user entries in the oracle's published settlement file):
@@ -26,9 +27,13 @@ function parseRollover(raw: string): ParsedClaim {
   // 10000-element OOM bombs, and non-hex strings.
   validateProof(o.proof);
   return {
-    seasonId: BigInt(o.seasonId),
+    // Audit M-Web-4 (Phase 1, 2026-05-02): `BigInt("1.5")` throws an opaque
+    // SyntaxError that the user sees as "Cannot convert 1.5 to a BigInt".
+    // `toIntegerBigInt` rejects fractional / NaN / non-finite numbers and
+    // empty / non-numeric strings up front with a field-named message.
+    seasonId: toIntegerBigInt(o.seasonId, "seasonId"),
     contract: o.vault as Address,
-    numeric: BigInt(o.share),
+    numeric: toIntegerBigInt(o.share, "share"),
     proof: o.proof as Hex[],
   };
 }

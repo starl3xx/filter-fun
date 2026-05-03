@@ -16,11 +16,11 @@
   --red: #ff2d55;
   --purple: #9c5cff;
 
-  /* Legacy aliases for the claim form pages (pre-redesign components). */
-  --fg: var(--text);
-  --muted: var(--dim);
-  --border: var(--line);
-  --accent: var(--pink);
+  /* Audit M-Web-9 (Phase 1, 2026-05-02): the legacy --fg / --muted / --border
+     / --accent aliases were removed when ClaimForm switched to importing
+     `C` from `@/lib/tokens` directly. Single source of truth — these CSS
+     variables now mirror only the live design system. A reintroduced legacy
+     alias here would be a regression flag. */
 }
 
 * {
@@ -290,6 +290,30 @@ code {
   }
 }
 
+/* Audit M-Web-5 (Phase 1, 2026-05-02): on tablet (<1100 px) the form drops
+   below the slot grid. Without a visual cue the user can scroll past the
+   slots without realising the launch form is right there. The hint banner
+   inside the form column is hidden on desktop and surfaces only when the
+   stack flips. Subtle cyan chip — informational, not warning. */
+.ff-launch-stack-hint {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .ff-launch-stack-hint {
+    display: block;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--cyan) 40%, transparent);
+    background: color-mix(in srgb, var(--cyan) 10%, transparent);
+    color: var(--cyan);
+    font-family: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+}
+
 @media (max-width: 700px) {
   .ff-launch-page {
     padding: 10px 12px 18px;
@@ -539,3 +563,51 @@ code {
   }
 }
 
+/* Audit M-Web-3 (Phase 1, 2026-05-02): explicit iPhone-SE / 375 px
+   breakpoint. Pre-fix only 1100 / 700 px were defined — at 375 px the admin
+   3-column grid cards leaked off-screen and tap targets were unverified.
+   This block:
+     1. Tightens body copy a notch so the chrome doesn't crowd the data.
+     2. Forces the admin 3-col grid into a single column. The grid lives
+        in JSX inline styles (not a CSS class) so we target the page wrapper
+        + raise the `grid-template-columns` to single via `!important` —
+        the inline style would otherwise win.
+     3. Enforces the WCAG 2.5.5 (AAA) 44 px minimum tap target on every
+        button + link in `<main>` so the iPhone SE thumb hit-rate stays
+        usable. We don't widen ALL elements (status pills, ticker rows)
+        because the spec applies to interactive controls only.
+     4. Pulls the launch slot grid down from 2-col to 1-col so each card
+        gets the full viewport width — at 375 px the 2-col layout left
+        each slot's content cramped. */
+@media (max-width: 375px) {
+  html, body {
+    font-size: 13px;
+  }
+  .ff-arena-grid,
+  .ff-launch-page {
+    padding: 8px 10px 14px;
+    gap: 8px;
+  }
+  /* Admin page (`/token/[address]/admin`) uses an inline 3-column grid; the
+     wrapper is the only stable hook from CSS land. */
+  main:not(.ff-arena-grid):not(.ff-launch-page) {
+    padding: 32px 16px;
+  }
+  /* Tap-target minimum — buttons + role="button" + anchors inside main. The
+     min-width can't apply blanket because it would force pill-shaped chips to
+     widen, so it's scoped to <button>; min-height is safe everywhere. */
+  main button,
+  main a[role="button"],
+  main input[type="button"],
+  main input[type="submit"] {
+    min-height: 44px;
+  }
+  main button {
+    min-width: 44px;
+  }
+  /* Single-column launch slot grid — the 2-col fallback at 700 px still left
+     content cramped on the SE. */
+  .ff-launch-slot-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

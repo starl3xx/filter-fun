@@ -13,6 +13,14 @@
 /// the client — the contract stores `metadataURI` opaquely, so the API is
 /// the only enforcement layer that survives a hostile client.
 
+// Audit M-Web-7 (Phase 1, 2026-05-02): pin this module to the server bundle
+// so that an accidental client-side import (e.g. a future shared util that
+// re-exports from this route) trips at build time instead of leaking
+// PINATA_JWT through to the browser bundle. Next.js routes are server-only
+// by default, but the explicit import upgrades the leak from "silent code
+// review miss" to "build-time error".
+import "server-only";
+
 import {NextResponse, type NextRequest} from "next/server";
 
 import {

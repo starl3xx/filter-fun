@@ -151,6 +151,8 @@ useEffect(() => {
 ## MEDIUM
 
 ### [Web] ClaimForm status badge flicker / layout shift
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-1). Two changes pin the contract: (1) the Status row inside the parsed-section now renders unconditionally — the connect/disconnect choice happens INSIDE the row (renders the StatusBadge when connected, "Connect wallet to check status" placeholder when not) so a wallet event no longer collapses the row and shifts the layout below; (2) StatusBadge composes its style from a `baseStyle` object that sets `display: "inline-block"`, `minHeight: 18`, `lineHeight: "18px"` so the text swap from "checking…" → "eligible" / "already claimed" doesn't flicker the row height. Both pinned by `polishWebPass.test.tsx` (3 tests covering the always-render shape, the min-height reservation, and the disconnected placeholder copy).
+
 **Severity:** Medium
 **Files:** packages/web/src/components/ClaimForm.tsx:59-66, 139-143
 **Spec ref:** n/a
@@ -163,6 +165,8 @@ StatusBadge renders before `alreadyClaimed` settles → flicker. Disconnected wa
 **Effort:** XS
 
 ### [Web] LaunchForm submit race — re-validation needed
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-2; bugbot follow-up tightened the scope). The genuinely-stale input at click time is `tickerCollision` — that hook debounces with a 200 ms setTimeout, so a user who types a colliding ticker and clicks before the timer fires gets `tickerCollision === null` and submits through. `handleSubmit` now re-runs ONLY the cohort collision check at click time against the live `cohort` (`fieldErrors` is already memoised on the same `fields` closure, so re-running `validateLaunchFields(fields)` would be redundant — bugbot caught the earlier draft that did this). The other gating inputs (`acknowledged` / `isConnected` / `phase`) are React state and current at render time, so don't need re-derivation. Pinned by `polishWebPass.test.tsx` (3 tests asserting the live `cohort.some` collision check, the `if (submitDisabled || liveCollision) return` short-circuit, and the absence of the redundant `validateLaunchFields(fields)` call in handleSubmit).
+
 **Severity:** Medium
 **Files:** packages/web/src/components/launch/LaunchForm.tsx:86-95
 **Spec ref:** §4.6
@@ -175,6 +179,8 @@ StatusBadge renders before `alreadyClaimed` settles → flicker. Disconnected wa
 **Effort:** S
 
 ### [Web] No 375px mobile breakpoint
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-3). Adds an explicit `@media (max-width: 375px)` block to globals.css covering: (1) tighter body font size (13 px) so chrome doesn't crowd data; (2) reduced padding on `.ff-arena-grid` / `.ff-launch-page` / non-arena/launch `<main>`; (3) WCAG 2.5.5 compliant 44 px min tap targets enforced on `<button>` / `[role="button"]` / `<input type="button|submit">` inside `<main>` (min-width 44 only on `<button>` so non-button chips don't widen); (4) launch slot grid pulled from 2-col to single-col so each card gets the full SE viewport width. Pinned by `polishWebPass.test.tsx` (2 tests covering the media block existence and the 44 px rule presence).
+
 **Severity:** Medium
 **Files:** packages/web/src/app/globals.css (only 1100 / 700 px breakpoints)
 **Spec ref:** n/a
@@ -187,6 +193,8 @@ No explicit rule for 375 px (iPhone SE). Admin 3-column grid likely breaks badly
 **Effort:** M
 
 ### [Web] Numeric fields not integer-validated on claim
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-4). New `lib/claim/parseInteger.ts` exports `toIntegerBigInt(value, fieldName)` which: accepts JS integer numbers + strict decimal-integer strings (with optional leading `-` and surrounding whitespace), rejects fractional / NaN / Infinity / empty / hex-form / scientific-notation inputs with a field-named `Error` message ("share must be an integer (got 1.5)") instead of the opaque low-level `BigInt` SyntaxError. Wired into both `parseRollover` (rollover page) and `parseBonus` (bonus page) for the `seasonId` + `share`/`amount` fields. Pinned by `polishWebPass.test.tsx` (10 tests covering each acceptance + rejection path, including the `"0xff"` and `"1e18"` cases that raw `BigInt` would otherwise accept).
+
 **Severity:** Medium
 **Files:** packages/web/src/app/claim/rollover/page.tsx:26-31
 **Spec ref:** §22
@@ -199,6 +207,8 @@ No explicit rule for 375 px (iPhone SE). Admin 3-column grid likely breaks badly
 **Effort:** XS
 
 ### [Web] /launch grid collapses below 1100 px without context
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-5). Adds a `<div className="ff-launch-stack-hint">` element inside the form column on `/launch` carrying the cyan informational chip "↑ Pick / inspect a slot above · Launch form ↓". CSS hides the element by default (`display: none`) and surfaces it inside the existing `@media (max-width: 1100px)` block — desktop is unchanged; the hint only appears when the form drops below the slot grid. Uses `color-mix(in srgb, var(--cyan), transparent)` for the chip's tinted border + background, falling back to the Tailwind-free CSS-vars approach to keep the styling local. Pinned by `polishWebPass.test.tsx` (3 tests covering the JSX render of the class, the default `display: none`, and the `display: block` override inside the < 1100 px block).
+
 **Severity:** Medium
 **Files:** packages/web/src/app/globals.css:270-283, packages/web/src/components/launch/LaunchForm.tsx
 **Spec ref:** n/a
@@ -211,6 +221,8 @@ On tablet, form stacks below slot grid with no visual hint. Form may feel discon
 **Effort:** S
 
 ### [Web] Eligibility loading state has no animation
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-6). `NoticeCard` accepts a new `pulseTitle?: boolean` prop; when true, the title node carries `className="ff-pulse"` (the existing 1.4 s ease-in-out keyframe already declared in globals.css). The launch page passes `pulseTitle={eligibility.state === "loading"}` so the pulse fires only for the actively-loading state — `already-launched` / `window-closed` / `not-connected` final states stay calm so the pulse remains a "work in flight" signal, not chrome. The `ff-pulse` keyframe is already gated by `prefers-reduced-motion` (line 168 of globals.css), so the change inherits accessibility for free. Pinned by `polishWebPass.test.tsx` (2 tests covering the page → component prop threading and the `className="ff-pulse"` assignment shape).
+
 **Severity:** Medium → Low
 **Files:** packages/web/src/app/launch/page.tsx:198-203
 **Spec ref:** §4.6
@@ -223,6 +235,8 @@ Card titled "Checking eligibility…" looks static; no spinner / pulse — user 
 **Effort:** XS
 
 ### [Web] Metadata API route lacks `import "server-only"`
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-7). Added `import "server-only";` at the top of `packages/web/src/app/api/metadata/route.ts` (above all other imports). Next.js routes are server-only by default — this explicit import upgrades the leak from "silent code review miss" to "build-time error" if a future shared util re-exports anything from this file into a client bundle. Vitest doesn't ship the `server-only` resolver natively, so a tiny stub at `test/stubs/server-only.ts` is wired via `vitest.config.ts` `resolve.alias` to a no-op module (the production guarantee still holds because next compiles through its own resolver). Pinned by `polishWebPass.test.tsx` (1 test asserting the import line exists AND precedes the `next/server` import) plus the existing `test/launch/api.metadata.test.ts` continues to import and exercise the route module.
+
 **Severity:** Medium
 **Files:** packages/web/src/app/api/metadata/route.ts
 **Spec ref:** n/a
@@ -235,6 +249,8 @@ Reads `PINATA_JWT` from env. Next.js makes API routes server-only by default, bu
 **Effort:** XS
 
 ### [Web] Wagmi RPC env vars not validated
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-8). `lib/wagmi.ts` now derives the *expected* env-var name from the active chain (`NEXT_PUBLIC_BASE_RPC_URL` for Base, `NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL` for Base Sepolia) and validates at module load: throws an `Error` in production builds (`NODE_ENV === "production"`) with the env-var name + chain name in the message; logs a `console.warn` in dev/test where falling back to viem's public RPC is the intended developer-friction-free behaviour. The split is load-bearing — vitest sets `NODE_ENV === "test"` and the suite must keep importing the wagmi config without provisioning a real RPC. Pinned by `polishWebPass.test.tsx` (3 tests covering the env-name derivation, the production-only `throw new Error(message)`, and the dev/test `console.warn(message)` path).
+
 **Severity:** Medium
 **Files:** packages/web/src/lib/wagmi.ts:20-22
 **Spec ref:** n/a
@@ -247,6 +263,8 @@ Reads `PINATA_JWT` from env. Next.js makes API routes server-only by default, bu
 **Effort:** XS
 
 ### [Web] Legacy CSS variable aliases used by ClaimForm
+**Status:** ✅ **FIXED** in `audit/polish-web-general` (Polish 3 — Audit M-Web-9). ClaimForm.tsx switched off all `var(--fg|muted|border|accent)` references — now imports `C` from `@/lib/tokens` and uses `C.text` / `C.dim` / `C.line` / `C.pink` directly inline. The legacy aliases were the SOLE consumer (verified via grep across the web src tree before deletion); with the consumer removed, the four legacy `--fg` / `--muted` / `--border` / `--accent` declarations were deleted from the `:root` block in globals.css. Single source of truth: design tokens live in `lib/tokens.ts` for inline-style use; CSS var declarations in globals.css mirror the live design system only. Pinned by `polishWebPass.test.tsx` (4 tests asserting ClaimForm carries no legacy var refs, the `from "@/lib/tokens"` import is present, the globals.css `:root` block no longer declares the four aliases, and a styled-span smoke render works).
+
 **Severity:** Medium → Low
 **Files:** packages/web/src/components/ClaimForm.tsx, packages/web/src/app/globals.css:19-23
 **Spec ref:** n/a
@@ -263,6 +281,8 @@ ClaimForm uses `var(--fg)`, `var(--muted)`, `var(--border)`, `var(--accent)` (le
 ## LOW
 
 ### [Web] Dead code — `walletFilteredTickers` always returns []
+**Status:** 🚧 **DEFERRED** to Phase 2 in `audit/polish-web-general` (Polish 3 — Audit L-Web-1). The audit's own recommendation says "no action — wire when `/wallets/{address}/holdings` ships." The endpoint isn't part of Phase 1 (concentration filtering / per-wallet holdings is Phase-2 scope per ROADMAP); the inline comment + TODO is the breadcrumb future work picks up. No code change in this PR.
+
 **Severity:** Low
 **Files:** packages/web/src/app/page.tsx:179-188
 **Spec ref:** n/a
@@ -279,6 +299,8 @@ TODO documents that the indexer endpoint isn't ready. Useful breadcrumb but curr
 ## INFO
 
 ### [Web] PINATA_JWT correctly server-only in storage helper
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-web-general` (Polish 3 — Audit I-Web-1). Re-inspection confirms `storage.ts` reads `PINATA_JWT` only inside the fetch handler scope, never exports it, never logs it. The companion fix landed under Audit M-Web-7 (the explicit `import "server-only"` on the route) provides build-time enforcement of the same posture for the route module that calls into this helper. No code change in this PR.
+
 **Severity:** Info
 **Files:** packages/web/src/lib/launch/storage.ts:46
 **Spec ref:** n/a
@@ -286,6 +308,8 @@ TODO documents that the indexer endpoint isn't ready. Useful breadcrumb but curr
 **Description:** Read inside fetch handler, not exported, not logged. Good posture.
 
 ### [Web] Two-step admin transfer correctly gated
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-web-general` (Polish 3 — Audit I-Web-2). Re-inspection confirms the AdminTransferForms two-step flow is correctly enforced: PENDING blocks other admin actions and the contract-level enforcement is double-checked via the existing `useTokenAdminZeroAddress.test.ts` regression bundle (which pinned the H-Web-4 `pendingAdmin !== null` simplification). No code change in this PR.
+
 **Severity:** Info
 **Files:** packages/web/src/components/admin/AdminTransferForms.tsx:16-27,46-54
 **Spec ref:** §38.6
@@ -293,6 +317,8 @@ TODO documents that the indexer endpoint isn't ready. Useful breadcrumb but curr
 **Description:** Nominate → accept flow correctly enforced; PENDING blocks other admin actions.
 
 ### [Web] Ticker-collision check debounced (200 ms)
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-web-general` (Polish 3 — Audit I-Web-3). Re-inspection confirms the 200 ms debounce in `useTickerCollision` (now at `LaunchForm.tsx:419-434` after the M-Web-2 handleSubmit edits). Audit M-Web-2's live-revalidation also runs the collision check at click time, so the user-observable contract is "debounced while typing, definitive at submit." No code change in this PR.
+
 **Severity:** Info
 **Files:** packages/web/src/components/launch/LaunchForm.tsx:405-420
 **Spec ref:** §4.6

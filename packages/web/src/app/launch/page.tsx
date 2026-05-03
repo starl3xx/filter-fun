@@ -226,6 +226,14 @@ export default function LaunchPage() {
         <div className="ff-launch-body" ref={formRef}>
           <SlotGrid slots={slots} />
           <div style={{display: "flex", flexDirection: "column", gap: 14}}>
+            {/* Audit M-Web-5 (Phase 1, 2026-05-02): visible only on tablet
+                (<1100 px) where the form drops below the slot grid. CSS
+                hides this on desktop. The hint connects the two visual
+                regions so the form doesn't feel orphaned beneath a long
+                slot grid. */}
+            <div className="ff-launch-stack-hint" aria-hidden>
+              ↑ Pick / inspect a slot above · Launch form ↓
+            </div>
             {seasonId === null ? (
               <NoticeCard tone="info" title="Connecting to launcher…" body="Reading current season state from the contract." />
             ) : eligibility.formVisible ? (
@@ -249,6 +257,13 @@ export default function LaunchPage() {
                 tone={eligibility.state === "loading" ? "info" : "warn"}
                 title={titleFor(eligibility.state)}
                 body={eligibility.message}
+                /* Audit M-Web-6 (Phase 1, 2026-05-02): the "Checking
+                   eligibility…" card looked frozen pre-fix because it had no
+                   indication that work was happening. Apply ff-pulse to the
+                   title only when eligibility is actively loading so the
+                   dim/warn states (already-launched, window-closed) stay
+                   stable. */
+                pulseTitle={eligibility.state === "loading"}
               />
             )}
           </div>
@@ -336,7 +351,21 @@ function SnapshotBadge({
   );
 }
 
-function NoticeCard({tone, title, body}: {tone: "info" | "warn"; title: string; body: string}) {
+function NoticeCard({
+  tone,
+  title,
+  body,
+  pulseTitle = false,
+}: {
+  tone: "info" | "warn";
+  title: string;
+  body: string;
+  /// Audit M-Web-6: when true, applies the `ff-pulse` keyframe to the title
+  /// node so the user sees that work is in flight. Caller drives this so the
+  /// pulse fires for the loading state but stays calm for warn/info final
+  /// states (already-launched, window-closed) where pulsing would mis-signal.
+  pulseTitle?: boolean;
+}) {
   const accent = tone === "warn" ? C.red : C.cyan;
   return (
     <section
@@ -350,6 +379,7 @@ function NoticeCard({tone, title, body}: {tone: "info" | "warn"; title: string; 
       }}
     >
       <div
+        className={pulseTitle ? "ff-pulse" : undefined}
         style={{
           fontFamily: F.mono,
           fontSize: 10,

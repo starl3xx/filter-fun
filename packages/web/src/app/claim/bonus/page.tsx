@@ -5,6 +5,7 @@ import type {Address, Hex} from "viem";
 import {BonusDistributorAbi, claimBonusCall} from "@filter-fun/scheduler";
 
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
+import {toIntegerBigInt} from "@/lib/claim/parseInteger";
 import {validateProof} from "@/lib/claim/validateProof";
 
 /// Expected JSON shape (matches the per-user entries in the oracle's published bonus file):
@@ -25,9 +26,12 @@ function parseBonus(raw: string): ParsedClaim {
   // 10000-element OOM bombs, and non-hex strings.
   validateProof(o.proof);
   return {
-    seasonId: BigInt(o.seasonId),
+    // Audit M-Web-4 (Phase 1, 2026-05-02): integer guard — see rollover page
+    // header note. `amount` is wei here; the oracle never publishes a
+    // fractional wei but a hostile / malformed JSON could.
+    seasonId: toIntegerBigInt(o.seasonId, "seasonId"),
     contract: o.distributor as Address,
-    numeric: BigInt(o.amount),
+    numeric: toIntegerBigInt(o.amount, "amount"),
     proof: o.proof as Hex[],
   };
 }

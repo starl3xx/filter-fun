@@ -94,7 +94,19 @@ export function LaunchForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitted(true);
-    if (submitDisabled) return;
+    // Audit M-Web-2 (Phase 1, 2026-05-02; bugbot follow-up on PR #72): the
+    // genuinely-stale input at click time is `tickerCollision` — that hook
+    // debounces with a 200 ms setTimeout, so a user who types a colliding
+    // ticker and clicks before the timer fires gets a stale
+    // `tickerCollision === null` and submits through. The other gating
+    // inputs (`fieldErrors` from useMemo, `acknowledged` / `isConnected` /
+    // `phase` from React state) are already current at render time, so
+    // re-deriving them here would just reproduce the same values. Re-run
+    // ONLY the collision check at click time against the live `cohort`.
+    const liveCollision = cohort.some(
+      (t) => stripDollar(t.ticker).toUpperCase() === canonicalSymbol(fields.ticker),
+    );
+    if (submitDisabled || liveCollision) return;
     // Fire-and-forget: the parent's handler is async (pin → launch) and owns
     // its error surface via the `error` prop. `void` marks the intentional
     // discard so any rejection that escapes the parent's try/catch becomes a
