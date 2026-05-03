@@ -42,6 +42,14 @@ export class MetadataStorageError extends Error {
 }
 
 /// Pin via Pinata's JSON pinning endpoint. Returns ipfs://<cid>.
+///
+/// Audit L-Sec-2 (Phase 1, 2026-05-03): this fetch is server-side only —
+/// the `PINATA_JWT` lives in a non-`NEXT_PUBLIC_` env var (Audit M-Sec-1)
+/// and the `/api/metadata` route handler is the only call site. CORS is
+/// not relevant: the Pinata endpoint isn't reached by the browser. Do
+/// NOT move this fetch client-side; doing so would (a) require shipping
+/// the JWT to the browser bundle (instant credential leak) and (b)
+/// fail the cross-origin preflight Pinata's API doesn't currently allow.
 export async function pinToPinata(doc: Record<string, unknown>): Promise<StoredMetadataRef> {
   const jwt = process.env.PINATA_JWT;
   if (!jwt) throw new MetadataStorageError("PINATA_JWT not configured", 500);

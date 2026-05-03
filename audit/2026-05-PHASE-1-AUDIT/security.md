@@ -9,6 +9,12 @@ None.
 ## HIGH
 
 ### [Security] No Content-Security-Policy headers configured
+**Status:** ✅ **FIXED** in `audit/polish-security` (Polish 10 — Audit H-Sec-CSP). The High row was missed in the High-batch dispatch and per POLISH_PLAN.md was deliberately carried into the Polish 10 PR because the surrounding security PR is its natural home. `packages/web/next.config.mjs` now exports `async headers()` returning a CSP plus four defense-in-depth headers (X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin, Permissions-Policy locking down camera/mic/geo/payment) on every route via `source: "/(.*)"`. The CSP allowlists `'self'` for default/script/style/font/img with the wagmi-required `'wasm-unsafe-eval'` (viem's wasm crypto primitives), `connect-src` for the indexer URL + the *.base.org / *.publicnode.com viem fallback hosts + the *.walletconnect.com/.org WebSocket hosts WC v2 needs (Pinata is deliberately excluded — server-only, per L-Sec-2), `frame-ancestors 'none'` paired with X-Frame-Options for clickjacking defense, and `base-uri 'self'` + `form-action 'self'` to prevent base-tag hijack and form exfiltration. Each directive carries an inline-comment rationale in `next.config.mjs` so a future maintainer can see why each piece is load-bearing. Pinned by `polishSecurityPass.test.tsx` (4 tests: async headers shape, every-route source pattern, CSP directive presence + positive `'unsafe-inline'` pin + negative anti-`unsafe-eval` + anti-`*` + connect-src-no-Pinata checks, four non-CSP defense headers).
+>
+> **Round 3 follow-up (2026-05-03, bugbot finding on commit `038fe91`):** the original CSP shipped without `'unsafe-inline'` in `script-src`, which would have broken the deployed app — Next.js 14 App Router emits inline `<script>self.__next_f.push(…)</script>` tags for RSC flight-data delivery and client hydration, and the browser blocks them under `script-src 'self' 'wasm-unsafe-eval'` (no nonce middleware exists). Neither `next build` nor the Vitest suite catches this (CSP enforcement is a browser concern). Fix: added `'unsafe-inline'` to `script-src` with a multi-line rationale block in `next.config.mjs` and a positive pin in the regression test that asserts its presence, so a future "tighten the CSP" pass that drops it without setting up nonce middleware fails the test loudly instead of silently breaking hydration in production. **Phase 2 TODO (separate work item):** migrate to a nonce-based CSP via Next.js middleware (set a per-request `x-nonce` header, render nonce-aware `<Script nonce>` tags, drop `'unsafe-inline'`); regaining XSS resistance for inline scripts is real defense-in-depth value but the migration has its own test surface and is out of scope for the Phase 1 audit polish pass.
+>
+> **Round 4 follow-up (2026-05-03, bugbot finding on commit `fe35838`):** `NEXT_PUBLIC_INDEXER_URL` was being interpolated raw into the `connect-src` template literal. CSP uses `;` as directive separator and whitespace as source-expression separator, so a deployer-controlled value containing either character could split `connect-src` early and inject a new directive (e.g. `https://api.filter.fun; worker-src *` would terminate connect-src and add an attacker-controlled `worker-src *`). Fix: extracted a module-scope `safeIndexerUrl()` helper in `next.config.mjs` that parses through `new URL()` (rejects garbage), enforces `http:` / `https:` scheme (no `javascript:` / `data:`), and reduces to `.origin` (strips path/query/fragment, can't carry `;` or whitespace). A bad env var now fails the **build** with a clear error message instead of silently shipping a broken / exploitable CSP. Pinned by the new `safeIndexerUrl validates NEXT_PUBLIC_INDEXER_URL` describe block in `polishSecurityPass.test.tsx` (8 tests: 2 source-grep shape pins ensuring the helper exists and is wired into the connect-src interpolation, 6 inline behavior tests covering injection / whitespace / javascript: / data: / garbage / clean-origin / localhost-default cases). The `polishSecurityPass.test.tsx` total is now 18 tests.
+
 **Severity:** High
 **Files:** packages/web/next.config.mjs
 **Spec ref:** n/a
@@ -28,6 +34,8 @@ Tune as needed.
 ## MEDIUM
 
 ### [Security] PINATA_JWT scoped server-only — confirmed; deployment doc lacks explicit warning
+**Status:** 📋 **DOC** in `audit/polish-security` (Polish 10 — Audit M-Sec-1). Two doc surfaces updated. (1) `packages/web/.env.example` now carries a "Metadata pinning" block with PINATA_JWT + METADATA_STORE_DIR + METADATA_PUBLIC_URL keys, each with the explicit warning that they must NOT be prefixed `NEXT_PUBLIC_` (the Next.js bundler exposes any `NEXT_PUBLIC_*` env to the browser; renaming `PINATA_JWT` → `NEXT_PUBLIC_PINATA_JWT` would leak the JWT to every visitor). (2) `docs/runbook-operator.md` §1.7 added a pre-week check: an explicit `kubectl exec deploy/web -- env | grep NEXT_PUBLIC_PINATA` step that must return empty, with a rotation instruction if anything matches.
+
 **Severity:** Medium
 **Files:** packages/web/src/lib/launch/storage.ts:46, src/app/api/metadata/route.ts
 **Spec ref:** PR #39
@@ -39,6 +47,14 @@ Tune as needed.
 **Effort:** XS
 
 ### [Security] Image URL validated as HTTPS-only but no redirect / data-URI check
+**Status:** ✅ **FIXED** in `audit/polish-security` (Polish 10 — Audit M-Sec-2). New `checkImageUrlSafe(url)` helper inside `packages/web/src/app/api/metadata/route.ts` runs after the regex validation pass and HEAD-fetches the image URL with `redirect: "manual"` + a 7-second `AbortSignal.timeout`, then:
+- 200 / 204 / 206 → accept (URL resolves directly).
+- 3xx with a `Location` that doesn't start with `https://` (covers `data:`, `http://`, `javascript:`, missing) → reject with a per-field error.
+- 3xx with an `https://` `Location` → accept (one hop allowed; recursive chasing opens an SSRF / latency budget the per-launch handler can't afford).
+- 4xx / 5xx / network failure / timeout → reject.
+
+The helper runs before `activeBackend()` so a bad URL never wastes a Pinata pin call. Pinned by `polishSecurityPass.test.tsx` (6 tests: 200 OK accept, `data:` redirect reject, `http://` redirect reject, https → https one-hop accept, 404 reject, network-error reject). The existing `api.metadata.test.ts` was updated to default-mock the HEAD-check fetch in `beforeEach` so its 8 tests still pass.
+
 **Severity:** Medium
 **Files:** packages/web/src/lib/launch/validation.ts (HTTPS_RE check)
 **Spec ref:** n/a
@@ -50,6 +66,8 @@ Tune as needed.
 **Effort:** M
 
 ### [Security] Form validation client-side only — no server re-validation guaranteed
+**Status:** ↩ **CLOSE-INCIDENTAL** in `audit/polish-security` (Polish 10 — Audit M-Sec-3). Already done. The `/api/metadata` route handler at `packages/web/src/app/api/metadata/route.ts:51-55` already runs `coerceLaunchFields(raw)` to shape-coerce the unknown JSON, then `validateLaunchFields(body)` to re-run the same validators the client uses, returning a structured 400 with per-field errors before any backend call. The audit was working from a stale snapshot. No code change in this PR (the M-Sec-2 image HEAD-check is layered on top of this existing validation pass).
+
 **Severity:** Medium
 **Files:** packages/web/src/app/api/metadata/route.ts vs packages/web/src/lib/launch/validation.ts
 **Spec ref:** n/a
@@ -65,6 +83,8 @@ Tune as needed.
 ## LOW
 
 ### [Security] No Subresource Integrity for Google Fonts
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-security` (Polish 10 — Audit L-Sec-1). Re-verified — `packages/web/src/app/layout.tsx` carries no raw `<link>` to fonts.googleapis.com / fonts.gstatic.com (grep clean). The fonts are loaded via `next/font/google`, which fetches and self-hosts at build time under `/_next/static/media/` — SRI on a runtime CDN link is not applicable when the font is part of the build output. No code change.
+
 **Severity:** Low
 **Files:** packages/web/src/app/layout.tsx
 **Spec ref:** n/a
@@ -76,6 +96,8 @@ Tune as needed.
 **Effort:** XS
 
 ### [Security] CORS not documented for client→Pinata
+**Status:** 📋 **DOC** in `audit/polish-security` (Polish 10 — Audit L-Sec-2). Comment block added above `pinToPinata` in `packages/web/src/lib/launch/storage.ts` documenting that this fetch is server-side only (the route handler is the only call site, the JWT lives in a non-`NEXT_PUBLIC_` env var per M-Sec-1) and warning future maintainers not to move the fetch client-side — doing so would require shipping the JWT to the browser bundle (instant credential leak) and would fail the cross-origin preflight Pinata's API doesn't currently allow.
+
 **Severity:** Low
 **Files:** packages/web/src/lib/launch/storage.ts:49-56
 **Spec ref:** n/a
@@ -91,6 +113,8 @@ Tune as needed.
 ## INFO
 
 ### [Security] No `dangerouslySetInnerHTML` usage anywhere
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-security` (Polish 10 — Audit I-Sec-1). Re-verified `grep -rn 'dangerouslySetInnerHTML' packages/web/src` returns zero matches. Posture preserved. No code change.
+
 **Severity:** Info
 **Files:** packages/web/src
 **Spec ref:** n/a

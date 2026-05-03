@@ -54,6 +54,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({error: "validation failed", fieldErrors: errors}, {status: 400});
   }
 
+  // Audit M-Sec-2 (Phase 1, 2026-05-03): the regex check in
+  // `validateLaunchFields` only confirms `imageUrl` STARTS with `https://`.
+  // It can't detect the post-fetch trick where an attacker registers an
+  // `https://attacker.example/img.png` URL that 302-redirects to
+  // `data:text/html,<script>…</script>` or to a non-HTTPS host. Server-
+  // side HEAD-check the URL with `redirect: "manual"` so we see the raw
+  // response and can reject any 3xx before the metadata gets pinned.
+  const imageCheck = await checkImageUrlSafe(body.imageUrl);
+  if (imageCheck.error) {
+    return NextResponse.json(
+      {error: "validation failed", fieldErrors: {imageUrl: imageCheck.error}},
+      {status: 400},
+    );
+  }
+
   const backend = activeBackend();
   if (backend === "none") {
     return NextResponse.json(
@@ -82,4 +97,77 @@ function originOf(req: NextRequest): string {
   if (fromEnv) return fromEnv;
   const url = new URL(req.url);
   return `${url.protocol}//${url.host}`;
+}
+
+/// Audit M-Sec-2 (Phase 1, 2026-05-03): server-side image URL safety check.
+///
+/// The client / `validateLaunchFields` regex confirms the URL starts with
+/// `https://`, but a hostile creator can register an `https://…` URL that
+/// 302-redirects to a non-HTTPS host or to a `data:` scheme. Once that
+/// redirect target lands in the pinned metadata, downstream renderers
+/// (token cards, OG previews) might follow the chain and surface
+/// attacker-controlled content. HEAD-check with `redirect: "manual"` so
+/// we see the raw response, then:
+///   - 200/204/206 → URL resolves directly, accept.
+///   - 3xx with a `Location` that doesn't start `https://` → reject.
+///   - 3xx with a `Location` that DOES start `https://` → accept (we
+///     don't recursively chase — one hop is enough to detect the
+///     `https → data:` / `https → http:` shapes the audit cared about,
+///     and chasing further opens an SSRF / latency budget the route
+///     can't afford on a per-launch handler).
+///   - Network failure / timeout → reject (the URL must resolve before
+///     we mint metadata that depends on it).
+///
+/// 7-second timeout via `AbortSignal.timeout` keeps a slow / hung remote
+/// from stalling the launch flow indefinitely. Production launchers
+/// already wait on Pinata pin (~2-3s typical), so the budget here is
+/// generous.
+async function checkImageUrlSafe(url: string): Promise<{error: string | null}> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return {error: "Image URL must be a well-formed https URL."};
+  }
+  if (parsed.protocol !== "https:") {
+    return {error: "Image URL must start with https://."};
+  }
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: AbortSignal.timeout(7_000),
+    });
+  } catch {
+    return {error: "Image URL did not resolve. Confirm the link is reachable, then retry."};
+  }
+  // 200-class: direct OK. Allow 200/204/206 explicitly (some CDNs return
+  // 206 to HEAD).
+  if (res.status === 200 || res.status === 204 || res.status === 206) {
+    return {error: null};
+  }
+  // 3xx: inspect the Location header. Reject anything that isn't
+  // a fresh https://… URL.
+  if (res.status >= 300 && res.status < 400) {
+    const loc = res.headers.get("location") ?? "";
+    if (!loc) {
+      return {error: "Image URL redirects but no destination given. Pick a direct image URL."};
+    }
+    try {
+      const next = new URL(loc, url);
+      if (next.protocol !== "https:") {
+        return {
+          error: `Image URL redirects to a non-https destination (${next.protocol}). Use a direct https link.`,
+        };
+      }
+      return {error: null};
+    } catch {
+      return {error: "Image URL redirect destination is not a valid URL."};
+    }
+  }
+  // 4xx / 5xx: the URL is broken. Reject.
+  return {
+    error: `Image URL returned status ${res.status}. Confirm the link is publicly reachable.`,
+  };
 }

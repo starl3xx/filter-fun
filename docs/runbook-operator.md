@@ -143,7 +143,26 @@ kubectl -n filter-fun exec deploy/scheduler -- env | grep -E '^SEASON_(LAUNCH_EN
 - [ ] If any are missing, the scheduler falls back to defaults (which match) — but explicit
       values caught a 2026-Q2 prod incident, so always set them explicitly.
 
-### 1.7 Confirm previous season closed cleanly
+### 1.7 Confirm web env — server-only secrets are NOT prefixed `NEXT_PUBLIC_`
+
+> Audit M-Sec-1 (Phase 1, 2026-05-03): the web app reads `PINATA_JWT` server-side only,
+> in the `/api/metadata` route. Next.js exposes any `NEXT_PUBLIC_*` env var to the
+> browser bundle, so a copy-paste accident that renames `PINATA_JWT` to
+> `NEXT_PUBLIC_PINATA_JWT` would leak the JWT to every visitor and let any client mint
+> pins against the operator's Pinata account.
+
+```sh
+# On the web container (Railway / k8s / etc), confirm there is NO env var that
+# matches `NEXT_PUBLIC_PINATA*`. The grep below should print nothing.
+kubectl -n filter-fun exec deploy/web -- env | grep -iE 'NEXT_PUBLIC_PINATA' || echo OK
+```
+
+- [ ] Output is `OK` (or empty). If anything matches, the JWT is exposed to the browser
+      and must be rotated immediately at https://app.pinata.cloud → API Keys.
+- [ ] `PINATA_JWT` (no prefix) IS set on the web container; `/api/metadata` returns 500
+      with the "metadata storage not configured" message otherwise.
+
+### 1.8 Confirm previous season closed cleanly
 
 ```sh
 PREV_SEASON=$(($(cast call "$LAUNCHER" 'currentSeasonId()(uint256)' --rpc-url "$RPC_URL") - 1))
