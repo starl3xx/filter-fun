@@ -46,6 +46,13 @@ export type ArenaLeaderboardProps = {
   /// Addresses to mark as "just filtered" — drives the red ▼ stamp and
   /// the fade. Lower-case canonical (indexer form) comparison.
   recentlyFilteredAddresses?: Set<`0x${string}`>;
+  /// Epic 1.17c — per-address sequence ids for the HP-just-updated pulse.
+  /// Map value is the latest `computedAt` (seconds) seen for the token via
+  /// SSE HP_UPDATED. The leaderboard uses the seq as a React `key` on the
+  /// HP-bar wrapper so the CSS animation REPLAYS on each successive
+  /// update (changing the key remounts the wrapper). A token absent from
+  /// the map → no pulse.
+  freshHpUpdateSeqByAddress?: ReadonlyMap<string, number>;
 };
 
 /// Audit M-Arena-1 + M-Arena-8 + L-Arena-3 (Phase 1, 2026-05-02): column widths re-aligned
@@ -73,6 +80,7 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
   urgentCutline,
   firingMode,
   recentlyFilteredAddresses,
+  freshHpUpdateSeqByAddress,
 }: ArenaLeaderboardProps) {
   const sorted = useMemo(() => sortByRank(tokens), [tokens]);
   const showCutLine = !hideCutLine && sorted.length > CUT_INDEX;
@@ -112,6 +120,7 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
               firingMode={!!firingMode}
               filtered={firingMode && filteredLower ? filteredLower.has(t.token.toLowerCase()) : false}
               survivor={firingMode && filteredLower ? !filteredLower.has(t.token.toLowerCase()) && i < CUT_INDEX : false}
+              hpUpdateSeq={freshHpUpdateSeqByAddress?.get(t.token.toLowerCase())}
             />
           )).flatMap((row, i) => (showCutLine && i === CUT_INDEX ? [<CutLine key="cut" urgent={!!urgentCutline} />, row] : [row]))}
         </div>
@@ -261,6 +270,7 @@ function Row({
   firingMode,
   filtered,
   survivor,
+  hpUpdateSeq,
 }: {
   token: TokenResponse;
   index: number;
@@ -272,6 +282,12 @@ function Row({
   firingMode?: boolean;
   filtered?: boolean;
   survivor?: boolean;
+  /// Latest HP_UPDATED `computedAt` for this row, or undefined if no recent
+  /// update. Drives the pulse animation: the wrapper div is keyed on this
+  /// value, so each new seq remounts it and the CSS animation runs from
+  /// the start (single-shot animations don't replay on className change
+  /// alone).
+  hpUpdateSeq?: number;
 }) {
   const finalist = token.status === "FINALIST";
   const display = displayRank(token.rank, index);
@@ -393,7 +409,14 @@ function Row({
         <span style={{fontSize: 13, fontWeight: 800, fontFamily: F.display, letterSpacing: "-0.01em"}}>{token.ticker}</span>
       </div>
 
-      <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
+      <div
+        key={hpUpdateSeq != null ? `hp-${hpUpdateSeq}` : "hp-static"}
+        data-hp-fresh={hpUpdateSeq != null ? "true" : undefined}
+        className={hpUpdateSeq != null ? "ff-arena-row-hp-fresh" : undefined}
+        style={{display: "flex", alignItems: "center", minWidth: 0}}
+      >
+        <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
+      </div>
 
       <div style={{display: "flex", alignItems: "center", gap: 5, minWidth: 0}}>
         <StatusBadge status={token.status} compact />

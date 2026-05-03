@@ -91,25 +91,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 98 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="98"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
-              />
+                aria-label="HP 98 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="98"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
+              >
+                98
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
-            >
-              98
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -188,25 +192,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 92 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="92"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
-              />
+                aria-label="HP 92 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="92"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
+              >
+                92
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
-            >
-              92
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -285,25 +293,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 88 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="88"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
-              />
+                aria-label="HP 88 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="88"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                88
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              88
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -382,25 +394,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 80 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="80"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
-              />
+                aria-label="HP 80 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="80"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                80
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              80
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -479,25 +495,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 72 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="72"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
-              />
+                aria-label="HP 72 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="72"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                72
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              72
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -576,25 +596,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 64 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="64"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
-              />
+                aria-label="HP 64 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="64"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                64
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              64
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -673,25 +697,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 52 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="52"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 52 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="52"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                52
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              52
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -770,25 +798,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 44 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="44"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 44 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="44"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                44
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              44
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -867,25 +899,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 32 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="32"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 32 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="32"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                32
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              32
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -964,25 +1000,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 22 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="22"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 22 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="22"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                22
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              22
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1061,25 +1101,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 14 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="14"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 14 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="14"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                14
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              14
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1158,25 +1202,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 6 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="6"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 6 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="6"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                6
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              6
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1326,25 +1374,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 98 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="98"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
-              />
+                aria-label="HP 98 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="98"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 98%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
+              >
+                98
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
-            >
-              98
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1423,25 +1475,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 92 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="92"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
-              />
+                aria-label="HP 92 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="92"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 92%; background: linear-gradient(90deg, #ffe933, #ff3aa1); box-shadow: 0 0 6px #ffe93366; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
+              >
+                92
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; text-shadow: 0 0 8px #ffe93366;"
-            >
-              92
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1520,25 +1576,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 88 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="88"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
-              />
+                aria-label="HP 88 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="88"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 88%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                88
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              88
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1617,25 +1677,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 80 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="80"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
-              />
+                aria-label="HP 80 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="80"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 80%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                80
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              80
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1714,25 +1778,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 72 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="72"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
-              />
+                aria-label="HP 72 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="72"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 72%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                72
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              72
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1811,25 +1879,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 1;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 64 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="64"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 1;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
-              />
+                aria-label="HP 64 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="64"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 64%; background: linear-gradient(90deg, #52ff8b, #00f0ff); box-shadow: 0 0 6px #52ff8b66; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                64
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.62); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              64
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -1960,25 +2032,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 52 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="52"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 52 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="52"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 52%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                52
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              52
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -2057,25 +2133,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 44 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="44"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 44 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="44"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 44%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                44
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              44
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -2154,25 +2234,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 32 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="32"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 32 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="32"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 32%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                32
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              32
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -2251,25 +2335,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 22 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="22"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 22 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="22"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 22%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                22
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              22
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -2348,25 +2436,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 14 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="14"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 14 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="14"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 14%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                14
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              14
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"
@@ -2445,25 +2537,29 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
             </span>
           </div>
           <div
-            style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
+            style="display: flex; align-items: center; min-width: 0;"
           >
             <div
-              aria-label="HP 6 of 100"
-              aria-valuemax="100"
-              aria-valuemin="0"
-              aria-valuenow="6"
-              role="meter"
-              style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              style="display: flex; align-items: center; gap: 8px; opacity: 0.55;"
             >
               <div
-                style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
-              />
+                aria-label="HP 6 of 100"
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow="6"
+                role="meter"
+                style="position: relative; width: 100px; height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.06); overflow: hidden;"
+              >
+                <div
+                  style="position: absolute; top: 0px; left: 0px; bottom: 0px; width: 6%; background: linear-gradient(90deg, #ff2d55, #ff3aa1); box-shadow: 0 0 6px #ff2d5566; transition: width 0.4s ease;"
+                />
+              </div>
+              <span
+                style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
+              >
+                6
+              </span>
             </div>
-            <span
-              style="font-size: 11px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; color: rgba(255, 235, 255, 0.32); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right;"
-            >
-              6
-            </span>
           </div>
           <div
             style="display: flex; align-items: center; gap: 5px; min-width: 0;"

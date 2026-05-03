@@ -41,6 +41,7 @@ import {FilterMomentOverlay} from "@/components/arena/filterMoment/FilterMomentO
 import {DataErrorBanner} from "@/components/DataErrorBanner";
 import {Stars} from "@/components/Stars";
 import {useFilterMoment} from "@/hooks/arena/useFilterMoment";
+import {freshHpUpdateSeqByAddress, mergeHpUpdates, useHpUpdates} from "@/hooks/arena/useHpUpdates";
 import {useSeason} from "@/hooks/arena/useSeason";
 import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
@@ -67,7 +68,21 @@ export default function HomePage() {
   // below see a fresh `[]` reference on every render and fire each cycle
   // (no state is set, but the effect runs unnecessarily during the loading
   // phase before the first /tokens response arrives).
-  const cohort = useMemo(() => tokens ?? [], [tokens]);
+  const polledCohort = useMemo(() => tokens ?? [], [tokens]);
+
+  // Epic 1.17c — overlay the freshest HP_UPDATED frames from the SSE stream
+  // onto the polled cohort. The polled `/tokens` response is the source of
+  // truth for rank/status/prices; live HP only re-paints the bar + components.
+  // Merging here (above any consumer) means the leaderboard, the detail
+  // panel, and the trend buffers all see the same coherent view.
+  const {hpByAddress} = useHpUpdates(events);
+  const cohort = useMemo(() => mergeHpUpdates(polledCohort, hpByAddress), [polledCohort, hpByAddress]);
+  // Per-address sequence ids drive the row-level pulse. The leaderboard
+  // uses each token's seq as a React `key` on the HP-bar wrapper so the
+  // CSS animation replays on each successive update — a Set-based
+  // "is-fresh" flag would leave the className unchanged across consecutive
+  // updates within the same recency window, suppressing the second pulse.
+  const freshHpSeq = useMemo(() => freshHpUpdateSeqByAddress(hpByAddress, 3_000), [hpByAddress]);
   const [selected, setSelected] = useState<`0x${string}` | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -254,6 +269,7 @@ export default function HomePage() {
             urgentCutline={urgentCutline}
             firingMode={firingMode}
             recentlyFilteredAddresses={filterMoment.filteredAddresses}
+            freshHpUpdateSeqByAddress={firingMode ? undefined : freshHpSeq}
           />
           <ArenaActivityFeed events={events} liveStatus={liveStatus} />
         </div>
