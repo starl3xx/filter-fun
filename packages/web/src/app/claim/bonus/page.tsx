@@ -5,6 +5,7 @@ import type {Address, Hex} from "viem";
 import {BonusDistributorAbi, claimBonusCall} from "@filter-fun/scheduler";
 
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
+import {validateProof} from "@/lib/claim/validateProof";
 
 /// Expected JSON shape (matches the per-user entries in the oracle's published bonus file):
 ///   { "seasonId": "1", "distributor": "0x…", "amount": "1000000000000000000", "proof": ["0x…"] }
@@ -19,9 +20,10 @@ function parseBonus(raw: string): ParsedClaim {
   if (typeof o.amount !== "string" && typeof o.amount !== "number") {
     throw new Error("amount must be a string or number");
   }
-  if (!Array.isArray(o.proof) || !o.proof.every((p) => typeof p === "string")) {
-    throw new Error("proof must be an array of hex strings");
-  }
+  // Audit H-Web-3 — bounds + per-item hex check via shared validator. Pre-fix
+  // only `Array.isArray` + every-item is-string; let through empty arrays,
+  // 10000-element OOM bombs, and non-hex strings.
+  validateProof(o.proof);
   return {
     seasonId: BigInt(o.seasonId),
     contract: o.distributor as Address,

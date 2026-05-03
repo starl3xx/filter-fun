@@ -1,6 +1,6 @@
 import {http, createConfig} from "wagmi";
 import {base, baseSepolia} from "wagmi/chains";
-import {injected} from "wagmi/connectors";
+import {coinbaseWallet, injected, walletConnect} from "wagmi/connectors";
 
 import {deploymentMeta} from "./addresses.js";
 
@@ -13,9 +13,31 @@ const chainName =
   (deploymentMeta.network === "base" ? "base" : "base-sepolia");
 const chain = chainName === "base" ? base : baseSepolia;
 
+/// Connector ordering — desktop default first, mobile last.
+///   1. injected() — MetaMask / Rabby / Brave / etc; the desktop default.
+///   2. coinbaseWallet() — large Base userbase; second-most-likely click.
+///   3. walletConnect() — Rainbow / Trust / etc via WC v2 QR pairing.
+///
+/// Audit H-Web-1 (Phase 1, 2026-05-01): pre-fix only `injected()` was wired,
+/// silently excluding Coinbase Wallet (a stated target wallet) and every
+/// WalletConnect-based mobile wallet. The connectors below restore production
+/// wallet coverage; the connector list is pinned by `wagmiConnectors.test.ts`.
+///
+/// `NEXT_PUBLIC_WC_PROJECT_ID` must be provisioned via cloud.walletconnect.com
+/// before the WalletConnect connector can pair. Without it, WC degrades to
+/// silent failure at pair-time — the connector still mounts in the wallet
+/// modal but `connect()` rejects. The fallback `""` keeps the module load
+/// non-throwing in dev / preview where WC isn't required; production deploys
+/// must set the env var. Documented in `packages/web/.env.example`.
+const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID ?? "";
+
 export const wagmiConfig = createConfig({
   chains: [chain],
-  connectors: [injected()],
+  connectors: [
+    injected(),
+    coinbaseWallet({appName: "filter.fun"}),
+    walletConnect({projectId: wcProjectId}),
+  ],
   transports: {
     [base.id]: http(process.env.NEXT_PUBLIC_BASE_RPC_URL),
     [baseSepolia.id]: http(process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL),

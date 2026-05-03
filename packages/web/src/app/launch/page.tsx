@@ -36,6 +36,7 @@ import {useLauncherSeason} from "@/hooks/launch/useLauncherSeason";
 import {useSeason} from "@/hooks/arena/useSeason";
 import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
+import {formatEther} from "viem";
 import {useReadContract} from "wagmi";
 import {contractAddresses, isDeployed} from "@/lib/addresses";
 import {FilterLauncherLaunchAbi, MAX_LAUNCHES} from "@/lib/launch/abi";
@@ -90,21 +91,33 @@ export default function LaunchPage() {
   const nextSlotIndex = Math.min(Math.max(rawNext, 0), MAX_LAUNCHES - 1);
   const nextCostWei = status?.nextLaunchCostWei ?? 0n;
   // `stakeOn` is `boolean | undefined`; `undefined` means the
-  // `refundableStakeEnabled` read hasn't resolved yet. We capture both the
-  // resolved stake value AND the loaded-or-not signal in costRef so onSubmit
-  // can refuse to send an under-payment during the loading window.
+  // `refundableStakeEnabled` read hasn't resolved yet. Captured in
+  // `submitSnapshot` (below) so onSubmit can refuse to send an under-payment
+  // during the loading window.
   const stakeReady = stakeOn !== undefined;
   const stakeWei = stakeOn ? nextCostWei : 0n;
 
-  // Keep the live cost in a ref so the async `onSubmit` reads the LATEST
-  // value at write-contract time rather than whatever was current when the
-  // callback was first bound. Without this, a slot claim that lands during
-  // our pin step (which can take seconds against IPFS) leaves the closure
-  // sending a stale `nextCostWei`, which the contract rejects with
-  // `InsufficientPayment`. Refs update synchronously on every render so the
-  // closure's read is the freshest value the page has seen.
-  const costRef = useRef({nextCostWei, stakeWei, stakeReady});
-  costRef.current = {nextCostWei, stakeWei, stakeReady};
+  // Audit H-Web-2 (Phase 1, 2026-05-01): snapshot the slot+cost+stake at
+  // submit time and pass the snapshotted value into the launch tx — NOT a
+  // live ref. The pre-fix `costRef` pattern read whatever the latest cost
+  // was at write-contract time, which silently re-priced the user's launch
+  // when a slot tier rollover happened during the pin step (~seconds against
+  // IPFS). Snapshotting locks the user's commitment to the values they saw
+  // when they clicked. If a tier rollover beats the tx, the contract reverts
+  // with `InsufficientPayment` (mapped to a friendly message in
+  // `useLaunchToken.humanError`) and the user re-confirms with the new cost.
+  //
+  // Follow-up for Epic 1.15: the contract today doesn't take a slot index
+  // arg — it uses the next available slot internally. A proper slot-pinned
+  // `reserve(uint8 slotIndex)` with `error SlotTaken(uint8)` would let us
+  // distinguish "slot taken" from "tier rolled over" — both fail with
+  // `InsufficientPayment` today which is misleading on the former.
+  type LaunchSnapshot = {
+    slotIndex: number;
+    nextCostWei: bigint;
+    stakeWei: bigint;
+  };
+  const [snapshot, setSnapshot] = useState<LaunchSnapshot | null>(null);
 
   const onSubmit = useCallback(
     async (fields: LaunchFormFields) => {
@@ -115,6 +128,27 @@ export default function LaunchPage() {
       // the underlying wagmi `useWriteContract` state.
       setPinError(null);
       resetLaunch();
+      // Belt-and-suspenders for a narrow loading window: `useEligibility`,
+      // `getLaunchStatus`, and `refundableStakeEnabled` are separate wagmi
+      // reads. Eligibility can resolve to "eligible" (form rendered) one
+      // beat before the cost or stake-mode reads land. A submit in that
+      // window would send `0n` to the contract — `InsufficientPayment`
+      // revert. Refuse upfront with a clear message.
+      if (nextCostWei === 0n || !stakeReady) {
+        setPinError("Launch settings are still loading from the contract. Try again in a moment.");
+        return;
+      }
+      // Snapshot the commitment AT submit click — this is the binding contract
+      // between the user and the price they saw. Cleared by `resetLaunch()` in
+      // a follow-up render-cycle? No: kept until next submit so the status
+      // badge can render the snapshotted slot+cost during pinning + signing +
+      // broadcasting.
+      const snap: LaunchSnapshot = {
+        slotIndex: nextSlotIndex,
+        nextCostWei,
+        stakeWei,
+      };
+      setSnapshot(snap);
       setPinning(true);
       try {
         const res = await fetch("/api/metadata", {
@@ -127,19 +161,6 @@ export default function LaunchPage() {
           throw new Error(json.error ?? `Pin failed (${res.status})`);
         }
         setPinning(false);
-        // Read the latest cost AT submit time — see costRef commentary above.
-        const {nextCostWei: liveCost, stakeWei: liveStake, stakeReady: liveStakeReady} = costRef.current;
-        // Belt-and-suspenders for a narrow loading window: `useEligibility`,
-        // `getLaunchStatus`, and `refundableStakeEnabled` are separate wagmi
-        // reads. Eligibility can resolve to "eligible" (form rendered) one
-        // beat before the cost or stake-mode reads land. A submit in that
-        // window would send `liveCost + 0n` instead of `liveCost + liveCost`
-        // (when stake is enabled) — under-payment, contract reverts with
-        // `InsufficientPayment`. Refuse upfront with a clear message.
-        if (liveCost === 0n || !liveStakeReady) {
-          setPinError("Launch settings are still loading from the contract. Try again in a moment.");
-          return;
-        }
         // Belt-and-suspenders: the form already canonicalizes the ticker
         // before calling onSubmit, but re-canonicalize here so the contract
         // can never receive a non-canonical symbol regardless of how this
@@ -150,16 +171,19 @@ export default function LaunchPage() {
           name: fields.name.trim(),
           symbol: canonicalSymbol(fields.ticker),
           metadataURI: json.uri,
-          valueWei: liveCost + liveStake,
+          valueWei: snap.nextCostWei + snap.stakeWei,
         });
       } catch (e) {
         setPinError(e instanceof Error ? e.message : String(e));
         setPinning(false);
       }
     },
-    // Cost values are NOT in deps — they're read via ref. `launch` is the
-    // only value the closure pulls from the outer scope.
-    [launch, resetLaunch],
+    // `launch`/`resetLaunch` are stable; `nextSlotIndex`/`nextCostWei`/
+    // `stakeWei`/`stakeReady` are captured at click time intentionally — the
+    // useCallback re-binds on every render so the click reads the latest
+    // values, then snapshots them. If we read these via a ref the snapshot
+    // would race the closure (the H-Web-2 root-cause).
+    [launch, resetLaunch, nextSlotIndex, nextCostWei, stakeWei, stakeReady],
   );
 
   // On success, redirect to the homepage (the arena IS the homepage as of
@@ -174,6 +198,13 @@ export default function LaunchPage() {
 
   const phaseForButton = pinning ? "pinning" : phase;
   const combinedError = pinError ?? txError;
+
+  // Audit H-Web-2: snapshot is "in-flight" while the user has clicked submit
+  // and the tx hasn't yet succeeded or errored back. Drives the badge that
+  // shows the user the cost commitment they signed for.
+  const snapshotInFlight =
+    snapshot !== null &&
+    (pinning || phase === "signing" || phase === "broadcasting");
 
   // Champion pool drives the calculator's "typical bounty" range. /season
   // returns it as a decimal-ETH string; the calculator wants a number. Pass
@@ -198,16 +229,21 @@ export default function LaunchPage() {
             {seasonId === null ? (
               <NoticeCard tone="info" title="Connecting to launcher…" body="Reading current season state from the contract." />
             ) : eligibility.formVisible ? (
-              <LaunchForm
-                slotIndex={nextSlotIndex}
-                launchCostWei={nextCostWei}
-                stakeWei={stakeWei}
-                cohort={cohort}
-                phase={phaseForButton}
-                error={combinedError}
-                onSubmit={onSubmit}
-                championPoolEth={championPoolEth}
-              />
+              <>
+                {snapshotInFlight && snapshot !== null && (
+                  <SnapshotBadge snapshot={snapshot} phase={phaseForButton} />
+                )}
+                <LaunchForm
+                  slotIndex={nextSlotIndex}
+                  launchCostWei={nextCostWei}
+                  stakeWei={stakeWei}
+                  cohort={cohort}
+                  phase={phaseForButton}
+                  error={combinedError}
+                  onSubmit={onSubmit}
+                  championPoolEth={championPoolEth}
+                />
+              </>
             ) : (
               <NoticeCard
                 tone={eligibility.state === "loading" ? "info" : "warn"}
@@ -242,6 +278,62 @@ function titleFor(state: EligibilityNoticeState): string {
     default:
       return "Launch unavailable";
   }
+}
+
+/// Audit H-Web-2 — locked-snapshot status badge. Renders during the window
+/// between user submit-click and tx success/failure, showing the user the
+/// exact slot + cost they signed for so the cost commitment stays visible
+/// during the multi-second pin → sign → broadcast pipeline. Without this
+/// the user has no way to verify what's being paid against the live cost on
+/// the right of the form, and a tier rollover during pinning would
+/// previously have silently re-priced the launch.
+function SnapshotBadge({
+  snapshot,
+  phase,
+}: {
+  snapshot: {slotIndex: number; nextCostWei: bigint; stakeWei: bigint};
+  phase: string;
+}) {
+  const totalEth = formatEther(snapshot.nextCostWei + snapshot.stakeWei);
+  const phaseLabel =
+    phase === "pinning"
+      ? "Pinning metadata…"
+      : phase === "signing"
+        ? "Sign in your wallet…"
+        : phase === "broadcasting"
+          ? "Broadcasting…"
+          : "Reserving…";
+  return (
+    <section
+      role="status"
+      aria-live="polite"
+      style={{
+        padding: "10px 14px",
+        borderRadius: 10,
+        border: `1px solid ${C.cyan}66`,
+        background: `${C.cyan}1f`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexWrap: "wrap",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: F.mono,
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: "0.16em",
+          color: C.cyan,
+          textTransform: "uppercase",
+        }}
+      >
+        Reserving slot #{String(snapshot.slotIndex + 1).padStart(2, "0")} · Ξ{totalEth}
+      </span>
+      <span style={{fontSize: 11, color: C.dim, fontFamily: F.mono}}>{phaseLabel}</span>
+    </section>
+  );
 }
 
 function NoticeCard({tone, title, body}: {tone: "info" | "warn"; title: string; body: string}) {

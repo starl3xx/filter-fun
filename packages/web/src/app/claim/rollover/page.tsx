@@ -5,6 +5,7 @@ import type {Address, Hex} from "viem";
 import {claimRolloverCall, SeasonVaultAbi} from "@filter-fun/scheduler";
 
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
+import {validateProof} from "@/lib/claim/validateProof";
 
 /// Expected JSON shape (matches the per-user entries in the oracle's published settlement file):
 ///   { "seasonId": "1", "vault": "0x…", "share": "100", "proof": ["0x…"] }
@@ -20,9 +21,10 @@ function parseRollover(raw: string): ParsedClaim {
   if (typeof o.share !== "string" && typeof o.share !== "number") {
     throw new Error("share must be a string or number");
   }
-  if (!Array.isArray(o.proof) || !o.proof.every((p) => typeof p === "string")) {
-    throw new Error("proof must be an array of hex strings");
-  }
+  // Audit H-Web-3 — bounds + per-item hex check via shared validator. Pre-fix
+  // only `Array.isArray` + every-item is-string; let through empty arrays,
+  // 10000-element OOM bombs, and non-hex strings.
+  validateProof(o.proof);
   return {
     seasonId: BigInt(o.seasonId),
     contract: o.vault as Address,
