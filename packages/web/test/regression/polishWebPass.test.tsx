@@ -80,28 +80,37 @@ describe("M-Web-1: ClaimForm Status row always rendered + StatusBadge reserves m
 
 // M-Web-2 -----------------------------------------------------------------
 //
-// Pre-fix: handleSubmit guarded only on `submitDisabled` from useMemo. A
-// click in the same React event tick as a typing event saw the stale memo'd
-// value. Post-fix: handleSubmit re-runs validateLaunchFields + ticker
-// collision against the live `fields`/`cohort` and refuses if either fails.
+// Pre-fix: handleSubmit guarded only on `submitDisabled`. The genuinely
+// stale input at click time is `tickerCollision` — that hook debounces with
+// a 200 ms setTimeout, so a user who types a colliding ticker and clicks
+// before the timer fires gets a stale `tickerCollision === null` and
+// submits through. Post-fix: handleSubmit re-runs ONLY the cohort
+// collision check at click time (the other gating inputs are already
+// current per React render — bugbot caught the earlier draft that also
+// re-ran `validateLaunchFields(fields)` redundantly).
 //
-// We assert the source carries the live-revalidation shape. The alternative
-// (a real timing-race component test) would be flaky and dependent on
-// React's scheduler internals — source-grep is the lower-risk regression
-// pin here.
-describe("M-Web-2: LaunchForm handleSubmit re-validates against live state", () => {
+// We assert the source carries the targeted live-revalidation shape. The
+// alternative (a real timing-race component test) would be flaky and
+// dependent on React's scheduler internals — source-grep is the lower-risk
+// regression pin here.
+describe("M-Web-2: LaunchForm handleSubmit re-derives the debounced ticker collision at click time", () => {
   const src = readSource("src/components/launch/LaunchForm.tsx");
-
-  it("handleSubmit calls validateLaunchFields(fields) at click time", () => {
-    expect(src).toMatch(/handleSubmit[\s\S]{0,1500}validateLaunchFields\(fields\)/);
-  });
 
   it("handleSubmit re-derives ticker collision against the live cohort", () => {
     expect(src).toMatch(/handleSubmit[\s\S]{0,2000}cohort\.some/);
   });
 
-  it("handleSubmit short-circuits when EITHER the memoised gate OR the live gate fails", () => {
-    expect(src).toMatch(/if\s*\(submitDisabled\s*\|\|\s*liveBlocked\)\s*return/);
+  it("handleSubmit short-circuits when EITHER the memoised gate OR the live collision fires", () => {
+    expect(src).toMatch(/if\s*\(submitDisabled\s*\|\|\s*liveCollision\)\s*return/);
+  });
+
+  it("handleSubmit does NOT re-derive validateLaunchFields (bugbot finding on PR #72)", () => {
+    // The earlier draft re-ran `validateLaunchFields(fields)` inside
+    // handleSubmit — bugbot correctly noted this was redundant because
+    // `fieldErrors` is already memoised on the same `fields` closure. Pin
+    // the absence of the redundant call so a future revert doesn't
+    // re-introduce it.
+    expect(src).not.toMatch(/handleSubmit[\s\S]{0,500}validateLaunchFields/);
   });
 });
 
