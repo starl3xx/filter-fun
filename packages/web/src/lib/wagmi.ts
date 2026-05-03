@@ -1,4 +1,15 @@
 import {http, createConfig} from "wagmi";
+// Audit M-Perf-1 (Phase 1, 2026-05-03): the `wagmi/chains` re-export wraps
+// viem's chain registry, which ships definitions for 900+ chains. We import
+// only `base` (chainId 8453) and `baseSepolia` (chainId 84532) — verified
+// post-`next build` that the production bundle contains exactly ONE chunk
+// referencing those chain ids and ZERO chunks referencing other chains'
+// ids (Ethereum mainnet=1, Polygon=137, Optimism=10, BSC=56, Avalanche=43114
+// all absent). The Next.js / webpack tree-shake correctly elides the
+// rest of the registry. Do NOT switch to `import * from "wagmi/chains"`
+// or destructure into a `chains` const — both would defeat the
+// tree-shake and pull the full registry into First Load JS. The narrow
+// named-import form here is the spec-correct shape.
 import {base, baseSepolia} from "wagmi/chains";
 import {coinbaseWallet, injected, walletConnect} from "wagmi/connectors";
 

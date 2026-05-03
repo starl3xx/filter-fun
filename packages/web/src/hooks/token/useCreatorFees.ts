@@ -42,19 +42,26 @@ const DISTRIBUTOR_ADDRESS = deployment.addresses.creatorFeeDistributor as Addres
 export function useCreatorFees(token: Address | null): UseCreatorFeesResult {
   const enabled = Boolean(token) && DISTRIBUTOR_ADDRESS !== zeroAddress;
 
+  // Audit M-Perf-2 (Phase 1, 2026-05-03): explicit `staleTime: 15_000`
+  // matching the refetchInterval. Default react-query staleTime is 0 — the
+  // claim flow is on a creator-admin page that the user may tab away from
+  // and back to. Without staleTime, every focus re-fetches both reads even
+  // though the 15 s poll just pulled them; staleTime makes focus a no-op
+  // when the cache is fresh. Arena-live hooks (`hooks/arena/*`) keep the
+  // default 0 because realtime staleness is the contract there.
   const pending = useReadContract({
     address: DISTRIBUTOR_ADDRESS,
     abi: CreatorFeeDistributorAbi,
     functionName: "pendingClaim",
     args: token ? [token] : undefined,
-    query: {enabled, refetchInterval: 15_000},
+    query: {enabled, refetchInterval: 15_000, staleTime: 15_000},
   });
   const eligible = useReadContract({
     address: DISTRIBUTOR_ADDRESS,
     abi: CreatorFeeDistributorAbi,
     functionName: "eligible",
     args: token ? [token] : undefined,
-    query: {enabled, refetchInterval: 15_000},
+    query: {enabled, refetchInterval: 15_000, staleTime: 15_000},
   });
 
   const {writeContract, data: txHash, isPending: isSubmitting, error: submitError} = useWriteContract();
