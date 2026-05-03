@@ -354,7 +354,7 @@ describe("status mapping", () => {
 // ============================================================ HP component math smoke
 
 describe("HP component shape", () => {
-  it("returns the five components per token with their phase-derived weights", () => {
+  it("returns the v4-locked components per token with the locked weights", () => {
     const rows = [
       {id: addr(1), liquidationProceeds: null},
       {id: addr(2), liquidationProceeds: null},
@@ -363,27 +363,33 @@ describe("HP component shape", () => {
     expect(scored.size).toBe(2);
     const first = scored.get(addr(1).toLowerCase())!;
     expect(first).toBeDefined();
-    expect(first.components.velocity.weight).toBeCloseTo(0.4); // pre-filter weights
-    expect(first.components.effectiveBuyers.weight).toBeCloseTo(0.25);
-    expect(first.components.stickyLiquidity.weight).toBeCloseTo(0.15);
-    expect(first.components.retention.weight).toBeCloseTo(0.1);
-    expect(first.components.momentum.weight).toBeCloseTo(0.1);
+    // Epic 1.17a — v4 lock (`HP_WEIGHTS_VERSION = "2026-05-03-v4-locked"`).
+    // 30/15/30/15/0/10 across velocity/effectiveBuyers/stickyLiq/retention/momentum/holderConcentration.
+    expect(first.components.velocity.weight).toBeCloseTo(0.30);
+    expect(first.components.effectiveBuyers.weight).toBeCloseTo(0.15);
+    expect(first.components.stickyLiquidity.weight).toBeCloseTo(0.30);
+    expect(first.components.retention.weight).toBeCloseTo(0.15);
+    // Default flags: momentum=false, concentration=true. Momentum's effective
+    // weight is 0 under the gate; holderConcentration weights at 0.10.
+    expect(first.components.momentum.weight).toBeCloseTo(0);
+    expect(first.components.holderConcentration.weight).toBeCloseTo(0.10);
     expect(first.components.velocity.score).toBeGreaterThanOrEqual(0);
     expect(first.components.velocity.score).toBeLessThanOrEqual(1);
+    expect(first.weightsVersion).toBe("2026-05-03-v4-locked");
+    expect(first.flagsActive).toEqual({momentum: false, concentration: true});
   });
 
-  it("finals phase swaps in the conviction-heavy weights", () => {
+  it("finals phase resolves to the same locked weight set under v4", () => {
     const rows = [{id: addr(1), liquidationProceeds: null}];
     const scored = scoreCohort(rows, "finals", 0n);
     const c = scored.get(addr(1).toLowerCase())!.components;
-    // Spec §6.5 finals: 30/15/25/20/10. Conviction (sticky+retention=0.45)
-    // sits at parity with discovery (velocity+effectiveBuyers=0.45); the
-    // shift from pre-filter is in *within-group* emphasis, not group totals.
-    expect(c.stickyLiquidity.weight).toBeCloseTo(0.25);
-    expect(c.retention.weight).toBeCloseTo(0.20);
-    expect(c.velocity.weight).toBeCloseTo(0.30); // less than pre-filter 0.40
+    // v4 lock collapses per-phase differentiation — finals === preFilter.
+    expect(c.velocity.weight).toBeCloseTo(0.30);
     expect(c.effectiveBuyers.weight).toBeCloseTo(0.15);
-    expect(c.momentum.weight).toBeCloseTo(0.10);
+    expect(c.stickyLiquidity.weight).toBeCloseTo(0.30);
+    expect(c.retention.weight).toBeCloseTo(0.15);
+    expect(c.momentum.weight).toBeCloseTo(0); // gated off by default
+    expect(c.holderConcentration.weight).toBeCloseTo(0.10);
   });
 });
 

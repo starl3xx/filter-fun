@@ -68,6 +68,7 @@ import {
   type TokenDetailRow,
 } from "./handlers.js";
 import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
+import {buildScoringWeightsResponse} from "./scoringWeights.js";
 import {getTokenHistoryHandler, type HistoryQueries, type HpSnapshotRow} from "./history.js";
 import {
   applyGetRateLimit,
@@ -230,6 +231,18 @@ ponder.get("/readiness", async (c) => {
     tickEngineRunning: () => eventsEngineRunning(),
   });
   return c.json(r.body, r.status as 200 | 503);
+});
+
+/// Epic 1.17a (2026-05-03 v4 lock) — public transparency endpoint exposing
+/// the active HP weight set + feature-flag state. Reads from the scoring
+/// package's locked constants and `process.env`; no DB access. Rate-limited
+/// in line with other public GETs. CORS coverage flows through the global
+/// middleware (PR #61).
+ponder.get("/scoring/weights", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyGetRateLimit(mw);
+  if (limited) return limited;
+  return c.json(buildScoringWeightsResponse(process.env), 200);
 });
 
 ponder.get("/profile/:address", async (c) => {

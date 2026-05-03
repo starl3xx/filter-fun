@@ -62,6 +62,11 @@ ponder.on("HpSnapshot:block", async ({event, context}) => {
       momentum: s.components.momentum.score,
       phase: apiPhase,
       blockNumber: event.block.number,
+      // Epic 1.17a provenance: stamp the active version + flag bundle from the
+      // scoring package output. Every row written from now on can be re-derived
+      // by reading `weightsVersion` and looking up the corresponding spec entry.
+      weightsVersion: s.weightsVersion,
+      flagsActive: JSON.stringify(s.flagsActive),
     });
   }
 });

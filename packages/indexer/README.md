@@ -282,6 +282,37 @@ Per-token detail — used by the leaderboard click-through. Returns `404` for an
 }
 ```
 
+### `GET /scoring/weights` (Epic 1.17a — 2026-05-03 v4 lock)
+
+Public transparency endpoint. Returns the active HP weight set, the env-driven feature
+flag state, and the version string stamped on every `hpSnapshot` row. No DB access; reads
+exclusively from `@filter-fun/scoring` constants + `process.env`.
+
+```json
+{
+  "version": "2026-05-03-v4-locked",
+  "specRef": "https://github.com/starl3xx/filter-fun/blob/main/filter_fun_comprehensive_spec.md#65-hp-component-weights-locked-2026-05-03-per-track-e-v4",
+  "activatedAt": "2026-05-03T00:00:00Z",
+  "weights": {
+    "velocity": 0.30,
+    "effectiveBuyers": 0.15,
+    "stickyLiquidity": 0.30,
+    "retention": 0.15,
+    "momentum": 0.00,
+    "holderConcentration": 0.10
+  },
+  "flags": {
+    "HP_MOMENTUM_ENABLED": false,
+    "HP_CONCENTRATION_ENABLED": true
+  },
+  "phaseDifferentiation": false
+}
+```
+
+Operators alarm on deviation between the endpoint's `version` and the version stamped
+on recent `hpSnapshot` rows — see `docs/runbook-operator.md` §2.1. Full weight-update
+procedure documented at `docs/scoring-weights.md`.
+
 ### `GET /profile/:address` (Epic 1.3 part 3/3)
 
 Wallet-level stats. Powers the Arena profile page and feeds the leaderboard "creator badge" surfaces. Address is normalized to lowercase before lookup; mixed-case input is accepted. Unknown wallets return `200` with the all-zero shape — this is intentional, so the UI can render an empty profile for new wallets without leaking "is this address ever been a player" via status code. Malformed addresses return `400`.

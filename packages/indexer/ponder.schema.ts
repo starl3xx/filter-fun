@@ -142,6 +142,19 @@ export const swap = onchainTable("swap", (t) => ({
 /// against historical fee rows for every request. Components are stored as the
 /// 0–1 score (not yet weighted) so consumers can re-derive HP under hypothetical
 /// weight changes.
+///
+/// **Provenance columns (Epic 1.17a, 2026-05-03 v4 lock).** `weightsVersion`
+/// stamps the active `HP_WEIGHTS_VERSION` so a row can always be tied to the
+/// exact weight set that produced its `hp` value. `flagsActive` stores the
+/// momentum + concentration flag state at compute time as JSON
+/// (`{"momentum":bool,"concentration":bool}`); historical replays consult it
+/// to reproduce the gating context.
+///
+/// Pre-Epic-1.17a rows backfill `weightsVersion = "pre-lock"` (rows that pre-
+/// date the lock can't be retroactively assigned a real version) and
+/// `flagsActive = '{"momentum":true,"concentration":false}'` (the legacy
+/// 5-component v3 state — momentum on, concentration not yet wired). The
+/// indexer writer always stamps the live values from the scoring package.
 export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
   id: t.text().primaryKey(), // `${token}:${snapshotAtSec}`
   token: t.hex().notNull(),
@@ -155,6 +168,14 @@ export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
   momentum: t.real().notNull(),
   phase: t.text().notNull(), // ApiPhase string ("launch" | "competition" | "finals" | "settled")
   blockNumber: t.bigint().notNull(),
+  /// `HP_WEIGHTS_VERSION` value as of the snapshot. Indexed: history replays
+  /// filter on it ("show me only post-v4-lock rows") and operator dashboards
+  /// alarm if writes start landing under an unexpected version.
+  weightsVersion: t.text().notNull().default("pre-lock"),
+  /// JSON: `{"momentum":bool,"concentration":bool}`. Stored as text (not jsonb)
+  /// so it round-trips cleanly through Ponder's onchainTable shapes; consumers
+  /// JSON.parse on read.
+  flagsActive: t.text().notNull().default('{"momentum":true,"concentration":false}'),
 }));
 
 /// Running per-(token, holder) balance. Updated on every FilterToken Transfer.
