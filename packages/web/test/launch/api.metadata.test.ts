@@ -38,6 +38,21 @@ describe("POST /api/metadata", () => {
     delete process.env.PINATA_JWT;
     delete process.env.METADATA_PUBLIC_URL;
     process.env.METADATA_STORE_DIR = storeDir;
+    // Audit M-Sec-2 (Phase 1, 2026-05-03): the route now HEAD-checks the
+    // image URL before pinning. Default-mock `fetch` so HEAD requests to
+    // the test fixture (`cdn.example.com/logo.png`) resolve as 200 OK
+    // — without this every test that submits validBody would fail the
+    // image safety check with a network-failure 400 instead of testing
+    // the post-validation flow it cares about. Per-test mocks for the
+    // Pinata POST overlay this default via `mockResolvedValue` /
+    // `mockImplementation`.
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (init?.method === "HEAD" && url.startsWith("https://cdn.example.com/")) {
+        return new Response(null, {status: 200});
+      }
+      throw new Error(`unmocked fetch in test: ${init?.method ?? "GET"} ${url}`);
+    }) as typeof fetch);
   });
 
   afterEach(async () => {
@@ -107,9 +122,18 @@ describe("POST /api/metadata", () => {
 
   it("uses Pinata when PINATA_JWT is set", async () => {
     process.env.PINATA_JWT = "fake-jwt";
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({IpfsHash: "Qm123abc"}), {status: 200}) as never,
-    );
+    // Override the default fetch mock with one that handles BOTH the
+    // M-Sec-2 image HEAD-check (200) and the Pinata POST (200 + IpfsHash).
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (init?.method === "HEAD" && url.startsWith("https://cdn.example.com/")) {
+        return new Response(null, {status: 200});
+      }
+      if (url === "https://api.pinata.cloud/pinning/pinJSONToIPFS") {
+        return new Response(JSON.stringify({IpfsHash: "Qm123abc"}), {status: 200});
+      }
+      throw new Error(`unmocked fetch in test: ${init?.method ?? "GET"} ${url}`);
+    }) as typeof fetch);
     const res = await POST(makePostRequest(validBody) as never);
     const json = (await res.json()) as MetaResponse;
     expect(json.backend).toBe("pinata");
@@ -122,9 +146,16 @@ describe("POST /api/metadata", () => {
 
   it("surfaces Pinata failures as 502", async () => {
     process.env.PINATA_JWT = "fake-jwt";
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("Pinata down", {status: 503}) as never,
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (init?.method === "HEAD" && url.startsWith("https://cdn.example.com/")) {
+        return new Response(null, {status: 200});
+      }
+      if (url === "https://api.pinata.cloud/pinning/pinJSONToIPFS") {
+        return new Response("Pinata down", {status: 503});
+      }
+      throw new Error(`unmocked fetch in test: ${init?.method ?? "GET"} ${url}`);
+    }) as typeof fetch);
     const res = await POST(makePostRequest(validBody) as never);
     expect(res.status).toBe(502);
   });
