@@ -37,8 +37,15 @@ from pathlib import Path
 HERE = Path(__file__).parent
 
 
-def _run(cmd: list[str], *, capture: bool = True) -> str:
-    """Run a subprocess; print its stdout/stderr; return stdout for parsing."""
+def _run(cmd: list[str], *, capture: bool = True,
+         allow_exits: tuple[int, ...] = (0,)) -> str:
+    """Run a subprocess; print its stdout/stderr; return stdout for parsing.
+
+    `allow_exits` lists exit codes that are NOT errors. Default is just 0.
+    Pass e.g. (0, 2) to tolerate calibrate_survival.py's exit-2 "no combo
+    in band" path (bugbot #66 finding 11 — without this, the orchestrator's
+    `_parse_calibrate_thresholds` spec-default fallback was unreachable).
+    """
     print(f"\n$ {' '.join(cmd)}", flush=True)
     print("─" * 78, flush=True)
     if capture:
@@ -46,11 +53,11 @@ def _run(cmd: list[str], *, capture: bool = True) -> str:
         sys.stdout.write(proc.stdout)
         if proc.stderr:
             sys.stderr.write(proc.stderr)
-        if proc.returncode != 0:
+        if proc.returncode not in allow_exits:
             sys.exit(f"[run_v4_analysis] step failed (exit {proc.returncode}): {' '.join(cmd)}")
         return proc.stdout
     proc = subprocess.run(cmd, cwd=HERE)
-    if proc.returncode != 0:
+    if proc.returncode not in allow_exits:
         sys.exit(f"[run_v4_analysis] step failed (exit {proc.returncode}): {' '.join(cmd)}")
     return ""
 
@@ -111,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         "--input", str(corpus_path),
         "--target-low", str(args.target_low),
         "--target-high", str(args.target_high),
-    ])
+    ], allow_exits=(0, 2))  # 2 = "no combo in band" → fall back to spec defaults
     holders, lp_eth, vol_eth = _parse_calibrate_thresholds(cal_out)
     print(f"\n→ Calibrated gate: holders≥{holders}, lp≥{lp_eth} ETH, vol>{vol_eth} ETH")
 
