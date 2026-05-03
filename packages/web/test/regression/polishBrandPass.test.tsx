@@ -72,7 +72,17 @@ describe("M-Brand-1: no inline `fontWeight: 900` remains in packages/web/src", (
     // ` *` after trim. Style declarations always appear inside JSX style
     // objects so the line either starts with whitespace then a key, or
     // sits inline in a template — neither starts with `//` or `*`.
-    const re = /\bfontWeight\s*:\s*(?:900|["']900["'])\b/;
+    //
+    // Bugbot fix on PR #75: an earlier draft used a single regex with a
+    // trailing `\b`, which made the quoted-variant branch unreachable —
+    // after a closing `"` or `'` (non-word char) the next char is always
+    // `,` / `}` / whitespace (also non-word), so no word boundary exists.
+    // A future regression using `fontWeight: "900"` would have slipped
+    // past silently. Two separate regexes (one with `\b` for the bare
+    // numeric form, one without for the quoted form) keep both branches
+    // matchable.
+    const reBare = /\bfontWeight\s*:\s*900\b/;
+    const reQuoted = /\bfontWeight\s*:\s*["']900["']/;
     for (const f of files) {
       const text = fs.readFileSync(f, "utf8");
       const lines = text.split("\n");
@@ -80,12 +90,34 @@ describe("M-Brand-1: no inline `fontWeight: 900` remains in packages/web/src", (
         const line = lines[i] ?? "";
         const trimmed = line.trim();
         if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("///")) continue;
-        if (re.test(line)) {
+        if (reBare.test(line) || reQuoted.test(line)) {
           offenders.push(`${path.relative(SRC_ROOT, f)}:${i + 1}: ${trimmed}`);
         }
       }
     }
     expect(offenders, `inline fontWeight: 900 found (Bricolage Grotesque caps at 800 — migrate to 800):\n  ${offenders.join("\n  ")}`).toEqual([]);
+  });
+
+  // Self-test for the regex pair above. Bugbot found that an earlier
+  // single-regex draft with a trailing `\b` made the quoted-variant
+  // branch unreachable. Pin both branches so a future "tighten this
+  // regex" pass can't silently break the quoted-form coverage again.
+  it("the M-Brand-1 regex pair matches all four `fontWeight: 900` shapes", () => {
+    const reBare = /\bfontWeight\s*:\s*900\b/;
+    const reQuoted = /\bfontWeight\s*:\s*["']900["']/;
+    const cases: Array<{label: string; line: string}> = [
+      {label: "bare numeric", line: `  fontWeight: 900,`},
+      {label: "bare numeric, no trailing comma", line: `style={{fontWeight: 900}}`},
+      {label: "double-quoted string", line: `  fontWeight: "900",`},
+      {label: "single-quoted string", line: `  fontWeight: '900',`},
+    ];
+    for (const {label, line} of cases) {
+      const matched = reBare.test(line) || reQuoted.test(line);
+      expect(matched, `regex pair must match ${label}: \`${line}\``).toBe(true);
+    }
+    // Negative cases — the regex must NOT match other weights.
+    expect(reBare.test("fontWeight: 800,")).toBe(false);
+    expect(reQuoted.test('fontWeight: "800",')).toBe(false);
   });
 
   it("layout.tsx still imports the 5 spec-mandated Bricolage weights (400/500/600/700/800) and no others", () => {
