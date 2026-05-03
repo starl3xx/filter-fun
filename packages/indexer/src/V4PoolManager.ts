@@ -4,6 +4,7 @@ import {pool, swap, token as tokenTable} from "../ponder.schema";
 import {readDeployment, type ChainNetwork} from "./deployment.js";
 import {recomputeAndStampHp} from "./api/hpRecomputeWriter.js";
 import {withLatencySla} from "./api/coalescing.js";
+import {broadcastHpUpdated} from "./api/events/hpBroadcast.js";
 
 /// V4 PoolManager `Swap` handler. Filters chain-wide Swap events down to filter.fun
 /// pools by joining `Swap.id` (a `PoolId` = bytes32) against our `pool` table. Foreign
@@ -123,6 +124,7 @@ ponder.on("V4PoolManager:Swap", async ({event, context}) => {
       trigger: "SWAP",
       blockNumber: event.block.number,
       blockTimestamp: event.block.timestamp,
+      onWritten: broadcastHpUpdated,
     });
   });
 });

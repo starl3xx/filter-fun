@@ -79,9 +79,12 @@ Implemented via a SQL pre-check in `recomputeAndStampHp`
 naturally and real-time mode applies the rule against the live block
 stream.
 
-The `coalescing.ts` module also exposes a pure debounce scheduler used by
-the scheduler module (where actions are wall-clock-driven). Both share
-the 1s window for consistency.
+A timer-based debounce scheduler is intentionally *not* used here:
+Drizzle's `context.db` is transaction-scoped and would be invalid by the
+time a deferred timer fires. The SQL pre-check is the only coalescing
+mechanism on this path. The wall-clock-driven `hpPhaseRecompute`
+scheduler module uses idempotent `firedFor` state for deduplication
+rather than a debounce queue.
 
 ---
 
@@ -221,7 +224,8 @@ live deploy + integration fixtures:
 
 - `packages/indexer/src/api/hpRecompute.ts` — pure helpers (event payload, row construction, trigger taxonomy)
 - `packages/indexer/src/api/hpRecomputeWriter.ts` — the impure writer + per-token coalescing
-- `packages/indexer/src/api/coalescing.ts` — generic coalescing scheduler + latency-SLA wrapper
+- `packages/indexer/src/api/coalescing.ts` — latency-SLA wrapper (per-token coalescing lives in the writer's SQL pre-check)
+- `packages/indexer/src/api/events/hpBroadcast.ts` — HP_UPDATED broadcast bridge from Ponder handlers to the SSE hub
 - `packages/indexer/src/V4PoolManager.ts` — swap handler wiring
 - `packages/indexer/src/FilterToken.ts` — Transfer handler wiring
 - `packages/indexer/src/HpSnapshot.ts` — block-tick handler (refactored to use the shared writer)

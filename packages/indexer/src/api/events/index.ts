@@ -33,11 +33,25 @@ import {
 
 import {loadConfigFromEnv} from "./config.js";
 import {aggregateFeesByToken, lockerToTokenMap, translateFeeRows} from "./feeAdapter.js";
+import {setHpBroadcastHub, setHpBroadcastNextId} from "./hpBroadcast.js";
 import {Hub} from "./hub.js";
 import {TickEngine, type EventsQueries} from "./tick.js";
 
 const cfg = loadConfigFromEnv();
 const hub = new Hub({perConnQueueMax: cfg.perConnQueueMax});
+
+// Shared monotonic id source for both TickEngine emissions and HP_UPDATED
+// frames produced by Ponder handlers. Keeping a single counter preserves
+// SSE id-monotonicity for any future Last-Event-ID resume support.
+let nextEventIdCounter = 1;
+const sharedNextEventId = (): number => nextEventIdCounter++;
+
+// Wire the HP_UPDATED broadcast bridge at module load. Ponder handlers
+// import `broadcastHpUpdated` from `./hpBroadcast.js`; without these
+// setters wired here, the broadcast helper is a no-op (handler liveness
+// preserved, but no SSE frames reach clients).
+setHpBroadcastHub(hub);
+setHpBroadcastNextId(sharedNextEventId);
 
 /// Engine is started lazily on the first SSE request — Ponder's API context doesn't exist
 /// at module-import time (the Drizzle handle is only valid inside route handlers), so we
@@ -132,7 +146,7 @@ export function ensureEventsEngineStarted(db: ApiContext["db"]): void {
 
 function ensureEngineStarted(db: ApiContext["db"]): void {
   if (engine) return;
-  engine = new TickEngine({cfg, queries: buildQueries(db), hub});
+  engine = new TickEngine({cfg, queries: buildQueries(db), hub, nextId: sharedNextEventId});
   engine.start();
 }
 

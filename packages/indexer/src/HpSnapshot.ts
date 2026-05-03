@@ -16,6 +16,7 @@
 import {ponder} from "@/generated";
 
 import {recomputeAndStampHp} from "./api/hpRecomputeWriter.js";
+import {broadcastHpUpdated} from "./api/events/hpBroadcast.js";
 
 ponder.on("HpSnapshot:block", async ({event, context}) => {
   await recomputeAndStampHp(context, {
@@ -24,5 +25,6 @@ ponder.on("HpSnapshot:block", async ({event, context}) => {
     trigger: "BLOCK_TICK",
     blockNumber: event.block.number,
     blockTimestamp: event.block.timestamp,
+    onWritten: broadcastHpUpdated,
   });
 });

@@ -3,6 +3,7 @@ import {ponder} from "@/generated";
 import {holderBalance} from "../ponder.schema";
 import {recomputeAndStampHp} from "./api/hpRecomputeWriter.js";
 import {withLatencySla} from "./api/coalescing.js";
+import {broadcastHpUpdated} from "./api/events/hpBroadcast.js";
 
 /// Maintains running per-(token, holder) balances by replaying every Transfer.
 ///
@@ -83,6 +84,7 @@ ponder.on("FilterToken:Transfer", async ({event, context}) => {
       trigger: "HOLDER_SNAPSHOT",
       blockNumber: event.block.number,
       blockTimestamp: ts,
+      onWritten: broadcastHpUpdated,
     });
   });
 });

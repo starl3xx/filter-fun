@@ -19,6 +19,7 @@
 import {and, desc, eq, gte} from "@ponder/core";
 
 import {hpSnapshot, season, token as tokenTable} from "../../ponder.schema";
+import {tickerWithDollar} from "./builders.js";
 import {scoreCohort} from "./hp.js";
 import {
   buildHpSnapshotInsert,
@@ -36,6 +37,16 @@ export interface HpRecomputeContext {
   trigger: HpRecomputeTrigger;
   blockNumber: bigint;
   blockTimestamp: bigint;
+  /// Optional broadcast hook. When provided, called once after all rows
+  /// are inserted with the per-write payload + a `tickerByAddress` map
+  /// derived from the tokens we already loaded for the cohort. The hook
+  /// is intentionally opaque to the writer — production wires it to
+  /// `broadcastHpUpdated` in `api/events/hpBroadcast.ts`; tests can pass
+  /// a noop or a spy.
+  onWritten?: (
+    written: ReadonlyArray<HpRecomputeWriteResult>,
+    tickerByAddress: ReadonlyMap<string, string>,
+  ) => void;
 }
 
 /// Coalescing window in seconds. A swap whose blockTimestamp is within this
@@ -130,6 +141,17 @@ export async function recomputeAndStampHp(
       scored: s,
       blockTimestamp: args.blockTimestamp,
     });
+  }
+
+  // Bridge to SSE: build a ticker map from the cohort we already loaded,
+  // hand the writes to the broadcast hook. Caller (handler) decides
+  // whether to wire it; production handlers all do.
+  if (args.onWritten && written.length > 0) {
+    const tickerByAddress = new Map<string, string>();
+    for (const t of tokens as Array<{id: `0x${string}`; symbol: string}>) {
+      tickerByAddress.set(t.id.toLowerCase(), tickerWithDollar(t.symbol));
+    }
+    args.onWritten(written, tickerByAddress);
   }
   return written;
 }
