@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -154,6 +155,16 @@ def main(argv: list[str] | None = None) -> int:
                         "(used to read current sqrtPriceX96). Default ~7d.")
     p.add_argument("--platforms", default="clanker,liquid",
                    help="Comma-separated list of platforms to include")
+    p.add_argument("--max-candidates-per-platform", type=int, default=0,
+                   help="Random-sample at most this many candidates per "
+                        "platform before FDV scoring. 0 = scan all (the "
+                        "docstring's ~1.2M CU estimate assumed ~50k Clanker "
+                        "candidates; in practice Clanker V4 emits ~750k in a "
+                        "150d window, which makes the exhaustive scan a "
+                        "multi-day job. A random subsample of 2k–5k is a "
+                        "reasonable proxy for top-25 by FDV.")
+    p.add_argument("--seed", type=int, default=42,
+                   help="RNG seed for the candidate subsample (reproducibility)")
     args = p.parse_args(argv)
 
     if ENV_PATH.exists():
@@ -198,6 +209,20 @@ def main(argv: list[str] | None = None) -> int:
         for t in liquid_tokens:
             candidates.append(("liquid", t))
         print(f"  {len(liquid_tokens)} Liquid candidates")
+
+    if args.max_candidates_per_platform > 0:
+        rng = random.Random(args.seed)
+        by_plat: dict[str, list[tuple[str, dict]]] = {}
+        for plat, tok in candidates:
+            by_plat.setdefault(plat, []).append((plat, tok))
+        sampled: list[tuple[str, dict]] = []
+        for plat, items in by_plat.items():
+            if len(items) > args.max_candidates_per_platform:
+                items = rng.sample(items, args.max_candidates_per_platform)
+                print(f"\n  subsampled {plat}: {args.max_candidates_per_platform} of "
+                      f"{len(by_plat[plat])} (seed={args.seed})")
+            sampled.extend(items)
+        candidates = sampled
 
     print(f"\nFDV sampling for {len(candidates)} candidates "
           f"(lookback {args.fdv_lookback_blocks // BLOCKS_PER_DAY}d)…")
