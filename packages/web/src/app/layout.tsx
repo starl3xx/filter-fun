@@ -9,8 +9,18 @@ import "./globals.css";
 /// 700, 800. Phase 1 audit C-8 caught that 500 + 600 were missing here, causing
 /// type roles T2 / T4 (and any other request for medium/semibold) to silently
 /// fall back to the nearest loaded weight (likely 400 or 700) and break visual
-/// hierarchy across every page that uses the display font. Add ALL 5 — removing
-/// any of the spec-mandated weights from this array is a regression.
+/// hierarchy across every page that uses the display font.
+///
+/// Audit M-Brand-1 (Phase 1, 2026-05-03): the brand kit + the 15+ inline
+/// `fontWeight: 900` sites across the codebase were requesting a Black weight
+/// the Google distribution of Bricolage Grotesque does NOT publish — the
+/// available weights are 200/300/400/500/600/700/800 (verified by `next/font`
+/// at build time, which throws "Unknown weight `900` for font `Bricolage
+/// Grotesque`"). Pre-fix the browser silently substituted 800 for the 900
+/// requests; post-fix all inline `fontWeight: 900` sites are migrated to
+/// `fontWeight: 800` so code-truth matches rendered-truth (drops the silent
+/// fallback). The 5-weight import stays as-is. Removing ANY of the 5
+/// spec-mandated weights is a regression.
 const display = Bricolage_Grotesque({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700", "800"],

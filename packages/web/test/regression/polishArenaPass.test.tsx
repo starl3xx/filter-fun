@@ -65,8 +65,11 @@ describe("M-Arena-1 + M-Arena-8 + L-Arena-3: leaderboard COL_TEMPLATE + chevron 
 
   it("Row body renders the chevron span as the 9th cell, after MiniSpark", () => {
     // The chevron span is wrapped in JSX with `›` and aria-hidden; it sits
-    // after the trend column's MiniSpark. Pin both shape + ordering.
-    expect(src).toMatch(/MiniSpark[\s\S]{0,500}aria-hidden[\s\S]{0,400}›/);
+    // after the trend column's MiniSpark. Pin both shape + ordering. The
+    // upper bound between MiniSpark and aria-hidden was bumped from 500
+    // → 900 chars to absorb the M-Brand-1 doc extension to the L-Arena-3
+    // chevron comment block (Polish 6).
+    expect(src).toMatch(/MiniSpark[\s\S]{0,900}aria-hidden[\s\S]{0,400}›/);
   });
 
   it("chevron colour reflects selection state (pink when selected, faint otherwise)", () => {

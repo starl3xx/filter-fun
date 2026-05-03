@@ -261,7 +261,7 @@ function FilterMomentStrip({events}: {events: TickerEvent[]}) {
         flex: 1,
         textAlign: "center",
         fontFamily: F.display,
-        fontWeight: 900,
+        fontWeight: 800,
         fontSize: 16,
         letterSpacing: "0.18em",
         color: C.red,

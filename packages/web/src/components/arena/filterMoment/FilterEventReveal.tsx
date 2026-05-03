@@ -67,7 +67,7 @@ export function FilterEventReveal({survivors = SURVIVE_COUNT, filtered = SURVIVE
             display: "inline-flex",
             alignItems: "center",
             gap: 14,
-            fontWeight: 900,
+            fontWeight: 800,
             fontSize: "clamp(28px, 5vw, 48px)",
             letterSpacing: "0.16em",
             textTransform: "uppercase",

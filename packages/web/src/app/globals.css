@@ -134,7 +134,25 @@ code {
   background: rgba(255, 255, 255, 0.18);
 }
 
-/* Animations. Each maps to a class consumers can opt into. */
+/* Animations. Each maps to a class consumers can opt into.
+ *
+ * Audit M-Brand-2 (Phase 1, 2026-05-03): pulse cadences are split deliberately,
+ * not by accident. The brand kit locks the literal ▼ MARK glyph at 2.4s
+ * ease-in-out (a slow heartbeat that reads as identity, not urgency). The
+ * `.ff-filter-moment-clock-pulse` (line 426) and `.ff-filter-moment-rollover-pulse`
+ * (line 484) classes both run at 2.4s precisely because they decorate the mark
+ * surface during the filter moment / rollover claim. Everything else
+ * pulses faster on purpose:
+ *   - `.ff-pulse` (1.4s, line 160) — generic urgency strip; the cut-line
+ *     warning notice and similar "look here" affordances.
+ *   - `.ff-arena-cutline-urgent` (1.2s, line 491) — the bottom 5–8 ranks
+ *     during the urgent pre-filter window; faster pulse = faster heartrate.
+ *   - `.ff-arena-at-risk-pulse` (1.4s, line 511) — AT_RISK chip on rows
+ *     near the cut line; matches the generic urgency cadence.
+ * The split is the spec, not a regression: 2.4s is the BRAND cadence
+ * (identity), 1.2–1.4s are the URGENCY cadences (UX). Reduced-motion (line
+ * 168 and following) kills all of them.
+ */
 @keyframes ff-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }

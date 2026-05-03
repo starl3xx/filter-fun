@@ -65,7 +65,7 @@ export function LaunchHero({season, slots, status, onScrollToForm}: LaunchHeroPr
           style={{
             margin: 0,
             fontFamily: F.display,
-            fontWeight: 900,
+            fontWeight: 800,
             fontSize: "clamp(36px, 6vw, 64px)",
             letterSpacing: "-0.02em",
             lineHeight: 1.02,
@@ -73,6 +73,16 @@ export function LaunchHero({season, slots, status, onScrollToForm}: LaunchHeroPr
           }}
         >
           Launch into the{" "}
+          {/* Audit L-Brand-2 (Phase 1, 2026-05-03): hero gradient deliberately
+              EXTENDS the brand mark gradient (180deg pink→red) with a 90deg
+              direction and an added yellow stop. The hero is a different
+              surface than the mark — long horizontal text vs. a small
+              triangle glyph — so the angle and palette change reads as
+              intentional brand expansion rather than as a mismatch. The
+              yellow tail picks up the C.yellow "winner" colour from the
+              "one gets funded" line below. Keep them divergent on purpose:
+              pulling them in sync would make the hero gradient too vertical
+              for the wide text and would drop the yellow signal. */}
           <span
             style={{
               background: "linear-gradient(90deg, #ff5fb8, #ff2d55, #ffe933)",
