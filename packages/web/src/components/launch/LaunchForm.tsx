@@ -45,6 +45,10 @@ export type LaunchFormProps = {
   /// Live champion pool (decimal-ETH from /season). Drives the bounty range
   /// display. Optional — falls back to a quiet-week heuristic.
   championPoolEth?: number | null;
+  /// Audit M-Ux-4 (Phase 1, 2026-05-03): forwarded to CostPanel so the
+  /// cost cells render dashes instead of zero values during the launcher
+  /// status read. See CostPanel.tsx for rationale.
+  costLoading?: boolean;
 };
 
 export function LaunchForm({
@@ -57,6 +61,7 @@ export function LaunchForm({
   onSubmit,
   ethUsd,
   championPoolEth,
+  costLoading,
 }: LaunchFormProps) {
   const {isConnected} = useAccount();
   const [fields, setFields] = useState<LaunchFormFields>({
@@ -282,6 +287,7 @@ export function LaunchForm({
         stakeWei={stakeWei}
         ethUsd={ethUsd}
         championPoolEth={championPoolEth}
+        costLoading={costLoading}
       />
 
       <FilterMechanicHint />

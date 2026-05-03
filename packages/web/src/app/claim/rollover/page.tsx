@@ -7,6 +7,7 @@ import {claimRolloverCall, SeasonVaultAbi} from "@filter-fun/scheduler";
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
 import {toIntegerBigInt} from "@/lib/claim/parseInteger";
 import {validateProof} from "@/lib/claim/validateProof";
+import {C} from "@/lib/tokens";
 
 /// Expected JSON shape (matches the per-user entries in the oracle's published settlement file):
 ///   { "seasonId": "1", "vault": "0x…", "share": "100", "proof": ["0x…"] }
@@ -40,19 +41,46 @@ function parseRollover(raw: string): ParsedClaim {
 
 export default function ClaimRolloverPage() {
   return (
-    <ClaimForm
-      title="Claim rollover"
-      subtitle="Half of every losing token's recovered LP rolls into the winner — your share is paid in winner tokens."
-      numericLabel="Share"
-      jsonPlaceholder='{"seasonId": "1", "vault": "0x…", "share": "100", "proof": ["0x…"]}'
-      parseJson={parseRollover}
-      buildCall={(c) => claimRolloverCall(c.contract, c.numeric, c.proof)}
-      buildClaimedRead={(c, user) => ({
-        address: c.contract,
-        abi: SeasonVaultAbi,
-        functionName: "claimed",
-        args: [user],
-      })}
-    />
+    <>
+      <ClaimForm
+        title="Claim rollover"
+        subtitle="Half of every losing token's recovered LP rolls into the winner — your share is paid in winner tokens."
+        numericLabel="Share"
+        jsonPlaceholder='{"seasonId": "1", "vault": "0x…", "share": "100", "proof": ["0x…"]}'
+        parseJson={parseRollover}
+        buildCall={(c) => claimRolloverCall(c.contract, c.numeric, c.proof)}
+        buildClaimedRead={(c, user) => ({
+          address: c.contract,
+          abi: SeasonVaultAbi,
+          functionName: "claimed",
+          args: [user],
+        })}
+      />
+      {/* Audit M-Ux-10 (Phase 1, 2026-05-03): users who lose their claim
+          JSON (deleted email, lost the copy from the post-filter card,
+          switched devices) had no recovery path pre-fix — the form just
+          presents an empty textarea with no hint about what to do if
+          they don't have the JSON anymore. The footer link points to
+          the per-season claims directory in the docs site, where each
+          season's full settlement file is mirrored and indexable by
+          wallet address. */}
+      <ClaimRecoveryFooter />
+    </>
+  );
+}
+
+function ClaimRecoveryFooter() {
+  return (
+    <p style={{marginTop: 32, color: C.dim, fontSize: 13, textAlign: "center"}}>
+      Need your claim JSON again?{" "}
+      <a
+        href="https://docs.filter.fun/claims/recovery"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{color: C.cyan, textDecoration: "underline"}}
+      >
+        Look it up by wallet in the claims directory →
+      </a>
+    </p>
   );
 }

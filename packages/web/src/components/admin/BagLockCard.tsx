@@ -269,8 +269,12 @@ function CommitForm({
   const buttonCopy = (() => {
     if (!isConnected) return "Connect wallet to lock";
     if (!isCreator) return "Creator only";
+    // Audit M-Ux-8 (Phase 1, 2026-05-03): "Sign in wallet…" / "Confirming…"
+    // is the canonical 3-state pattern; ClaimFeesPanel, MetadataForm, and
+    // AdminTransferForms all match. "Confirming on-chain…" trims to
+    // "Confirming…" for parity.
     if (isSubmitting) return "Sign in wallet…";
-    if (isMining) return "Confirming on-chain…";
+    if (isMining) return "Confirming…";
     if (!hasPick) return isLocked ? "Pick a later date to extend" : "Pick a date to lock";
     if (isTooSoon)
       return isLocked

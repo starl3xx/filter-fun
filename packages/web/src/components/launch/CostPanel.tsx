@@ -41,6 +41,15 @@ export type CostPanelProps = {
   /// endpoint). Drives the "typical bounty" range. Falls back to a quiet-
   /// week heuristic when null/undefined so the panel still has copy.
   championPoolEth?: number | null;
+  /// Audit M-Ux-4 (Phase 1, 2026-05-03): true while the launcher status
+  /// read (`getLaunchStatus`) is in flight. Pre-fix, the panel rendered
+  /// `Ξ 0.0000  ($0)` during the loading window because launchCostWei
+  /// fell back to 0n — visually indistinguishable from a free launch.
+  /// When true, the cost cells render dashes (—) instead of the zero
+  /// values, so the user sees "data is loading" rather than "data says
+  /// zero." The earnings block stays visible because it doesn't depend
+  /// on the cost values.
+  costLoading?: boolean;
 };
 
 export function CostPanel({
@@ -49,6 +58,7 @@ export function CostPanel({
   stakeWei,
   ethUsd,
   championPoolEth,
+  costLoading = false,
 }: CostPanelProps) {
   const total = launchCostWei + stakeWei;
   const stakeOn = stakeWei > 0n;
@@ -98,13 +108,32 @@ export function CostPanel({
         </span>
       </div>
 
-      <Row label="Launch cost" eth={fmtEthFromWei(launchCostWei)} usd={fmtUsd(launchUsd)} />
-      {stakeOn && (
-        <Row label="Refundable stake" eth={fmtEthFromWei(stakeWei)} usd={fmtUsd(stakeUsd)} />
+      <Row
+        label="Launch cost"
+        eth={costLoading ? "—" : fmtEthFromWei(launchCostWei)}
+        usd={costLoading ? "—" : fmtUsd(launchUsd)}
+      />
+      {/* During load we don't yet know if stake mode is on (the read is
+          gated behind the same status). Show the row with dashes so the
+          panel layout is stable; if stake turns out to be off the row
+          will disappear after the read resolves — that's preferable to
+          either hiding it (layout shift on resolve) or rendering zero
+          (false-precision). */}
+      {(stakeOn || costLoading) && (
+        <Row
+          label="Refundable stake"
+          eth={costLoading ? "—" : fmtEthFromWei(stakeWei)}
+          usd={costLoading ? "—" : fmtUsd(stakeUsd)}
+        />
       )}
 
       <div style={{height: 1, background: C.line}} />
-      <Row label="Total committed" eth={fmtEthFromWei(total)} usd={fmtUsd(totalUsd)} bold />
+      <Row
+        label="Total committed"
+        eth={costLoading ? "—" : fmtEthFromWei(total)}
+        usd={costLoading ? "—" : fmtUsd(totalUsd)}
+        bold
+      />
 
       {stakeOn && (
         <p

@@ -175,7 +175,8 @@ function NominateForm({token, currentAdmin}: {token: Address; currentAdmin: Addr
         data-testid="nominate-submit"
         style={btn(disabled)}
       >
-        {isSubmitting ? "Submitting…" : isMining ? "Confirming…" : "Nominate"}
+        {/* Audit M-Ux-8 (Phase 1, 2026-05-03) — see ClaimFeesPanel header for full normalization note. */}
+        {isSubmitting ? "Sign in wallet…" : isMining ? "Confirming…" : "Nominate"}
       </button>
       {isMined && (
         <p style={{marginTop: 8, fontSize: 12, color: C.green, fontFamily: F.mono}}>
@@ -221,7 +222,7 @@ function CancelForm({token, pendingAdmin}: {token: Address; pendingAdmin: Addres
         data-testid="cancel-submit"
         style={btnSecondary(isSubmitting || isMining)}
       >
-        {isSubmitting ? "Submitting…" : isMining ? "Confirming…" : "Cancel nomination"}
+        {isSubmitting ? "Sign in wallet…" : isMining ? "Confirming…" : "Cancel nomination"}
       </button>
       {isMined && (
         <p style={{marginTop: 8, fontSize: 12, color: C.green, fontFamily: F.mono}}>
@@ -268,7 +269,7 @@ function AcceptForm({token, pendingAdmin}: {token: Address; pendingAdmin: Addres
         data-testid="accept-submit"
         style={btn(isSubmitting || isMining)}
       >
-        {isSubmitting ? "Submitting…" : isMining ? "Confirming…" : "Accept admin"}
+        {isSubmitting ? "Sign in wallet…" : isMining ? "Confirming…" : "Accept admin"}
       </button>
       {isMined && (
         <p style={{marginTop: 8, fontSize: 12, color: C.green, fontFamily: F.mono}}>

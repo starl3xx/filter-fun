@@ -250,6 +250,17 @@ export default function LaunchPage() {
                   error={combinedError}
                   onSubmit={onSubmit}
                   championPoolEth={championPoolEth}
+                  /* Audit M-Ux-4 (Phase 1, 2026-05-03): drive CostPanel's
+                     "show dashes" mode while the launcher status read
+                     hasn't resolved. The page already detects the loading
+                     window via `status === undefined` (line ~58); this
+                     just hands that signal to the panel so it doesn't
+                     render Ξ 0.0000 ($0) before the read lands. The
+                     page also has the stake-mode-undefined case
+                     (`stakeOn === undefined`); fold that in so a slow
+                     `refundableStakeEnabled` read also dashes the
+                     stake row instead of guessing it's zero. */
+                  costLoading={status === undefined || !stakeReady}
                 />
               </>
             ) : (

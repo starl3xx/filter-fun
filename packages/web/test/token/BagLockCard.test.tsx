@@ -251,7 +251,15 @@ describe("BagLockCard — auth + lifecycle states", () => {
     expect(screen.getByTestId("baglock-submit").textContent).toContain("Sign in wallet");
   });
 
-  it("mining → 'Confirming on-chain…'", () => {
+  it("mining → 'Confirming…'", () => {
+    // Audit M-Ux-8 (Phase 1, 2026-05-03): the mining-state copy was
+    // normalized from "Confirming on-chain…" to "Confirming…" to match
+    // the launch flow + the other 3 admin sub-forms (ClaimFeesPanel,
+    // MetadataForm, AdminTransferForms). The wider word still appears
+    // in any future copy revisions because "Confirming" remains the
+    // root token; this assertion uses `toContain("Confirming")` so a
+    // future "Confirming on-chain (block 1234)" extension wouldn't
+    // break the pin.
     mockUseAccount.mockReturnValue({address: CREATOR, isConnected: true});
     mockUseWriteContract.mockReturnValue({
       writeContract: mockWriteContract,
@@ -269,7 +277,7 @@ describe("BagLockCard — auth + lifecycle states", () => {
         chain="base-sepolia"
       />,
     );
-    expect(screen.getByTestId("baglock-submit").textContent).toContain("Confirming on-chain");
+    expect(screen.getByTestId("baglock-submit").textContent).toContain("Confirming");
   });
 
   it("mined → '▼ Locked ✓' success line", () => {

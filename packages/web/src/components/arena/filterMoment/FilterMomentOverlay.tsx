@@ -103,7 +103,20 @@ export function FilterMomentOverlay(props: FilterMomentOverlayProps) {
       }}
     >
       {props.stage === "countdown" && props.secondsUntilCut !== null && (
-        <CountdownClock secondsUntil={props.secondsUntilCut} />
+        <>
+          <CountdownClock secondsUntil={props.secondsUntilCut} />
+          {/* Audit L-Ux-2 (Phase 1, 2026-05-03): if the cut has passed
+              by more than FILTER_FIRED_GRACE_SEC and the FILTER_FIRED
+              event hasn't arrived (slow SSE, dropped event, indexer
+              lag), the overlay would otherwise sit at 00:00 with no
+              indication that something is wrong. Render a degraded
+              "the filter has fired — refreshing leaderboard" strip so
+              the user knows what's happening. The leaderboard underneath
+              continues to poll /tokens via react-query (15s default),
+              so the actual data refresh is already in flight; this
+              just makes that recovery visible. */}
+          {props.secondsUntilCut <= -FILTER_FIRED_GRACE_SEC && <SlowNetworkFallback />}
+        </>
       )}
 
       {props.stage === "firing" && (() => {
@@ -136,6 +149,39 @@ export function FilterMomentOverlay(props: FilterMomentOverlayProps) {
 }
 
 // ============================================================ helpers
+
+/// Audit L-Ux-2: how long after the scheduled cut we wait before showing
+/// the slow-network fallback. 10s is generous enough that ordinary SSE
+/// jitter (1–3s typical) doesn't trigger the degraded state, but tight
+/// enough that a genuinely-stuck client surfaces the recovery message
+/// before the user starts wondering if the page is broken.
+const FILTER_FIRED_GRACE_SEC = 10;
+
+function SlowNetworkFallback() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        position: "absolute",
+        bottom: 24,
+        left: "50%",
+        transform: "translateX(-50%)",
+        padding: "10px 18px",
+        borderRadius: 12,
+        background: "rgba(255, 200, 0, 0.18)",
+        border: "1px solid rgba(255, 200, 0, 0.55)",
+        color: "#fff",
+        fontSize: 13,
+        fontWeight: 600,
+        letterSpacing: "0.04em",
+        pointerEvents: "none",
+      }}
+    >
+      The filter has fired — refreshing the leaderboard…
+    </div>
+  );
+}
 
 function backdropStyleFor(stage: FilterMomentStage): string {
   switch (stage) {

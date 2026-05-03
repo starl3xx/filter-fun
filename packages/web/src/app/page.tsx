@@ -112,6 +112,33 @@ export default function HomePage() {
     if (!cohort.find((t) => t.token === selected)) setSelected(null);
   }, [cohort, selected]);
 
+  // Audit M-Ux-3 (Phase 1, 2026-05-03): sync the selected token to a
+  // `?token=0x…` query param so a refresh or share-link preserves the
+  // user's selection. Pre-fix only the inbound direction was wired
+  // (post-launch redirect lands here with `?token=…` and `tokenParam`
+  // picks it up via the auto-select effect above) — outbound was
+  // missing, so a click on a different row would silently desync the
+  // URL from the visible state and reset on refresh.
+  //
+  // Use `window.history.replaceState` rather than `router.replace`
+  // because:
+  //   1. We don't want a new history entry per click (back-button
+  //      should NOT replay the user's selection trail).
+  //   2. `router.replace` would re-run the page's data fetches; we
+  //      only want to update the URL bar, not re-render anything.
+  //
+  // Skip during SSR (window guard) and skip when selected is null —
+  // the cleared state should leave the URL alone rather than blanking
+  // it (e.g. cleared by the drop-stale effect above on a filter event).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selected) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("token")?.toLowerCase() === selected.toLowerCase()) return;
+    url.searchParams.set("token", selected);
+    window.history.replaceState({}, "", url.toString());
+  }, [selected]);
+
   const selectedToken = useMemo(() => cohort.find((t) => t.token === selected) ?? null, [cohort, selected]);
   const selectedTrend = selected ? trendBuffers.get(selected) ?? [] : [];
 

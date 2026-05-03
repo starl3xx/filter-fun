@@ -13,6 +13,7 @@
 ///   re-applying a CSS class for ~2s on increase.
 
 import {useEffect, useRef, useState} from "react";
+import {useAccount, useConnect, useDisconnect} from "wagmi";
 
 import {Triangle} from "@/components/Triangle";
 import {fmtCutCountdown, fmtEth, secondsUntil, weekLabel} from "@/lib/arena/format";
@@ -80,8 +81,82 @@ export function ArenaTopBar({season, liveStatus}: ArenaTopBarProps) {
           glow={backingGlow}
           title="Spec §19.5: Protocol backing for the winner."
         />
+        {/* Audit M-Ux-1 (Phase 1, 2026-05-03): pre-fix the homepage / had
+            no wallet-connect CTA — first-time visitors had to click into
+            a token detail to be prompted, adding friction for the trade
+            flow. Connect button placed at the right edge of the top bar
+            so it's the natural last stop in the eye-scan path (LIVE-pill
+            on the left → stats in the middle → action on the right).
+            The component is shared between Arena (this file) and /launch
+            (which also uses ArenaTopBar) so wallet-connect is now
+            available from every primary surface. The `/token/[…]/admin`
+            page uses a separate broadcast/TopBar that already had its
+            own ConnectButton. */}
+        <ConnectWalletButton />
       </div>
     </header>
+  );
+}
+
+/// Audit M-Ux-1: wallet-connect CTA in the top bar. Mirrors the existing
+/// pattern in `broadcast/TopBar.tsx` (injected-only connector pick, short
+/// 0x6…4 display when connected, click-to-disconnect). Kept inline rather
+/// than extracted to a shared module because the two top bars have
+/// different visual languages (this one renders the pink→purple gradient
+/// inline; the broadcast one applies it via classnames) and de-duplicating
+/// would force a styling abstraction that doesn't carry its weight yet.
+function ConnectWalletButton() {
+  const {address, isConnected} = useAccount();
+  const {connect, connectors, status} = useConnect();
+  const {disconnect} = useDisconnect();
+  const injected = connectors.find((c) => c.type === "injected");
+
+  if (isConnected && address) {
+    const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
+    return (
+      <button
+        type="button"
+        onClick={() => disconnect()}
+        title="Disconnect wallet"
+        style={{
+          padding: "6px 12px",
+          borderRadius: 8,
+          border: `1px solid ${C.line}`,
+          background: "rgba(255,255,255,0.04)",
+          color: C.text,
+          fontWeight: 700,
+          fontSize: 12,
+          fontFamily: F.mono,
+          letterSpacing: "0.04em",
+          cursor: "pointer",
+        }}
+      >
+        {short}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => injected && connect({connector: injected})}
+      disabled={!injected || status === "pending"}
+      style={{
+        padding: "6px 14px",
+        borderRadius: 8,
+        border: "none",
+        background: `linear-gradient(135deg, ${C.pink}, ${C.purple})`,
+        color: "#fff",
+        fontWeight: 800,
+        fontSize: 12,
+        cursor: injected ? "pointer" : "not-allowed",
+        fontFamily: F.display,
+        letterSpacing: "0.02em",
+        boxShadow: `0 3px 12px ${C.pink}66, inset 0 1px 0 #ffffff44`,
+        opacity: injected ? 1 : 0.6,
+      }}
+    >
+      {status === "pending" ? "Connecting…" : "Connect Wallet"}
+    </button>
   );
 }
 

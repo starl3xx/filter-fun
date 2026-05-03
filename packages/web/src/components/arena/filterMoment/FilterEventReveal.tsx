@@ -32,11 +32,24 @@ export type FilterEventRevealProps = {
 };
 
 export function FilterEventReveal({survivors = SURVIVE_COUNT, filtered = SURVIVE_COUNT}: FilterEventRevealProps) {
+  // Audit L-Ux-3 (Phase 1, 2026-05-03): survivors / filtered come from
+  // SSE event payloads, ultimately from a contract event. A misconfigured
+  // cohort (or a stale / corrupt event) could yield 0 survivors, NaN, or
+  // a negative — all of which would render "0 SURVIVED" / "NaN SURVIVED"
+  // in the broadcast strip, which is semantically valid but visually
+  // wrong (and the spec promises at least one survivor per filter event).
+  // Clamp survivors to ≥1 (the protocol invariant); allow filtered ≥0 in
+  // case a future cohort genuinely fits in the survive window. Falls
+  // back to the protocol-locked SURVIVE_COUNT default when the input
+  // is non-finite — safer than rendering whatever React thinks NaN
+  // means today.
+  const safeSurvivors = Number.isFinite(survivors) && survivors >= 1 ? Math.floor(survivors) : SURVIVE_COUNT;
+  const safeFiltered = Number.isFinite(filtered) && filtered >= 0 ? Math.floor(filtered) : SURVIVE_COUNT;
   return (
     <div
       role="status"
       aria-live="assertive"
-      aria-label={`Filter live — ${survivors} survived, ${filtered} filtered`}
+      aria-label={`Filter live — ${safeSurvivors} survived, ${safeFiltered} filtered`}
       style={{
         position: "absolute",
         inset: 0,
@@ -88,9 +101,9 @@ export function FilterEventReveal({survivors = SURVIVE_COUNT, filtered = SURVIVE
             letterSpacing: "0.18em",
           }}
         >
-          <span style={{color: C.green}}>{survivors} SURVIVED</span>
+          <span style={{color: C.green}}>{safeSurvivors} SURVIVED</span>
           <span style={{color: C.faint, margin: "0 12px"}}>·</span>
-          <span style={{color: C.red}}>{filtered} FILTERED</span>
+          <span style={{color: C.red}}>{safeFiltered} FILTERED</span>
         </div>
       </div>
     </div>

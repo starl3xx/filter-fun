@@ -65,12 +65,21 @@ export function useEligibility(): UseEligibilityResult {
     query: {enabled, refetchInterval: 8_000},
   });
 
+  // Audit M-Ux-5 (Phase 1, 2026-05-03): every non-eligible branch must
+  // tell the user what to DO next, not just what state they're in.
+  // Pre-fix the copy was technically correct but two of the messages
+  // ("Connect a wallet to launch.", "Launcher not deployed in this
+  // environment.") gave the user no actionable next step. Each branch
+  // below now ends with a concrete instruction or a re-entry time so
+  // the NoticeCard renders as a clear next action, not a dead-end
+  // status.
   return useMemo<UseEligibilityResult>(() => {
     if (!isConnected) {
       return {
         state: "not-connected",
         formVisible: false,
-        message: "Connect a wallet to launch.",
+        message:
+          "Use the Connect Wallet button in the top bar to choose a wallet — once connected, the launch form unlocks here.",
         canSubmit: false,
       };
     }
@@ -78,12 +87,19 @@ export function useEligibility(): UseEligibilityResult {
       return {
         state: "loading",
         formVisible: false,
-        message: "Launcher not deployed in this environment.",
+        message:
+          "The launcher contract is not deployed in this environment. Switch to the production network (top-right network selector) to launch a token.",
         canSubmit: false,
       };
     }
     if (isLoading || !data) {
-      return {state: "loading", formVisible: false, message: "Checking eligibility…", canSubmit: false};
+      return {
+        state: "loading",
+        formVisible: false,
+        message:
+          "Reading your wallet's launch status from the launcher contract — this usually takes 1–2 seconds.",
+        canSubmit: false,
+      };
     }
 
     const canLaunchOnchain = data[0]?.result === true;
@@ -94,7 +110,8 @@ export function useEligibility(): UseEligibilityResult {
       return {
         state: "already-launched",
         formVisible: false,
-        message: "You've already launched a token this week. Each wallet gets one shot per season.",
+        message:
+          "You've already launched a token this week — each wallet gets one shot per season. The next launch window opens Monday 00:00 UTC; come back then to launch again.",
         canSubmit: false,
       };
     }
@@ -102,7 +119,8 @@ export function useEligibility(): UseEligibilityResult {
       return {
         state: "window-closed",
         formVisible: false,
-        message: "Launch window is closed. The next season opens Monday 00:00 UTC.",
+        message:
+          "The launch window for this week's cohort is closed. New launches reopen Monday 00:00 UTC. In the meantime, head back to the arena to watch this week's tokens compete.",
         canSubmit: false,
       };
     }

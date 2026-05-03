@@ -9,6 +9,16 @@
 import {render} from "@testing-library/react";
 import {afterAll, beforeAll, describe, expect, it, vi} from "vitest";
 
+// Audit M-Ux-1 (Phase 1, 2026-05-03): ArenaTopBar now hosts a wallet
+// connect button that calls wagmi hooks. Snapshot tests render without a
+// WagmiProvider — mock at the module boundary so the snapshot captures
+// the disconnected-state DOM (the most common surface).
+vi.mock("wagmi", () => ({
+  useAccount: () => ({address: undefined, isConnected: false}),
+  useConnect: () => ({connect: () => {}, connectors: [], status: "idle"}),
+  useDisconnect: () => ({disconnect: () => {}}),
+}));
+
 import {ArenaLeaderboard} from "@/components/arena/ArenaLeaderboard";
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
 
