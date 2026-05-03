@@ -41,7 +41,7 @@ import {FilterMomentOverlay} from "@/components/arena/filterMoment/FilterMomentO
 import {DataErrorBanner} from "@/components/DataErrorBanner";
 import {Stars} from "@/components/Stars";
 import {useFilterMoment} from "@/hooks/arena/useFilterMoment";
-import {mergeHpUpdates, recentlyUpdatedAddresses, useHpUpdates} from "@/hooks/arena/useHpUpdates";
+import {freshHpUpdateSeqByAddress, mergeHpUpdates, useHpUpdates} from "@/hooks/arena/useHpUpdates";
 import {useSeason} from "@/hooks/arena/useSeason";
 import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
@@ -77,7 +77,12 @@ export default function HomePage() {
   // panel, and the trend buffers all see the same coherent view.
   const {hpByAddress} = useHpUpdates(events);
   const cohort = useMemo(() => mergeHpUpdates(polledCohort, hpByAddress), [polledCohort, hpByAddress]);
-  const recentlyUpdated = useMemo(() => recentlyUpdatedAddresses(hpByAddress, 3_000), [hpByAddress]);
+  // Per-address sequence ids drive the row-level pulse. The leaderboard
+  // uses each token's seq as a React `key` on the HP-bar wrapper so the
+  // CSS animation replays on each successive update — a Set-based
+  // "is-fresh" flag would leave the className unchanged across consecutive
+  // updates within the same recency window, suppressing the second pulse.
+  const freshHpSeq = useMemo(() => freshHpUpdateSeqByAddress(hpByAddress, 3_000), [hpByAddress]);
   const [selected, setSelected] = useState<`0x${string}` | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -264,7 +269,7 @@ export default function HomePage() {
             urgentCutline={urgentCutline}
             firingMode={firingMode}
             recentlyFilteredAddresses={filterMoment.filteredAddresses}
-            recentlyHpUpdatedAddresses={firingMode ? undefined : recentlyUpdated}
+            freshHpUpdateSeqByAddress={firingMode ? undefined : freshHpSeq}
           />
           <ArenaActivityFeed events={events} liveStatus={liveStatus} />
         </div>

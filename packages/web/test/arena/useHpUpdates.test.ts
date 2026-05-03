@@ -1,17 +1,17 @@
 /// Tests for the live HP overlay derived from the SSE stream — Epic 1.17c.
 ///
 /// Pure-function coverage: the hook just folds events into a Map; the merger
-/// applies the overlay to a polled cohort; recentlyUpdatedAddresses reads
-/// the receivedAt timestamps. No DOM / hooks runtime needed for the merger
-/// + helpers — they're pure. The hook itself is a thin useMemo wrapper, so
-/// we exercise it via the renderHook seam.
+/// applies the overlay to a polled cohort; freshHpUpdateSeqByAddress reads
+/// the receivedAt timestamps and exposes a per-token sequence id for the
+/// pulse-animation `key`. The hook itself is a thin useMemo wrapper, so we
+/// exercise it via the renderHook seam.
 
 import {renderHook} from "@testing-library/react";
 import {describe, expect, it} from "vitest";
 
 import {
+  freshHpUpdateSeqByAddress,
   mergeHpUpdates,
-  recentlyUpdatedAddresses,
   useHpUpdates,
   type HpUpdate,
 } from "@/hooks/arena/useHpUpdates";
@@ -53,7 +53,7 @@ function fakeHpData(over: Partial<HpUpdatedData> = {}): HpUpdatedData {
 }
 
 describe("useHpUpdates", () => {
-  it("returns an empty map when no HP_UPDATED events are present", () => {
+  it("returns an empty (stable) map when no HP_UPDATED events are present", () => {
     const events: TickerEvent[] = [
       {
         id: 1,
@@ -66,13 +66,19 @@ describe("useHpUpdates", () => {
         timestamp: new Date().toISOString(),
       },
     ];
-    const {result} = renderHook(() => useHpUpdates(events));
-    expect(result.current.hpByAddress.size).toBe(0);
+    const {result, rerender} = renderHook(({evs}: {evs: TickerEvent[]}) => useHpUpdates(evs), {
+      initialProps: {evs: events},
+    });
+    const first = result.current.hpByAddress;
+    expect(first.size).toBe(0);
+    // A new events array (still no HP_UPDATED) MUST yield the same map
+    // reference — otherwise downstream memos invalidate on every SSE event.
+    rerender({evs: [...events]});
+    expect(result.current.hpByAddress).toBe(first);
   });
 
   it("captures the freshest HP_UPDATED per token (by computedAt)", () => {
     const events: TickerEvent[] = [
-      // Newest-first (matches useTickerEvents buffer order).
       hpUpdatedEvent({id: 3, address: TOKEN_A, data: fakeHpData({hp: 90, computedAt: 1_700_000_005})}),
       hpUpdatedEvent({id: 2, address: TOKEN_B, data: fakeHpData({hp: 50, computedAt: 1_700_000_003})}),
       hpUpdatedEvent({id: 1, address: TOKEN_A, data: fakeHpData({hp: 70, computedAt: 1_700_000_001})}),
@@ -86,7 +92,6 @@ describe("useHpUpdates", () => {
   it("ignores stale HP_UPDATED frames that arrive after a newer one", () => {
     const events: TickerEvent[] = [
       hpUpdatedEvent({id: 2, address: TOKEN_A, data: fakeHpData({hp: 90, computedAt: 1_700_000_005})}),
-      // Out-of-order: same token, older computedAt — must NOT clobber the fresh one.
       hpUpdatedEvent({id: 3, address: TOKEN_A, data: fakeHpData({hp: 70, computedAt: 1_700_000_001})}),
     ];
     const {result} = renderHook(() => useHpUpdates(events));
@@ -96,8 +101,6 @@ describe("useHpUpdates", () => {
   it("skips HP_UPDATED frames missing the address field", () => {
     const events: TickerEvent[] = [
       hpUpdatedEvent({id: 1, address: TOKEN_A, data: fakeHpData()}),
-      // Address null — system-scoped HP_UPDATED isn't a current shape, but the
-      // type permits it; the hook must not crash.
       {
         id: 2,
         type: "HP_UPDATED",
@@ -112,14 +115,56 @@ describe("useHpUpdates", () => {
     const {result} = renderHook(() => useHpUpdates(events));
     expect(result.current.hpByAddress.size).toBe(1);
   });
+
+  it("preserves map identity when an unrelated event arrives (bugbot M PR #83)", () => {
+    // Initial: one HP_UPDATED.
+    const initial: TickerEvent[] = [
+      hpUpdatedEvent({id: 1, address: TOKEN_A, data: fakeHpData({hp: 90, computedAt: 1_700_000_001})}),
+    ];
+    const {result, rerender} = renderHook(({evs}: {evs: TickerEvent[]}) => useHpUpdates(evs), {
+      initialProps: {evs: initial},
+    });
+    const firstMap = result.current.hpByAddress;
+    expect(firstMap.size).toBe(1);
+    // A non-HP event lands on the buffer — events array changes identity,
+    // but HP content does not. The hook must return the same map.
+    const next: TickerEvent[] = [
+      {
+        id: 2, type: "RANK_CHANGED", priority: "MEDIUM", token: "$B", address: TOKEN_B,
+        message: "rank shuffle", data: {}, timestamp: new Date().toISOString(),
+      },
+      ...initial,
+    ];
+    rerender({evs: next});
+    expect(result.current.hpByAddress).toBe(firstMap);
+  });
 });
 
 describe("mergeHpUpdates", () => {
-  it("returns a clone of the cohort when there are no live updates", () => {
+  it("returns the SAME array reference when no live updates exist", () => {
     const cohort = makeFixtureCohort();
     const merged = mergeHpUpdates(cohort, new Map());
-    expect(merged).toHaveLength(cohort.length);
-    expect(merged[0]).toBe(cohort[0]); // empty map fast-path returns slice; identity preserved per row
+    expect(merged).toBe(cohort);
+  });
+
+  it("returns the SAME array reference when live updates match the polled values exactly", () => {
+    const cohort = makeFixtureCohort();
+    const target = cohort[0]!;
+    const updates = new Map<string, HpUpdate>([
+      [target.token.toLowerCase(), {
+        hp: target.hp,
+        components: {
+          ...target.components,
+          holderConcentration: 0.5, // present on the live shape but not in TokenResponse
+        },
+        weightsVersion: "v",
+        computedAt: 1_700_000_000,
+        trigger: "BLOCK_TICK",
+        receivedAtIso: new Date().toISOString(),
+      }],
+    ]);
+    const merged = mergeHpUpdates(cohort, updates);
+    expect(merged).toBe(cohort);
   });
 
   it("overlays HP + components onto the matching token", () => {
@@ -161,7 +206,7 @@ describe("mergeHpUpdates", () => {
           velocity: 0.1, effectiveBuyers: 0.2, stickyLiquidity: 0.3,
           retention: 0.4, momentum: 0.5, holderConcentration: 0.6,
         },
-        weightsVersion: "v", computedAt: 1n as unknown as number, trigger: "SWAP",
+        weightsVersion: "v", computedAt: 1, trigger: "SWAP",
         receivedAtIso: new Date().toISOString(),
       }],
     ]);
@@ -172,47 +217,61 @@ describe("mergeHpUpdates", () => {
     expect(merged[1]).toBe(cohort[1]);
     expect(merged[5]).toBe(cohort[5]);
   });
-
-  it("returns the SAME row reference when the live frame matches the polled HP exactly", () => {
-    const cohort = makeFixtureCohort();
-    const target = cohort[0]!;
-    const updates = new Map<string, HpUpdate>([
-      [target.token.toLowerCase(), {
-        hp: target.hp,
-        components: {
-          ...target.components,
-          holderConcentration: 0.5, // present on the live shape but not in TokenResponse
-        },
-        weightsVersion: "v",
-        computedAt: 1_700_000_000,
-        trigger: "BLOCK_TICK",
-        receivedAtIso: new Date().toISOString(),
-      }],
-    ]);
-    const merged = mergeHpUpdates(cohort, updates);
-    expect(merged[0]).toBe(cohort[0]);
-  });
 });
 
-describe("recentlyUpdatedAddresses", () => {
+describe("freshHpUpdateSeqByAddress", () => {
   const NOW = Date.parse("2026-05-03T10:30:00.000Z");
 
-  it("returns addresses whose receivedAt is within the recency window", () => {
+  it("returns the computedAt seq for addresses inside the recency window", () => {
     const updates = new Map<string, HpUpdate>([
       ["fresh", {
         hp: 1, components: {} as HpUpdatedData["components"], weightsVersion: "v",
-        computedAt: 0, trigger: "SWAP",
+        computedAt: 1_700_000_010, trigger: "SWAP",
         receivedAtIso: new Date(NOW - 1_000).toISOString(),
       }],
       ["stale", {
         hp: 1, components: {} as HpUpdatedData["components"], weightsVersion: "v",
-        computedAt: 0, trigger: "SWAP",
+        computedAt: 1_700_000_005, trigger: "SWAP",
         receivedAtIso: new Date(NOW - 10_000).toISOString(),
       }],
     ]);
-    const fresh = recentlyUpdatedAddresses(updates, 3_000, NOW);
-    expect(fresh.has("fresh")).toBe(true);
-    expect(fresh.has("stale")).toBe(false);
+    const seqs = freshHpUpdateSeqByAddress(updates, 3_000, NOW);
+    expect(seqs.get("fresh")).toBe(1_700_000_010);
+    expect(seqs.has("stale")).toBe(false);
+  });
+
+  it("changes the seq for a token when a newer HP_UPDATED arrives — drives animation replay (bugbot M PR #83)", () => {
+    const t1 = NOW - 2_500;
+    const t2 = NOW - 100;
+    const first = new Map<string, HpUpdate>([
+      ["x", {
+        hp: 50, components: {} as HpUpdatedData["components"], weightsVersion: "v",
+        computedAt: 1_700_000_001, trigger: "SWAP",
+        receivedAtIso: new Date(t1).toISOString(),
+      }],
+    ]);
+    const second = new Map<string, HpUpdate>([
+      ["x", {
+        hp: 60, components: {} as HpUpdatedData["components"], weightsVersion: "v",
+        computedAt: 1_700_000_002, trigger: "SWAP",
+        receivedAtIso: new Date(t2).toISOString(),
+      }],
+    ]);
+    const seq1 = freshHpUpdateSeqByAddress(first, 3_000, NOW);
+    const seq2 = freshHpUpdateSeqByAddress(second, 3_000, NOW);
+    // Both windows are "fresh" but the seq value is different — the
+    // leaderboard uses this as a React key, so a different value forces
+    // the wrapper to remount and replay the CSS animation.
+    expect(seq1.get("x")).toBe(1_700_000_001);
+    expect(seq2.get("x")).toBe(1_700_000_002);
+    expect(seq1.get("x")).not.toBe(seq2.get("x"));
+  });
+
+  it("returns a stable empty map when the input map is empty", () => {
+    const a = freshHpUpdateSeqByAddress(new Map(), 3_000, NOW);
+    const b = freshHpUpdateSeqByAddress(new Map(), 3_000, NOW);
+    expect(a).toBe(b);
+    expect(a.size).toBe(0);
   });
 
   it("treats malformed timestamps as not-recent rather than throwing", () => {
@@ -223,7 +282,7 @@ describe("recentlyUpdatedAddresses", () => {
         receivedAtIso: "not-a-date",
       }],
     ]);
-    expect(() => recentlyUpdatedAddresses(updates, 3_000, NOW)).not.toThrow();
-    expect(recentlyUpdatedAddresses(updates, 3_000, NOW).size).toBe(0);
+    expect(() => freshHpUpdateSeqByAddress(updates, 3_000, NOW)).not.toThrow();
+    expect(freshHpUpdateSeqByAddress(updates, 3_000, NOW).size).toBe(0);
   });
 });
