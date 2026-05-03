@@ -41,6 +41,24 @@ echo "$SEASON_LAUNCH_END_HOUR $SEASON_HARD_CUT_HOUR $SEASON_SETTLEMENT_HOUR"
 If any value differs from the defaults, **stop** — a misconfigured cadence will mis-time
 settlement.
 
+### Drift tolerance & escalation (Audit M-Docs-1)
+
+The hard cut and settlement are wall-clock-anchored to `season.startedAt + N hours`. The
+scheduler container's clock and the Base L2 block clock will drift slightly between calls,
+so the trigger fires within a small window — not exactly at the second.
+
+- **Tolerance**: the relevant phase-advance / settlement tx should land within **±2
+  minutes** of the scheduled hour. Any tx in this window is on-cadence; do not treat it
+  as drift.
+- **Escalate**: if the trigger has not fired **>5 minutes after** the scheduled hour
+  (e.g. hard cut hour 96 — no `applySoftFilter` tx by Fri 00:05 UTC), escalate to
+  oncall immediately. Likely causes: scheduler container crashed, RPC degraded, gas
+  price spike not absorbed by the bumper, or operator key revoked.
+- **Do NOT manually fire while waiting.** The scheduler retries with backoff and a
+  manual operator `advancePhase` racing against an in-flight scheduler tx will revert
+  one of them and burn gas. Wait until oncall confirms the scheduler is wedged before
+  taking the manual path documented in §6.
+
 ---
 
 ## 1. Pre-week checklist (Sunday → Monday boundary)

@@ -35,6 +35,8 @@ None.
 ## MEDIUM
 
 ### [Docs] runbook-operator.md cadence table has no drift tolerance
+**Status:** 📋 **DOC** in `audit/polish-docs` (Polish 8 — Audit M-Docs-1). New "Drift tolerance & escalation" subsection added immediately after the cadence table in `docs/runbook-operator.md` §0. Pins ±2 min as on-cadence, >5 min as escalate-to-oncall, lists likely root causes (scheduler crash / RPC degraded / gas spike / key revoked), and explicitly warns not to manually fire while waiting (a manual `advancePhase` racing against an in-flight scheduler tx will revert one and burn gas).
+
 **Severity:** Medium
 **Files:** docs/runbook-operator.md:20-38
 **Spec ref:** §3.2
@@ -46,6 +48,8 @@ None.
 **Effort:** S
 
 ### [Docs] zombie-tokens.md not linked from README
+**Status:** ↩ **CLOSE-INCIDENTAL** in `audit/polish-docs` (Polish 8 — Audit M-Docs-2). Already linked. The README's "Operator runbooks" line (line 8) lists `docs/zombie-tokens.md` alongside the operator + sepolia-smoke + bag-lock runbooks. The audit was working from a stale README snapshot. No code change in this PR.
+
 **Severity:** Medium
 **Files:** README.md (no link to zombie-tokens.md)
 **Spec ref:** n/a
@@ -57,6 +61,8 @@ None.
 **Effort:** XS
 
 ### [Docs] README doesn't note Sepolia redeploy status post-Epic 1.13
+**Status:** 📋 **DOC** in `audit/polish-docs` (Polish 8 — Audit M-Docs-3). The Base Sepolia bullet under "Deploying" now includes the redeploy date (2026-05-01), the Epic 1.13 contracts that landed (FilterFactory v2 + CreatorCommitments + CreatorRegistry), the corrected manifest path (`packages/contracts/deployments/base-sepolia.json` — root-relative), and a cross-reference to the bag-lock legacy-token caveat at `docs/bag-lock.md` §5. The path correction also addresses the H-Docs-1 cross-ref gap from the High row above (operators landing on the README see the legacy-token warning before they touch the runbook).
+
 **Severity:** Medium
 **Files:** README.md:52
 **Spec ref:** n/a
@@ -72,6 +78,8 @@ None.
 ## LOW
 
 ### [Docs] AGENTS.md URL canon doesn't mention staging/preview pattern
+**Status:** 📋 **DOC** in `audit/polish-docs` (Polish 8 — Audit L-Docs-1). New paragraph added under the "URL canon" section in `AGENTS.md` documenting the `staging-<name>.filter.fun` pattern for preview / staging instances (e.g., `staging-arena.filter.fun`, `staging-api.filter.fun`) and the constraint: never reference these in user-facing strings (README, web metadata, env example defaults, OG tags, runbooks). Staging URLs belong in deployment configs and oncall-only docs.
+
 **Severity:** Low
 **Files:** AGENTS.md:8-32
 **Spec ref:** n/a
@@ -87,6 +95,8 @@ None.
 ## INFO
 
 ### [Docs] NatSpec coverage on contracts is patchy
+**Status:** ↩ **CLOSE-INCIDENTAL** in `audit/polish-docs` (Polish 8 — Audit I-Docs-1). Already addressed by the contracts polish series — see `audit/2026-05-PHASE-1-AUDIT/contracts.md` for the per-contract NatSpec dispositions Polish 1 closed out. Tracking it in this audit was a cross-reference, not a separate finding. No code change in this PR.
+
 **Severity:** Info
 **Files:** packages/contracts/src/*.sol (per Contracts audit High finding on BonusDistributor)
 **Spec ref:** n/a

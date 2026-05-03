@@ -31,6 +31,14 @@ When asked to "canonicalize URLs" or "sweep URLs," replace:
   filter-fun-production.up.railway.app   →   api.filter.fun
   filterfun.mintlify.app                 →   docs.filter.fun
 
+Audit L-Docs-1 (Phase 1, 2026-05-03): preview / staging instances may use the
+`staging-<name>.filter.fun` pattern (e.g., `staging-arena.filter.fun`,
+`staging-api.filter.fun`) but **never reference these in user-facing strings**
+(README, web metadata, env example defaults, OG tags, runbooks). The canonical
+production hostnames above are the only allowed values in published copy. Staging
+URLs belong in deployment configs and oncall-only docs, not in anything an end
+user sees.
+
 ## PR-driven workflow
 
 - Open a PR against `main` early; bugbot reviews each push.
