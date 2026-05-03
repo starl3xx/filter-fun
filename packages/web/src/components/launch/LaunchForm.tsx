@@ -245,14 +245,25 @@ export function LaunchForm({
         <LinkField
           label="X / Twitter"
           inputType="text"
-          placeholder="@handle"
+          // Bugbot follow-up on PR #74: placeholder must NOT include the
+          // leading `@` — `validateLaunchFields` rejects twitter values
+          // that start with `@` ("Twitter handle without the @ please.").
+          // The placeholder is a format hint; suggesting `@handle` would
+          // actively guide users toward a value the validator would
+          // reject on submit.
+          placeholder="handle"
           value={fields.twitter ?? ""}
           onChange={(v) => update("twitter", v)}
         />
         <LinkField
           label="Farcaster"
           inputType="text"
-          placeholder="username.eth"
+          // Same constraint: validateLaunchFields rejects farcaster values
+          // that start with `@`. The build-doc URL constructor wraps the
+          // bare handle into `https://warpcast.com/${handle}` so a `.eth`
+          // suffix isn't needed either — keep the placeholder a generic
+          // hint that matches the validator's expectations.
+          placeholder="handle"
           value={fields.farcaster ?? ""}
           onChange={(v) => update("farcaster", v)}
         />

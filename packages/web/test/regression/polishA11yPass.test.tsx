@@ -81,21 +81,30 @@ describe("M-A11y-2: link inputs have visible labels (not aria-label only)", () =
   });
 
   it("link inputs no longer carry aria-label (visible labels supersede)", () => {
-    const {container} = render(<LaunchForm {...mkProps()} />);
-    const inputs = container.querySelectorAll("input[type='url'], input[type='text']");
-    // Find the website / twitter / farcaster inputs by placeholder.
-    const website = container.querySelector("input[placeholder='yourdomain.com']") as HTMLInputElement | null;
-    const twitter = container.querySelector("input[placeholder='@handle']") as HTMLInputElement | null;
-    const farcaster = container.querySelector("input[placeholder='username.eth']") as HTMLInputElement | null;
-    expect(website).not.toBeNull();
-    expect(twitter).not.toBeNull();
-    expect(farcaster).not.toBeNull();
-    // Each should NOT carry the legacy aria-label — visible label is the
-    // canonical accessible name now.
-    expect(website?.getAttribute("aria-label")).toBeNull();
-    expect(twitter?.getAttribute("aria-label")).toBeNull();
-    expect(farcaster?.getAttribute("aria-label")).toBeNull();
-    expect(inputs.length).toBeGreaterThan(0);
+    render(<LaunchForm {...mkProps()} />);
+    // Each link input is reachable by visible label and must NOT carry
+    // the legacy aria-label (visible label is the canonical accessible
+    // name now). Use getByLabelText so the visible label / id pairing is
+    // also exercised.
+    const website = screen.getByLabelText(/^website$/i) as HTMLInputElement;
+    const twitter = screen.getByLabelText(/x \/ twitter/i) as HTMLInputElement;
+    const farcaster = screen.getByLabelText(/^farcaster$/i) as HTMLInputElement;
+    expect(website.getAttribute("aria-label")).toBeNull();
+    expect(twitter.getAttribute("aria-label")).toBeNull();
+    expect(farcaster.getAttribute("aria-label")).toBeNull();
+  });
+
+  // Bugbot follow-up on PR #74: the new LinkField placeholders for Twitter
+  // and Farcaster originally used `@handle` — but `validateLaunchFields`
+  // rejects values that start with `@`, so the placeholder was actively
+  // guiding users toward a validator-rejected format. Pin the post-fix
+  // placeholders to lock the bugbot fix.
+  it("Twitter + Farcaster placeholders do NOT start with `@` (validator rejects @-prefixed values)", () => {
+    render(<LaunchForm {...mkProps()} />);
+    const twitter = screen.getByLabelText(/x \/ twitter/i) as HTMLInputElement;
+    const farcaster = screen.getByLabelText(/^farcaster$/i) as HTMLInputElement;
+    expect(twitter.placeholder.startsWith("@")).toBe(false);
+    expect(farcaster.placeholder.startsWith("@")).toBe(false);
   });
 
   it("each LinkField uses a unique id (useId) so multiple instances don't collide", () => {
