@@ -62,6 +62,8 @@ useTokenAdmin / useSeason / useTokenStats / useAdminAuth all silently return und
 ## HIGH
 
 ### [Web] Wagmi config supports only `injected()` connector
+**Status:** ✅ **FIXED** in `audit/web-high-batch-3` (Audit H-Web-1). `wagmi/connectors` exports `coinbaseWallet` + `walletConnect` are wired alongside `injected()`. Order: `injected()` first (desktop default — MetaMask / Rabby), `coinbaseWallet({appName: "filter.fun"})` second (large Base userbase), `walletConnect({projectId})` last (mobile via QR pairing). `NEXT_PUBLIC_WC_PROJECT_ID` documented in `packages/web/.env.example` — production deploys MUST provision a project ID at cloud.walletconnect.com or WC will silently fail at pair time. Pinned by `wagmiConnectors.test.ts` (5 tests covering import, ordering, appName, env-var wiring, and .env.example documentation).
+
 **Severity:** High
 **Files:** packages/web/src/lib/wagmi.ts:16-24
 **Spec ref:** n/a
@@ -79,6 +81,8 @@ connectors: [injected()],
 **Effort:** S
 
 ### [Web] Stale-closure mitigation in LaunchForm onSubmit reads live ref
+**Status:** ✅ **FIXED** in `audit/web-high-batch-3` (Audit H-Web-2). `costRef` pattern removed entirely; `onSubmit` now snapshots `{slotIndex, nextCostWei, stakeWei}` at the moment of click and passes `snap.nextCostWei + snap.stakeWei` to the launch tx — guaranteeing the user pays the price they saw, not whatever the live cost has rolled to during the IPFS pin. A `SnapshotBadge` renders during the pinning/signing/broadcasting window so the user has the cost commitment in front of them. On revert (slot taken / under-payment after a tier rollover) the existing `humanError` mapping in `useLaunchToken` surfaces a friendly message and the user can re-submit with the new cost. Follow-up: Epic 1.15 should add a `reserve(uint8 slotIndex)` with `error SlotTaken(uint8)` so we can distinguish "slot taken" from "tier rolled over" — both surface as `InsufficientPayment` today.
+
 **Severity:** High
 **Files:** packages/web/src/app/launch/page.tsx:100-101, 125
 **Spec ref:** n/a
@@ -91,6 +95,8 @@ Cost is captured via `costRef.current` so a re-render between user click and wri
 **Effort:** S
 
 ### [Web] ClaimForm proof array under-validated (size + format)
+**Status:** ✅ **FIXED** in `audit/web-high-batch-3` (Audit H-Web-3). New shared validator `packages/web/src/lib/claim/validateProof.ts` with `MAX_PROOF_LENGTH = 32` (Merkle depth 32 → up to 2^32 leaves, far more than any realistic season). Validator throws on: non-array / null / undefined / empty array / >32 entries / non-string item / non-hex item / wrong-length hex (not 64 hex chars after `0x`) / non-`0x`-prefixed item. Wired into both `parseRollover` and `parseBonus`. Pinned by `validateProof.test.ts` (9 tests covering each rejection path + the smallest and largest valid cases + mixed-case hex acceptance).
+
 **Severity:** High
 **Files:** packages/web/src/app/claim/rollover/page.tsx:23-24, packages/web/src/app/claim/bonus/page.tsx:23-24
 **Spec ref:** §22
@@ -108,6 +114,8 @@ if (!o.proof.every((p) => /^0x[0-9a-f]{64}$/i.test(p))) throw new Error("each it
 **Effort:** XS
 
 ### [Web] AdminTransferForms zero-address check duplicated
+**Status:** ✅ **FIXED** in `audit/web-high-batch-3` (Audit H-Web-4). `useTokenAdmin` already normalizes `address(0)` → `null` for every address field (the `nullIfZero` helper landed in the C-7 remediation). The duplicated string-literal compare in `AdminTransferForms.tsx:42` was dead but masked a dangerous fallback — if the hook ever stopped normalising, the literal check would silently keep the UI working on raw `0x0000…` data. Trust the hook's contract: `hasPending = pendingAdmin !== null`. Audit-driven cleanup also routed user-input zero-address checks (`AdminTransferForms` NominateForm + `RecipientForm`) through the existing shared `isZeroAddress()` helper in `lib/token/format.ts` — single predicate across the codebase, catches case variants. Pinned by `useTokenAdminZeroAddress.test.ts` (4 tests covering hook-level normalization, the post-fix `=== null` consumer pattern, and the absence of any `0x0000…` string literals in the touched components).
+
 **Severity:** High
 **Files:** packages/web/src/components/admin/AdminTransferForms.tsx:42
 **Spec ref:** §38.6
@@ -120,6 +128,8 @@ if (!o.proof.every((p) => /^0x[0-9a-f]{64}$/i.test(p))) throw new Error("each it
 **Effort:** XS
 
 ### [Web] No useEffect to scroll-to-accept when admin auth state mounts as PENDING
+**Status:** ✅ **FIXED** in `audit/web-high-batch-3` (Audit H-Web-5). New `useEffect` keyed on `auth.state` smooth-scrolls the accept-form anchor into view whenever the page transitions to PENDING (covers both initial-mount-as-PENDING and DISCONNECTED → PENDING after wallet connect). Paired with a 2-second pulse outline on the AdminTransferForms wrapper (via the new `pulseAccept` prop + `ff-pulse` keyframe) so the visual anchor matches the scroll target. Pinned by `adminScrollToAccept.test.ts` (5 tests covering the effect's dep array, the scrollIntoView shape, the pulse timeout, the pulse threading from page → component, and the data-pulse-accept attribute on the wrapper).
+
 **Severity:** High
 **Files:** packages/web/src/app/token/[address]/admin/page.tsx:100-102, 137
 **Spec ref:** §38.6
