@@ -50,7 +50,7 @@ contract BonusDistributorTest is Test {
         // Cannot post root before unlock.
         vm.warp(block.timestamp + 1 days);
         vm.prank(oracle);
-        vm.expectRevert(BonusDistributor.NotUnlocked.selector);
+        vm.expectRevert(BonusDistributor.NotYetUnlocked.selector);
         bonus.postRoot(1, bytes32(uint256(1)));
 
         vm.warp(block.timestamp + 13 days);

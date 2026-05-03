@@ -235,6 +235,8 @@ function setOracle(address oracle_) external onlyOwner {
 ## MEDIUM
 
 ### [Contracts] Missing event emission for oracle updates in SeasonVault
+**Status:** ↩ **CLOSE-INCIDENTAL** (2026-05-02, audit/polish-contracts). Audit H-2 dropped the stored `oracle` field on `SeasonVault` entirely — `onlyOracle` now reads `launcher.oracle()` live via `ILauncherView`. With no per-vault oracle slot, there is no per-vault oracle assignment to emit an event for; the launcher's `setOracle` is the canonical event source for oracle rotation. The original audit recommendation (per-constructor `OracleAssigned` event) is moot.
+
 **Severity:** Medium
 **Files:** packages/contracts/src/SeasonVault.sol:110 (oracle state, no setter)
 **Spec ref:** §11 (Settlement Distribution — user-aligned transparency)
@@ -275,6 +277,8 @@ constructor(...) {
 ---
 
 ### [Contracts] FilterLauncher missing event for factory assignment
+**Status:** ✅ **FIXED** (2026-05-02, audit/polish-contracts; M-Contracts-2). Added `event FactorySet(address indexed factory)` and emit it inside `setFactory` after the H-4 zero-address gate. Pinned by `test/security/PolishContractsPass.t.sol::test_MContracts2_SetFactory_EmitsFactorySet` (semantic test that drives an actual `setFactory` call) plus a guard test that asserts the zero-address path still reverts without emitting.
+
 **Severity:** Medium
 **Files:** packages/contracts/src/FilterLauncher.sol:200-203
 **Spec ref:** n/a (Event emission best practice)
@@ -309,6 +313,8 @@ function setFactory(IFilterFactory factory_) external onlyOwner {
 ---
 
 ### [Contracts] TournamentVault.claimRollover and claimBonus lack ReentrancyGuard
+**Status:** ↩ **CLOSE-INCIDENTAL** (2026-05-02, audit/polish-contracts; verified during M-Contracts-3 review). All four claim entries (`claimQuarterlyRollover`, `claimQuarterlyBonus`, `claimAnnualRollover`, `claimAnnualBonus`) already carry the `nonReentrant` modifier in current `TournamentVault.sol` (lines 351, 376, 493, 511). The audit was authored against an earlier revision; the modifier landed alongside the tournament settlement implementation and the spec §42.2.5 invariant is honoured today.
+
 **Severity:** Medium
 **Files:** packages/contracts/src/TournamentVault.sol (claimRollover, claimBonus functions)
 **Spec ref:** §42 (Settlement Invariant 5 — reentrancy safe)
@@ -345,6 +351,8 @@ function claimRollover(uint16 year, uint8 quarter, uint256 share, bytes32[] call
 ---
 
 ### [Contracts] Creator fee eligibility window differs from spec intent
+**Status:** 📋 **DOC** (2026-05-02, audit/polish-contracts; M-Contracts-4). Pinned the spec §10.3 anchor + the rationale for the 72h hard cap (launch window 48h, main cut at hour 96 ⇒ eligible range `[launchedAt, launchedAt + 72h)` regardless of cut) directly above the `ELIGIBILITY_WINDOW` constant in `CreatorFeeDistributor.sol`. A future maintainer detuning the value now sees the spec anchor in the diff and must justify in the same patch. Pinned by `test_MContracts4_EligibilityWindowNatSpec_PinsSpec103` which asserts the §10.3 anchor + the literal 72h value live in source.
+
 **Severity:** Medium
 **Files:** packages/contracts/src/CreatorFeeDistributor.sol:40, packages/contracts/src/FilterLauncher.sol (launch timing)
 **Spec ref:** §10.3 (Creator Fee Window)
@@ -380,6 +388,8 @@ The code is technically correct (72 hours = 3 days). Document the intent more cl
 ---
 
 ### [Contracts] Missing magic-number constants for fee BPS splits
+**Status:** 🔍 **CLOSE-AS-PASS** (2026-05-02, audit/polish-contracts). The audit's own re-inspection (Recommendation: "No action required — the codebase already uses named constants for all major BPS splits. This is compliant.") is the verdict: `SeasonVault` and `TournamentVault` both define the 45/25/10/10/10 + bounty BPS as named `public constant` values; `FilterLpLocker` does the same for the per-swap fee slices. No drift.
+
 **Severity:** Medium
 **Files:** packages/contracts/src/FilterLpLocker.sol:50-57
 **Spec ref:** n/a (Code quality)
@@ -408,6 +418,8 @@ No action required — the codebase already uses named constants for all major B
 ---
 
 ### [Contracts] Tournament vault POL deployment not yet wired
+**Status:** 🚧 **DEFER** (2026-05-02, audit/polish-contracts; M-Contracts-6). Already documented in `TournamentVault.sol:50-52` (NatSpec block on the contract describing the explicit accrual-only behaviour) and `FilterLauncher.sol:127` (singleton tournament vault NatSpec calling out the POL-deployment deferral). The accrual side is correct: POL slice is computed and recorded via the `polAccumulated` field on every quarterly/annual settlement; the WETH stays parked in the vault until the deployment path lands. Phase 2 follow-up requires extending the per-token `FilterLpLocker` auth so a `TournamentVault` can pull token-side liquidity from a locker it didn't originally launch — same shape as `POLManager.deployPOL` for weekly. No spec violation today.
+
 **Severity:** Medium
 **Files:** packages/contracts/src/TournamentVault.sol:50-52
 **Spec ref:** §13 (POL Philosophy & Use)
@@ -433,6 +445,8 @@ This is a deliberate deferral. Document it clearly in the contract NatSpec so fu
 ## LOW
 
 ### [Contracts] FilterLauncher constants use descriptive names but lack NatSpec comments
+**Status:** ↩ **CLOSE-INCIDENTAL** (2026-05-02, audit/polish-contracts). `MAX_LAUNCHES` and `LAUNCH_WINDOW_DURATION` both carry `@notice` NatSpec in current `FilterLauncher.sol` (lines 78-79, 81-82); the third spec-driven constant `SPEC_LOCK_MAX_LAUNCHES_PER_WALLET` (introduced for C-2) carries the longest-form NatSpec block of the three. Audit was authored against an earlier revision; no further action required.
+
 **Severity:** Low
 **Files:** packages/contracts/src/FilterLauncher.sol:76-82 (constants)
 **Spec ref:** n/a (Code style)
@@ -461,6 +475,8 @@ uint256 public constant LAUNCH_WINDOW_DURATION = 48 hours;
 ---
 
 ### [Contracts] POLVault.setPolManager() uses require() instead of custom errors
+**Status:** 🔍 **CLOSE-AS-PASS** (2026-05-02, audit/polish-contracts). Audit's own re-inspection ("Validation is correct; no issue found upon re-inspection") is the verdict. Verified: `POLVault.setPolManager` at line 91-96 uses two custom errors (`PolManagerAlreadySet` and `ZeroAddress`) and emits `PolManagerSet`; no `require()` strings remain.
+
 **Severity:** Low
 **Files:** packages/contracts/src/POLVault.sol:91-95
 **Spec ref:** n/a (Code consistency)
@@ -479,6 +495,8 @@ No action required.
 ---
 
 ### [Contracts] CreatorRegistry.acceptAdmin() lacks event on acceptance failure
+**Status:** 🔍 **CLOSE-AS-PASS** (2026-05-02, audit/polish-contracts). The audit itself notes "the revert is correct security behavior" and the recommendation is qualified ("if desired … but it is not necessary"). Logging revert paths is also an anti-pattern — emitting an event for failed authorisation lets an adversary spam the log surface (each failed call is paid by the adversary but pollutes the indexer's event stream and runs up storage costs on event-indexing infrastructure). The revert IS the signal; on-chain alerting on `NotPendingAdmin` selectors is the correct off-chain detection layer. Closed without code change.
+
 **Severity:** Low
 **Files:** packages/contracts/src/CreatorRegistry.sol (acceptAdmin function, not shown in full read)
 **Spec ref:** n/a (Event completeness)
@@ -499,6 +517,8 @@ This is a minor quality-of-life improvement, not a spec violation. If desired, l
 ## INFO
 
 ### [Contracts] BonusDistributor.postRoot() will silently block if called before unlock
+**Status:** ✅ **FIXED** (2026-05-02, audit/polish-contracts; I-Contracts-1). Renamed `error NotUnlocked()` → `error NotYetUnlocked()` in `BonusDistributor.sol` and updated the single revert site in `postRoot`. Also updated the existing test `test/BonusDistributor.t.sol::test_HappyPath` which referenced the old selector. The new name reads as a timing error in revert traces ("not yet unlocked") instead of an authorisation error ("you are not unlocked") that collided semantically with `NotOracle` / `NotLauncher` in the same file. Pinned by `test/security/PolishContractsPass.t.sol::test_IContracts1_NotYetUnlockedSelector_Exists` + `test_IContracts1_OldNotUnlockedName_NotPresent` (both selector existence AND old-name absence).
+
 **Severity:** Info
 **Files:** packages/contracts/src/BonusDistributor.sol:69-77
 **Spec ref:** n/a (Observation)
@@ -525,6 +545,8 @@ Consider renaming the error to `NotYetUnlocked` or `TooEarlyToPost` for clarity.
 ---
 
 ### [Contracts] SeasonPOLReserve likely missing external interface definition
+**Status:** 🚧 **DEFER** (2026-05-02, audit/polish-contracts; I-Contracts-2). Phase-2 follow-up — `SeasonPOLReserve` is currently used only internally by `SeasonVault` (constructor-deployed, no external callers). Defining `ISeasonPOLReserve` adds maintenance surface without solving any current problem; revisit when an external integration appears (e.g., a yield-router or MEV-protection adapter that needs to introspect the reserve from outside the vault).
+
 **Severity:** Info
 **Files:** packages/contracts/src/SeasonPOLReserve.sol (not fully read)
 **Spec ref:** n/a (Interface completeness)
@@ -546,6 +568,18 @@ This is not a requirement for genesis, but for Phase 2 and future upgrades, defi
 ---
 
 ### [Contracts] Invariant test coverage for §42 is thorough; all 8 invariants have tests
+**Status:** 🔍 **CLOSE-AS-PASS** (2026-05-02, audit/polish-contracts; I-Contracts-3). Verified all 8 §42.2 invariants have explicit invariant functions in `test/invariant/SettlementInvariants.t.sol`:
+- §42.2.1 conservation → `invariant_conservation` (line 108)
+- §42.2.2 settlement math → `invariant_settlementMathExact` (line 151)
+- §42.2.3 POL atomicity → `invariant_polAtomicity` (line 189)
+- §42.2.4 Merkle root immutable → `invariant_merkleRootImmutable` (line 224)
+- §42.2.5 reentrancy → `invariant_reentrancySafety` (line 251) + `invariant_bonusDistributor_reentrancySafe` (line 363)
+- §42.2.6 oracle authority → `invariant_oracleAuthority` (line 270) + `invariant_oracleAuthorityCurrent` (line 295)
+- §42.2.7 no mid-season POL → `invariant_noMidSeasonPolDeployment` (line 322)
+- §42.2.8 dust handling → `invariant_dustHandling` (line 379)
+
+All 8 covered with deterministic + fuzz layers. The audit's open question on invariants 7+8 is closed.
+
 **Severity:** Info
 **Files:** packages/contracts/test/invariant/SettlementInvariants.t.sol
 **Spec ref:** §42 (Settlement Invariants)
@@ -572,6 +606,8 @@ Verify that invariants 7 (no mid-season POL deployment) and 8 (dust handling to 
 ---
 
 ### [Contracts] POLManager correctly refuses zero-amount POL deployment
+**Status:** 🔍 **CLOSE-AS-PASS** (2026-05-02, audit/polish-contracts). PASS observation — already correct.
+
 **Severity:** Info
 **Files:** packages/contracts/src/POLManager.sol:93
 **Spec ref:** §12 (POL Accumulation)
@@ -593,6 +629,8 @@ No action required. This is correct behavior.
 ---
 
 ### [Contracts] Creator fee distributor design is sound but tight on assumptions
+**Status:** 📋 **DOC** (2026-05-02, audit/polish-contracts; I-Contracts-5). Pinned the audit-flagged assumption directly on the `lastSeenBalance` storage slot in `CreatorFeeDistributor.sol`: the balance-snapshot accounting is sequential-call-safe today because every token has exactly one factory-deployed `FilterLpLocker` (immutable) and `notifyFee` is gated to that locker, but a future caller surface (sponsor router, multi-locker pool) would skew the snapshot — the doc note explicitly calls out the underflow on `lastSeenBalance -= amount` in the redirect/claim paths as the failure mode so the next maintainer is forced to re-validate. Pinned by `test_IContracts5_LastSeenBalance_HasAssumptionNote`.
+
 **Severity:** Info
 **Files:** packages/contracts/src/CreatorFeeDistributor.sol
 **Spec ref:** §10 (Creator Incentives)

@@ -72,6 +72,12 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     event BaseLaunchCostUpdated(uint256 cost);
     event RefundableStakeToggled(bool enabled);
     event ForfeitRecipientUpdated(address recipient);
+    /// @notice Emitted exactly once per launcher deploy when the FilterFactory is wired.
+    ///         Audit M-Contracts-2 (Phase 1, 2026-05-01): the factory is the entrypoint for
+    ///         every token deployment and a one-shot setter; without an event, off-chain
+    ///         indexers + the operator runbook had no on-chain log of when and to which
+    ///         address the factory was wired.
+    event FactorySet(address indexed factory);
 
     // ============================================================ Constants
 
@@ -231,6 +237,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         // launcher recoverable.
         if (address(factory_) == address(0)) revert ZeroAddress();
         factory = factory_;
+        emit FactorySet(address(factory_));
     }
 
     /// @notice Rotate the oracle authorised to drive season lifecycle + filter events.
