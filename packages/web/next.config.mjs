@@ -39,13 +39,36 @@ const nextConfig = {
   // below are the minimum-viable lockdown for the current surface:
   //
   //   default-src 'self'                — deny everything not whitelisted
-  //   script-src 'self' 'wasm-unsafe-eval'
+  //   script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'
   //                                      — wagmi + viem use Wasm crypto
   //                                        primitives at signing time;
   //                                        without 'wasm-unsafe-eval' the
-  //                                        wallet flow breaks. Keep this
-  //                                        narrow — no 'unsafe-inline' /
-  //                                        'unsafe-eval'.
+  //                                        wallet flow breaks.
+  //                                        Bugbot fix on PR #80 (round 2):
+  //                                        'unsafe-inline' is load-bearing
+  //                                        because Next.js 14 App Router
+  //                                        emits inline
+  //                                        <script>self.__next_f.push(…)</script>
+  //                                        tags for RSC flight-data delivery
+  //                                        and client hydration. Without
+  //                                        'unsafe-inline' (or a per-request
+  //                                        nonce) the browser blocks those
+  //                                        scripts and the app dies — no
+  //                                        navigation, no wallet connect, no
+  //                                        form submit. Phase 2 TODO: migrate
+  //                                        to a nonce-based CSP via Next.js
+  //                                        middleware (`headers().set('x-
+  //                                        nonce', …)` + nonce-aware
+  //                                        `<Script nonce>` rendering); that
+  //                                        lets us drop 'unsafe-inline' and
+  //                                        regain XSS resistance for inline
+  //                                        scripts. NOT in scope for Phase 1
+  //                                        — the migration is a separate work
+  //                                        item with its own test surface.
+  //                                        'unsafe-eval' (the Wasm-less
+  //                                        form) remains explicitly excluded
+  //                                        — see the regression pin in
+  //                                        polishSecurityPass.test.tsx.
   //   connect-src 'self' INDEXER_URL https://*.base.org
   //               https://*.publicnode.com wss://*.walletconnect.{com,org}
   //               https://*.walletconnect.{com,org}
@@ -103,7 +126,7 @@ const nextConfig = {
     const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL ?? "http://localhost:42069";
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'wasm-unsafe-eval'",
+      "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
       `connect-src 'self' ${indexerUrl} https://*.base.org https://*.publicnode.com wss://*.walletconnect.com wss://*.walletconnect.org https://*.walletconnect.com https://*.walletconnect.org`,
       "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",

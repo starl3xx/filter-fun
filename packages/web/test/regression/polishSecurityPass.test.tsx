@@ -80,13 +80,15 @@ describe("H-Sec-CSP: next.config.mjs ships security headers on every route", () 
     expect(src).toMatch(/default-src\s+'self'/);
     expect(src).toMatch(/script-src\s+'self'\s+'wasm-unsafe-eval'/);
     expect(src).toMatch(/frame-ancestors\s+'none'/);
-    // Bugbot fix on PR #80: Pinata MUST NOT appear in CSP because it's
-    // server-only. Pin the absence so a future "tighten the CSP doc"
-    // pass can't silently re-add it. The doc-comment reference to
-    // `api.pinata.cloud` (explaining WHY it's excluded) is not in the
-    // template literal, so this line-level scope is sufficient.
-    const cspLine = src.match(/connect-src[^`'\n]*/)?.[0] ?? "";
-    expect(cspLine, "connect-src directive must not include api.pinata.cloud").not.toMatch(/api\.pinata\.cloud/);
+    // Bugbot fix on PR #80 (round 3): `'unsafe-inline'` in script-src is
+    // load-bearing for Next.js 14 App Router (RSC flight-data inline
+    // scripts at hydration). Pin its presence so a future "tighten the
+    // CSP" pass that drops it without setting up nonce middleware fails
+    // here loudly instead of silently breaking client-side hydration in
+    // production (no navigation, no wallet connect). When the Phase 2
+    // nonce-middleware migration lands, this assertion flips to require
+    // a nonce attribute scheme and 'unsafe-inline' goes away.
+    expect(src, "script-src must include 'unsafe-inline' until Phase 2 nonce middleware lands").toMatch(/script-src\s+'self'\s+'wasm-unsafe-eval'\s+'unsafe-inline'/);
     // Bugbot fix on PR #80: the previous regex
     // `/script-src[^"']*'unsafe-eval'(?!.*wasm)/` was dead — `[^"']*`
     // halts at the first `'self'` quote (so it can't reach a later
@@ -103,6 +105,21 @@ describe("H-Sec-CSP: next.config.mjs ships security headers on every route", () 
     expect(cspArray.length, "could not locate `const csp = [...]` array in next.config.mjs").toBeGreaterThan(0);
     expect(cspArray, "CSP array contains standalone 'unsafe-eval' (only 'wasm-unsafe-eval' is allowed)").not.toMatch(/(?<!wasm-)'unsafe-eval'/);
     expect(cspArray).not.toMatch(/default-src\s+\*/);
+    // Bugbot fix on PR #80 (round 3): the previous connect-src regex
+    // `/connect-src[^`'\n]*/` repeated the same character-class trap I
+    // already fixed for the script-src pin in round 2 — `[^`'\n]*`
+    // excludes single quotes, so the match halted at the first `'` in
+    // `'self'`, capturing only `"connect-src "` (12 chars) and
+    // making `not.toMatch(/api\.pinata\.cloud/)` pass trivially. The
+    // connect-src directive is the ONE template literal in the csp
+    // array (because it interpolates `${indexerUrl}`), so we can
+    // reliably bound it by its backticks: the match runs from the
+    // opening backtick to the next backtick. Scoped to cspArray so
+    // the doc-comment in next.config.mjs that mentions Pinata-by-name
+    // (explaining WHY it's excluded) is not flagged.
+    const connectSrcLine = cspArray.match(/`connect-src[^`]*`/)?.[0] ?? "";
+    expect(connectSrcLine.length, "could not locate `connect-src ...` template literal inside the csp array").toBeGreaterThan("`connect-src `".length);
+    expect(connectSrcLine, "connect-src directive must not include api.pinata.cloud (server-only)").not.toMatch(/api\.pinata\.cloud/);
   });
 
   it("includes the four non-CSP defense headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)", () => {
