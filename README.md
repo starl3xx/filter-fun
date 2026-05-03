@@ -46,6 +46,14 @@ npm --workspace @filter-fun/web       build   # Next.js production build
 
 CI runs the same commands per-package: `.github/workflows/contracts-ci.yml` (Foundry build + tests + `forge fmt --check`) and `.github/workflows/off-chain-ci.yml` (typecheck + tests for oracle / scheduler / scoring / web + `ponder codegen` for indexer).
 
+> **Typecheck note (Audit M-Deps-2):** TypeScript is not declared at the root — each workspace owns its `typescript` pin and `tsc` invocation. `tsc` from the repo root won't pick up a `tsconfig.json` and will error. Use the per-workspace form for typechecking: `npm --workspace @filter-fun/web run typecheck` (and likewise for `oracle` / `scheduler` / `scoring` / `indexer`). The pattern is intentional — keeps each package's TS version + compilerOptions self-contained.
+
+## Dependency policy
+
+Audit M-Deps-1 (Phase 1, 2026-05-03): every TypeScript workspace pins `"viem": "^2.21.0"`. Caret is intentional — monorepo policy is to take security patches automatically — but viem 2.x has historically introduced breaking changes within minors (chain definitions, RPC signatures). **Any viem upgrade requires a cross-package smoke test against the deployed Sepolia stack** before it lands on `main`. The smoke covers: indexer Ponder block-watch, scheduler tx-send + receipt path, oracle merkle build, web wagmi config + Arena read paths. If a viem release lands and any of these regress, pin exactly to the last-good minor (`"viem": "2.21.x"`) until a fix ships.
+
+The corresponding row in `audit/2026-05-PHASE-1-AUDIT/deps.md` is the audit anchor; this paragraph is the durable runtime policy.
+
 ## Deploying
 
 - **Base Sepolia:** [`docs/runbook-sepolia-smoke.md`](docs/runbook-sepolia-smoke.md) — `npm run deploy:sepolia` chains mine → deploy → verify; `script/SeedFilter.s.sol` seeds $FILTER. Manifest written to `deployments/base-sepolia.json` and consumed by indexer + web.
