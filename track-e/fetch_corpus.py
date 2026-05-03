@@ -1241,6 +1241,16 @@ def main():
     args = p.parse_args()
     output_path = Path(args.output) if args.output else CORPUS_PATH
 
+    # bugbot #66 finding 10: --stratified depends on --pilot to derive
+    # target_per_bucket; without --pilot the bucketing branch is dead code
+    # and the run silently degrades to non-stratified. Fail loud instead
+    # of producing a corpus that misrepresents what the operator asked for.
+    if args.stratified and args.pilot is None:
+        sys.exit(
+            "--stratified requires --pilot N to set the target bucket size "
+            "(N/2 each). Re-run with e.g. --pilot 250 --stratified."
+        )
+
     if ENV_PATH.exists():
         load_dotenv(ENV_PATH)
     rpc_url = os.environ.get("BASE_MAINNET_RPC_URL", "").strip()
@@ -1426,10 +1436,19 @@ def main():
             snapshot_log_fp.close()
 
     extractions = survivors + dead
+    # bugbot #66 finding 9: prior message claimed "rate among extracted"
+    # but computed rate-among-all-scanned (denominator was n_processed,
+    # not len(extractions)). The base-rate-in-the-wild is the interesting
+    # number; rename the field so the math matches the label. The
+    # corpus-internal ratio is by design ~50/50 when stratified.
+    base_rate = 100 * len(survivors) / max(n_processed, 1) if n_processed else 0.0
+    corpus_ratio = (
+        100 * len(survivors) / max(len(extractions), 1) if extractions else 0.0
+    )
     print(f"\nPhase 3: writing corpus.csv "
           f"({len(extractions)} tokens; {len(survivors)} survivors + {len(dead)} dead; "
-          f"observed survivor rate among extracted: "
-          f"{100 * len(survivors) / max(n_processed, 1):.1f}% of {n_processed} scanned)")
+          f"corpus survivor share: {corpus_ratio:.1f}%; "
+          f"base survivor rate in scan: {base_rate:.1f}% of {n_processed} scanned)")
     write_corpus(extractions, output_path)
 
 
