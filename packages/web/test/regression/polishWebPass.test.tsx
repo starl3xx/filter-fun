@@ -20,7 +20,7 @@
 ///              class to its title node.
 ///   - M-Web-7: api/metadata/route.ts opens with `import "server-only"` so
 ///              an accidental client import trips at build time.
-///   - M-Web-8: lib/wagmi.ts throws (production) / warns (dev/test) when the
+///   - M-Web-8: lib/wagmi.ts always warns (never throws) when the
 ///              active-chain RPC env var is unset.
 ///   - M-Web-9: ClaimForm no longer references the legacy `var(--fg|muted|
 ///              border|accent)` CSS aliases; globals.css no longer declares
@@ -260,9 +260,19 @@ describe("M-Web-7: metadata API route declares server-only", () => {
 // M-Web-8 -----------------------------------------------------------------
 //
 // Pre-fix: `http(undefined)` silently used viem's hard-coded public RPC
-// (rate-limited). Post-fix: module-load detects the missing env var and
-// throws in production / warns in dev/test.
-describe("M-Web-8: wagmi module validates the active chain's RPC env var at load", () => {
+// (rate-limited).
+//
+// First-fix (PR #72): module-load throws in production. This was wrong —
+// the throw runs at module-load in EVERY visitor's browser, so a missing
+// env var caused "Application error: client-side exception" on every
+// page load (production incident 2026-05-03). Cloudflare CDN caches the
+// broken bundle, slowing recovery even after the env var is restored.
+//
+// Final shape: always console.warn, never throw. viem's public-RPC
+// fallback is a strictly better failure mode than a broken page;
+// ops sees the warn in browser console + Railway server logs and
+// can fix the env var without users seeing a dead site.
+describe("M-Web-8: wagmi module logs (never throws) when active chain's RPC env var is missing", () => {
   const src = readSource("src/lib/wagmi.ts");
 
   it("module derives the expected env-var name from the active chain", () => {
@@ -271,20 +281,18 @@ describe("M-Web-8: wagmi module validates the active chain's RPC env var at load
     expect(src).toMatch(/NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL/);
   });
 
-  it("missing env var throws at runtime in production but NOT during next build", () => {
-    expect(src).toMatch(/process\.env\.NODE_ENV === "production"/);
-    expect(src).toMatch(/throw new Error\(message\)/);
-    // CI failure on PR #72: pre-fix this throw fired during `next build`'s
-    // static prerendering when env vars aren't provisioned in CI. The
-    // build-phase escape hatch keeps the runtime fail-fast intact while
-    // letting the build phase complete; the throw still fires at server
-    // start (`next start`) and browser-load.
-    expect(src).toMatch(/NEXT_PHASE === "phase-production-build"/);
-    expect(src).toMatch(/!isBuildPhase/);
+  it("missing env var produces a console.warn (loud-fail logging, not throw)", () => {
+    expect(src, "module must warn on missing RPC env so ops sees it in logs").toMatch(/console\.warn\(message\)/);
   });
 
-  it("missing env var only warns in dev / test / build-phase", () => {
-    expect(src).toMatch(/console\.warn\(message\)/);
+  // Production-incident anti-pin (2026-05-03): the previous
+  // `if (process.env.NODE_ENV === "production" && !isBuildPhase) { throw … }`
+  // shape took down the entire dapp for every visitor when an env var
+  // got dropped. A `throw new Error(...)` anywhere in this module is a
+  // regression — guard against re-introduction.
+  it("module never throws on missing RPC env (would crash every visitor's browser)", () => {
+    expect(src, "wagmi.ts must NOT throw at module-load on missing RPC — incident 2026-05-03").not.toMatch(/throw\s+new\s+Error/);
+    expect(src, "wagmi.ts must NOT gate on NODE_ENV === 'production' to choose throw-vs-warn — soft-fail in all environments").not.toMatch(/NODE_ENV\s*===\s*["']production["']/);
   });
 });
 
