@@ -267,6 +267,15 @@ describe("M-Ux-10: rollover claim page links to claims directory", () => {
     expect(src, "link should open in new tab").toMatch(/target="_blank"/);
     expect(src, "link should set rel for security").toMatch(/rel="noopener noreferrer"/);
   });
+  // Bugbot (PR #81 round 2): footer pre-fix was a fragment sibling of
+  // <ClaimForm/>, rendering OUTSIDE the constrained <main> and spanning
+  // the full viewport. Pin that the footer is routed through ClaimForm's
+  // `footerSlot` prop so it inherits the global 720px max-width.
+  it("ClaimRecoveryFooter is passed via ClaimForm footerSlot (constrained inside <main>)", () => {
+    const src = readSource("src/app/claim/rollover/page.tsx");
+    expect(src, "footer must be wired via footerSlot prop, not as a fragment sibling").toMatch(/footerSlot=\{<ClaimRecoveryFooter/);
+    expect(src, "page must NOT render ClaimRecoveryFooter as a fragment sibling of ClaimForm").not.toMatch(/<ClaimRecoveryFooter\s*\/>\s*<\/>/);
+  });
 });
 
 // L-Ux-1 ------------------------------------------------------------------
@@ -276,6 +285,32 @@ describe("L-Ux-1: bonus claim page surfaces the 14-day window", () => {
     expect(src).toMatch(/BonusWindowCard/);
     expect(src).toMatch(/14 days/);
     expect(src).toMatch(/When does this open\?/);
+  });
+  // Bugbot (PR #81 round 2): card pre-fix was a fragment sibling of
+  // <ClaimForm/>, rendering OUTSIDE the constrained <main> and spanning
+  // the full viewport. Pin that the card is routed through ClaimForm's
+  // `headerSlot` prop so it inherits the global 720px max-width.
+  it("BonusWindowCard is passed via ClaimForm headerSlot (constrained inside <main>)", () => {
+    const src = readSource("src/app/claim/bonus/page.tsx");
+    expect(src, "card must be wired via headerSlot prop, not as a fragment sibling").toMatch(/headerSlot=\{<BonusWindowCard/);
+    // Anti-pin: the page must NOT render BonusWindowCard as a top-level
+    // sibling of ClaimForm (matches the bug shape `<><BonusWindowCard
+    // /><ClaimForm…/></>`).
+    expect(src, "page must NOT render BonusWindowCard as a fragment sibling of ClaimForm").not.toMatch(/<BonusWindowCard\s*\/>\s*<ClaimForm/);
+  });
+});
+
+// Bugbot PR #81 round 2 — ClaimForm slot contract ------------------------
+describe("ClaimForm headerSlot/footerSlot render INSIDE <main>", () => {
+  it("ClaimForm's <main> renders headerSlot before <h1> and footerSlot after </Section>", () => {
+    const src = readSource("src/components/ClaimForm.tsx");
+    // Pin the prop names + that they're rendered inside the main element.
+    expect(src, "ClaimFormProps must declare headerSlot").toMatch(/headerSlot\?\s*:\s*ReactNode/);
+    expect(src, "ClaimFormProps must declare footerSlot").toMatch(/footerSlot\?\s*:\s*ReactNode/);
+    // Pin: the slots are rendered between <main> and </main> so the
+    // global CSS constraint applies.
+    expect(src, "headerSlot must render inside <main> right after the open tag").toMatch(/<main>\s*\n?\s*\{headerSlot\}/);
+    expect(src, "footerSlot must render before </main>").toMatch(/\{footerSlot\}\s*\n?\s*<\/main>/);
   });
 });
 

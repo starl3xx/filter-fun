@@ -149,6 +149,8 @@
 
 **Status (M-Ux-10, 2026-05-03):** ✅ FIXED. `app/claim/rollover/page.tsx` now renders a `<ClaimRecoveryFooter>` below the claim form linking to `https://docs.filter.fun/claims/recovery` (target="_blank" rel="noopener noreferrer"). Copy: "Need your claim JSON again? Follow the recovery flow." Pinned by `polishUxFlowsPass.test.tsx` (M-Ux-10 — asserts the copy, the docs URL, and the security-sensitive `target` + `rel` attributes).
 
+**Bugbot follow-up (PR #81 round 2, 2026-05-03):** Pre-fix the footer rendered as a fragment sibling of `<ClaimForm/>`, which placed it OUTSIDE the constrained `<main>` (globals.css applies `max-width: 720px; margin: 0 auto` to `main:not(.ff-arena-grid):not(.ff-launch-page)`). Result: footer spanned the full viewport while the form above was capped at 720px and centered. Fixed by adding `headerSlot?: ReactNode` and `footerSlot?: ReactNode` props to ClaimForm and routing both `<BonusWindowCard>` and `<ClaimRecoveryFooter>` through the slots so they render INSIDE the `<main>` and inherit the constraint. Anti-pin tests assert each helper is wired via the slot prop AND is NOT rendered as a fragment sibling.
+
 ---
 
 ## Flow 6 — Holder claiming hold bonus (/claim/bonus)

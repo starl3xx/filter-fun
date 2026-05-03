@@ -38,35 +38,40 @@ function parseBonus(raw: string): ParsedClaim {
 }
 
 export default function ClaimBonusPage() {
+  // Audit L-Ux-1 (Phase 1, 2026-05-03): the 14-day hold window gates
+  // eligibility. Pre-fix the user had no way to see when their bonus
+  // opens — a wallet that submits before the window opens hits an
+  // on-chain revert (mapped by humanizeClaimError to a friendly
+  // message, but better to prevent the round trip entirely). The static
+  // card below explains the cycle so a newly-rolled holder knows to
+  // wait. A future enhancement would read `bonusOpensAt(seasonId)` from
+  // the BonusDistributor and render an exact local-time "Bonus opens
+  // at…" countdown here; not in scope for Phase 1 (no public indexer
+  // endpoint exists for that read yet, and adding one is its own ticket).
+  //
+  // Bugbot (PR #81 round 2): pre-fix the card rendered as a fragment
+  // sibling of `<ClaimForm/>`, which placed it OUTSIDE ClaimForm's
+  // `<main>` element — the global `main:not(.ff-arena-grid)…` rule in
+  // globals.css applies `max-width: 720px; margin: 0 auto` to the form
+  // but not to a sibling, so the card spanned the full viewport while
+  // the form below it was 720px-capped. Routing the card through
+  // ClaimForm's `headerSlot` puts it inside the constrained `<main>`.
   return (
-    <>
-      {/* Audit L-Ux-1 (Phase 1, 2026-05-03): the 14-day hold window
-          gates eligibility. Pre-fix the user had no way to see when
-          their bonus opens — a wallet that submits before the window
-          opens hits an on-chain revert (mapped by humanizeClaimError
-          to a friendly message, but better to prevent the round trip
-          entirely). The static card below explains the cycle so a
-          newly-rolled holder knows to wait. A future enhancement
-          would read `bonusOpensAt(seasonId)` from the BonusDistributor
-          and render an exact local-time "Bonus opens at…" countdown
-          here; not in scope for Phase 1 (no public indexer endpoint
-          exists for that read yet, and adding one is its own ticket). */}
-      <BonusWindowCard />
-      <ClaimForm
-        title="Claim hold bonus"
-        subtitle="Holders of ≥80% of their rolled tokens for 14 days earn a slice of the WETH bonus reserve."
-        numericLabel="Amount (wei)"
-        jsonPlaceholder='{"seasonId": "1", "distributor": "0x…", "amount": "1000000000000000000", "proof": ["0x…"]}'
-        parseJson={parseBonus}
-        buildCall={(c) => claimBonusCall(c.contract, c.seasonId, c.numeric, c.proof)}
-        buildClaimedRead={(c, user) => ({
-          address: c.contract,
-          abi: BonusDistributorAbi,
-          functionName: "claimed",
-          args: [c.seasonId, user],
-        })}
-      />
-    </>
+    <ClaimForm
+      title="Claim hold bonus"
+      subtitle="Holders of ≥80% of their rolled tokens for 14 days earn a slice of the WETH bonus reserve."
+      numericLabel="Amount (wei)"
+      jsonPlaceholder='{"seasonId": "1", "distributor": "0x…", "amount": "1000000000000000000", "proof": ["0x…"]}'
+      parseJson={parseBonus}
+      buildCall={(c) => claimBonusCall(c.contract, c.seasonId, c.numeric, c.proof)}
+      buildClaimedRead={(c, user) => ({
+        address: c.contract,
+        abi: BonusDistributorAbi,
+        functionName: "claimed",
+        args: [c.seasonId, user],
+      })}
+      headerSlot={<BonusWindowCard />}
+    />
   );
 }
 

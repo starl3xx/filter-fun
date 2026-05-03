@@ -46,6 +46,14 @@ export interface ClaimFormProps {
   /// Builds the `claimed(...)` read call. Per-flow because rollover keys claims on
   /// `address` only (one vault per season) while bonus keys on `(seasonId, address)`.
   buildClaimedRead: (claim: ParsedClaim, user: Address) => ContractCallShape;
+  /// Optional content rendered ABOVE the title, INSIDE the `<main>` so it
+  /// inherits the global 720px max-width constraint. Bugbot caught (PR #81
+  /// round 2) that callers rendering siblings of `<ClaimForm/>` in a fragment
+  /// produced full-viewport-width helper cards while the form below stayed
+  /// 720px-capped — the slots route the content through the constraint.
+  headerSlot?: ReactNode;
+  /// Optional content rendered BELOW the form, inside the same `<main>`.
+  footerSlot?: ReactNode;
 }
 
 export function ClaimForm({
@@ -56,6 +64,8 @@ export function ClaimForm({
   parseJson,
   buildCall,
   buildClaimedRead,
+  headerSlot,
+  footerSlot,
 }: ClaimFormProps) {
   const {address, isConnected, chain: walletChain} = useAccount();
   const {switchChain, isPending: isSwitchingChain} = useSwitchChain();
@@ -137,6 +147,7 @@ export function ClaimForm({
 
   return (
     <main>
+      {headerSlot}
       <h1 style={{fontSize: 24, marginBottom: 8}}>{title}</h1>
       <p style={{color: C.dim, marginTop: 0, marginBottom: 32}}>{subtitle}</p>
 
@@ -229,6 +240,7 @@ export function ClaimForm({
           )}
         </Section>
       )}
+      {footerSlot}
     </main>
   );
 }
