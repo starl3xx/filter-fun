@@ -34,18 +34,21 @@ export function StatusBadge({status, compact}: StatusBadgeProps) {
         whiteSpace: "nowrap",
       }}
     >
-      {icon ? <span aria-hidden>{icon}</span> : null}
+      <span aria-hidden>{icon}</span>
       {label}
     </span>
   );
 }
 
-function treatmentFor(status: TokenStatus): {color: string; label: string; icon: string | null} {
+function treatmentFor(status: TokenStatus): {color: string; label: string; icon: string} {
   switch (status) {
     case "FINALIST":
       return {color: C.yellow, label: "Finalist", icon: "🏆"};
     case "SAFE":
-      return {color: C.green, label: "Safe", icon: null};
+      // Audit H-A11y-2 (ARENA_SPEC §12 icon+colour rule). Pre-fix `icon: null`
+      // conveyed status by green colour alone — fails for colour-blind users.
+      // ✓ (U+2713 CHECK MARK) is the colour-independent glyph.
+      return {color: C.green, label: "Safe", icon: "✓"};
     case "AT_RISK":
       // ARENA_SPEC §3.3 — AT_RISK is red ▼ (U+25BC), not orange ⚠️. Audit
       // H-Arena-3 caught the pre-fix orange/⚠️ pair which both broke the

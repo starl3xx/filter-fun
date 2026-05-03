@@ -299,6 +299,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               data-status="SAFE"
               style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
               Safe
             </span>
           </div>
@@ -385,6 +390,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               data-status="SAFE"
               style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
               Safe
             </span>
           </div>
@@ -471,6 +481,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               data-status="SAFE"
               style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
               Safe
             </span>
           </div>
@@ -557,6 +572,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               data-status="SAFE"
               style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
               Safe
             </span>
           </div>
@@ -1441,6 +1461,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               data-status="SAFE"
               style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
               Safe
             </span>
           </div>
@@ -1527,6 +1552,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               data-status="SAFE"
               style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
               Safe
             </span>
           </div>
@@ -1613,6 +1643,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               data-status="SAFE"
               style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
               Safe
             </span>
           </div>
@@ -1699,6 +1734,11 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               data-status="SAFE"
               style="display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 99px; background: rgba(82, 255, 139, 0.1); border: 1px solid rgba(82, 255, 139, 0.333); color: rgb(82, 255, 139); font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;"
             >
+              <span
+                aria-hidden="true"
+              >
+                ✓
+              </span>
               Safe
             </span>
           </div>

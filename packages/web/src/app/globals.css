@@ -67,6 +67,21 @@ a:hover {
   text-decoration: underline;
 }
 
+/* Audit H-A11y-1 (WCAG 2.4.7) — every form input across launch + admin pages
+   sets `outline: none` inline so focus has no default ring; this re-adds a
+   visible cyan ring on KEYBOARD focus only (not mouse) via :focus-visible.
+   `!important` is required because inline styles outrank pseudo-class rules in
+   the cascade — without it the inline `outline: none` would still win when
+   :focus-visible matches. The :focus-visible pseudo-class is supported in all
+   evergreen browsers and is the right choice (mouse users don't see the ring,
+   keyboard users do). */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--cyan) !important;
+  outline-offset: 1px;
+}
+
 button {
   font-family: inherit;
 }
