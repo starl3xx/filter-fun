@@ -173,7 +173,14 @@ code {
 
 /* Homepage / arena layout (Epic 1.4). 3-column on wide; stacks below 1100px
    with the leaderboard above the detail panel. Below 700px the right column
-   is hidden in-flow and re-rendered via the bottom-sheet on row tap. */
+   is hidden in-flow and re-rendered via the bottom-sheet on row tap.
+   Audit M-Arena-7 (Phase 1, 2026-05-02): ARENA_SPEC §5 originally specified
+   a fixed 1440×980 canvas. The implementation here is intentionally
+   responsive — confirmed user decision recorded in project memory
+   (`design_direction A2 (broadcast)` — "responsive (not fixed 1440)"). The
+   broadcast aesthetic carries; only the canvas dimensions differ from spec.
+   This note pins the deliberate departure so a future audit reads it as
+   intentional rather than drift. */
 .ff-arena-grid {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) 340px;

@@ -33,7 +33,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
         style="min-width: 760px;"
       >
         <div
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; padding: 8px 18px; font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; position: sticky; top: 0px; z-index: 1; background: rgb(21, 9, 31); border-bottom: 1px solid rgba(255, 255, 255, 0.04);"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; padding: 8px 18px; font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; position: sticky; top: 0px; z-index: 1; background: rgb(21, 9, 31); border-bottom: 1px solid rgba(255, 255, 255, 0.04);"
         >
           <div>
             #
@@ -63,11 +63,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
           >
             Trend
           </div>
+          <div />
         </div>
         <button
           aria-label="$FILTER rank 1 status finalist HP 98"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -154,11 +155,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$BLOOD rank 2 status finalist HP 92"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -245,11 +252,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$KING rank 3 status safe HP 88"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -336,11 +349,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$SURVIVE rank 4 status safe HP 80"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -427,11 +446,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$MOON rank 5 status safe HP 72"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -518,11 +543,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$FINAL rank 6 status safe HP 64"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -609,11 +640,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$CUT rank 7 status at_risk HP 52"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -700,11 +737,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$EDGE rank 8 status at_risk HP 44"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -791,11 +834,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$SLICE rank 9 status at_risk HP 32"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -882,11 +931,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$RUG rank 10 status filtered HP 22"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -973,11 +1028,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$DUST rank 11 status filtered HP 14"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.5; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1064,11 +1125,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$GHOST rank 12 status filtered HP 6"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.5; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1155,6 +1222,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard hides cut line in launch phas
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
       </div>
     </div>
@@ -1195,7 +1268,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
         style="min-width: 760px;"
       >
         <div
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; padding: 8px 18px; font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; position: sticky; top: 0px; z-index: 1; background: rgb(21, 9, 31); border-bottom: 1px solid rgba(255, 255, 255, 0.04);"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; padding: 8px 18px; font-size: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgba(255, 235, 255, 0.32); letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; position: sticky; top: 0px; z-index: 1; background: rgb(21, 9, 31); border-bottom: 1px solid rgba(255, 255, 255, 0.04);"
         >
           <div>
             #
@@ -1225,11 +1298,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
           >
             Trend
           </div>
+          <div />
         </div>
         <button
           aria-label="$FILTER rank 1 status finalist HP 98"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1316,11 +1390,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$BLOOD rank 2 status finalist HP 92"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: linear-gradient(90deg, #ffe93314, transparent 60%); border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1407,11 +1487,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$KING rank 3 status safe HP 88"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1498,11 +1584,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$SURVIVE rank 4 status safe HP 80"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1589,11 +1681,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$MOON rank 5 status safe HP 72"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1680,11 +1778,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$FINAL rank 6 status safe HP 64"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1771,6 +1875,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <div
           aria-label="Cut line — top 6 survive, bottom 6 get filtered"
@@ -1827,7 +1937,7 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
         <button
           aria-label="$CUT rank 7 status at_risk HP 52"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -1914,11 +2024,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$EDGE rank 8 status at_risk HP 44"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -2005,11 +2121,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$SLICE rank 9 status at_risk HP 32"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -2096,11 +2218,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$RUG rank 10 status filtered HP 22"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 1; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -2187,11 +2315,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$DUST rank 11 status filtered HP 14"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.5; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -2278,11 +2412,17 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
         <button
           aria-label="$GHOST rank 12 status filtered HP 6"
           aria-pressed="false"
-          style="display: grid; grid-template-columns: 32px 30px minmax(0, 1fr) 116px 92px 84px 78px 74px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.62; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
+          style="display: grid; grid-template-columns: 34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; align-items: center; opacity: 0.5; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.04); border-left: 2px solid transparent; color: inherit; cursor: pointer; position: relative; transition: opacity 0.6s ease, background 0.4s ease;"
           type="button"
         >
           <div
@@ -2369,6 +2509,12 @@ exports[`Arena visual snapshots > ArenaLeaderboard with 12-token cohort matches 
               />
             </svg>
           </div>
+          <span
+            aria-hidden="true"
+            style="display: block; text-align: right; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; font-size: 14px; font-weight: 900; color: rgba(255, 235, 255, 0.32); line-height: 1;"
+          >
+            ›
+          </span>
         </button>
       </div>
     </div>
@@ -2382,7 +2528,7 @@ exports[`Arena visual snapshots > ArenaTopBar matches snapshot 1`] = `
     aria-label="Arena status"
     class="ff-arena-topbar"
     role="banner"
-    style="position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: rgba(20, 8, 40, 0.55); flex-wrap: wrap;"
+    style="position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 0px 22px; min-height: 56px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: rgba(20, 8, 40, 0.55); flex-wrap: wrap;"
   >
     <div
       style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;"
@@ -2469,7 +2615,7 @@ exports[`Arena visual snapshots > ArenaTopBar matches snapshot 1`] = `
           Next cut in
         </span>
         <span
-          style="font-size: 16px; font-weight: 800; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgb(254, 242, 255); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
+          style="font-size: 14px; font-weight: 800; font-family: "JetBrains Mono", ui-monospace, monospace; color: rgb(254, 242, 255); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
         >
           26543d 12:00
         </span>
@@ -2484,7 +2630,7 @@ exports[`Arena visual snapshots > ArenaTopBar matches snapshot 1`] = `
           Champion Pool
         </span>
         <span
-          style="font-size: 16px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; color: rgb(255, 233, 51); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
+          style="font-size: 14px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; color: rgb(255, 233, 51); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
         >
           Ξ14.82
         </span>
@@ -2499,7 +2645,7 @@ exports[`Arena visual snapshots > ArenaTopBar matches snapshot 1`] = `
           Champion Backing
         </span>
         <span
-          style="font-size: 16px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; color: rgb(0, 240, 255); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
+          style="font-size: 14px; font-weight: 800; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; color: rgb(0, 240, 255); font-variant-numeric: tabular-nums; text-shadow: none; transition: text-shadow 0.6s ease;"
         >
           Ξ6.42
         </span>

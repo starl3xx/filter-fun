@@ -154,6 +154,8 @@ Spec: `filter` white + `.fun` pink. Code renders the whole string in default col
 ## MEDIUM
 
 ### [Arena] Leaderboard column grid widths drift from spec
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit M-Arena-1 + M-Arena-8 + L-Arena-3, combined fix). `COL_TEMPLATE` re-aligned to ARENA_SPEC §6.4.2 widths (`34px 28px minmax(0, 1fr) 86px 84px 70px 96px 60px 24px`) with two deliberate departures pinned in source comments: (1) name slot stays `minmax(0, 1fr)` (responsive variant of the spec's bare `1fr` — covered by M-Arena-7 design decision); (2) a 60 px Trend column sits between 24h and chevron (intentional addition to the spec's 8-col template, not drift). The new 24 px chevron column closes L-Arena-3 in the same edit. ColumnHeader updated to render 9 cells (8 labelled + blank chevron header). Pinned by `polishArenaPass.test.tsx` (4 tests covering the literal template, the 9-cell header count, the chevron span placement after MiniSpark, and the pink/faint selection colour rule).
+
 **Severity:** Medium
 **Files:** packages/web/src/components/arena/ArenaLeaderboard.tsx:51,159
 **Spec ref:** ARENA_SPEC §6.4.2
@@ -166,6 +168,8 @@ Spec: `34 28 1fr 86 84 70 96 24`. Code: `32 30 minmax(0,1fr) 116 92 84 78 74`. E
 **Effort:** S
 
 ### [Arena] Activity feed has no event-type → icon/colour map
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit M-Arena-2). New `EVENT_TYPE_STYLES` map keyed by `EventType` joins the indexer's 8 canonical event types to ARENA_SPEC §6.6's spec-listed icon + broadcast-palette colour pairs (RANK_CHANGED → 🚀 cyan, CUT_LINE_CROSSED → ⚠️ red, HP_SPIKE → 📈 green, VOLUME_SPIKE/LARGE_TRADE → 🐋 purple, FILTER_FIRED → ▼ red, FILTER_COUNTDOWN → 🎯 yellow, PHASE_ADVANCED → ✨ pink). Each row renders a coloured icon tile + colour-themed message text driven by the map; falls back to the existing `priorityColor()` if a future EventType lands without a map entry (defensive — the type system would normally catch this, but the wire format could drift faster than the consumer). Pinned by `polishArenaPass.test.tsx` (3 tests covering the HP_SPIKE → 📈/green pairing, the FILTER_FIRED → ▼/red pairing, and the VOLUME_SPIKE/LARGE_TRADE → 🐋/purple whale-family pairing).
+
 **Severity:** Medium
 **Files:** packages/web/src/components/arena/ArenaActivityFeed.tsx:73-82
 **Spec ref:** ARENA_SPEC §6.6
@@ -178,6 +182,8 @@ Spec defines 8 event types each with its own icon + colour (enter 🚀 cyan / ri
 **Effort:** M
 
 ### [Arena] Activity feed header missing 📡 icon and STREAMING pill
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit M-Arena-3). Header now renders `📡 Activity` on the left and a STREAMING pill on the right (mirrors the ArenaTopBar LIVE pill pattern: padding 3×8, bg 12% alpha, border 40% alpha, mono 8 px). Pill colour and label drive off the new `liveStatus` prop threaded from `useTickerEvents` via `app/page.tsx` — green pulsing dot when "open"; yellow + RECONNECTING / CONNECTING; faint + OFFLINE when "closed". Item count drops to a small mono number on the right of the pill (the "Recent · N" copy was redundant with the pill's "this is live" affordance). Defaults to `liveStatus="open"` so callers without a real status (tests, storyboards) get the green-pill default. Pinned by `polishArenaPass.test.tsx` (4 tests covering the 📡 in the heading, the open-state green pill, the reconnecting/closed pill colour swap, and the items-count surfacing).
+
 **Severity:** Medium → Low
 **Files:** packages/web/src/components/arena/ArenaActivityFeed.tsx:35-39
 **Spec ref:** ARENA_SPEC §6.6
@@ -218,6 +224,8 @@ Spec requires 400/500/600/700. Code loads 500/700/800.
 **Effort:** XS
 
 ### [Arena] Top-bar stat value font size 16 vs spec 14
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit M-Arena-6). `Stat` value span `fontSize` changed from 16 to 14 to match ARENA_SPEC §2.3 (T7). Pinned by `polishArenaPass.test.tsx` (2 tests: the post-fix `fontSize: 14` line + the `fontVariantNumeric: "tabular-nums"` adjacent token, plus a negative test asserting `fontSize: 16` no longer appears alongside the tabular-nums token to lock out a future regression).
+
 **Severity:** Medium → Low
 **Files:** packages/web/src/components/arena/ArenaTopBar.tsx:155
 **Spec ref:** ARENA_SPEC §2.3 (T7)
@@ -227,6 +235,8 @@ Spec requires 400/500/600/700. Code loads 500/700/800.
 **Effort:** XS
 
 ### [Arena] Responsive grid is mobile-first; spec requires fixed 1440×980
+**Status:** 📋 **DOC** in `audit/polish-arena` (Polish 4 — Audit M-Arena-7). Multi-line comment block added above the `.ff-arena-grid` rule in globals.css explicitly notes the deliberate departure from the spec's 1440×980 fixed canvas: "ARENA_SPEC §5 originally specified a fixed 1440×980 canvas. The implementation here is intentionally responsive — confirmed user decision recorded in project memory (`design_direction A2 (broadcast)` — 'responsive (not fixed 1440)'). The broadcast aesthetic carries; only the canvas dimensions differ from spec." So a future audit reads this as intentional rather than drift. No code change.
+
 **Severity:** Medium (Design Decision)
 **Files:** packages/web/src/app/globals.css:162-189, packages/web/src/app/page.tsx:204
 **Spec ref:** ARENA_SPEC §5
@@ -239,6 +249,8 @@ User-decided departure ("responsive (not fixed 1440)" per project memory). Docum
 **Effort:** XS (documentation only)
 
 ### [Arena] Leaderboard header grid not aligned to row grid (same wrong widths)
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit M-Arena-8, combined with M-Arena-1 + L-Arena-3). Both ColumnHeader and Row consume the same `COL_TEMPLATE` constant — fixing the constant once realigns both. ColumnHeader updated to render the 9th (chevron) blank cell so the header grid matches the row grid exactly. Combined-fix coverage in `polishArenaPass.test.tsx` (the M-Arena-1 cases above pin both surfaces simultaneously).
+
 **Severity:** Medium
 **Files:** packages/web/src/components/arena/ArenaLeaderboard.tsx:159
 **Spec ref:** ARENA_SPEC §6.4.1-§6.4.3
@@ -255,6 +267,8 @@ ColumnHeader reuses COL_TEMPLATE; if widths are wrong, header drifts in same dir
 ## LOW
 
 ### [Arena] Leaderboard rows below cut use opacity 0.62; spec calls for 0.5 only at ranks 11-12
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit L-Arena-1). `rowOpacity` ramp changed from `firingMode && filtered ? 0.42 : below ? 0.62 : 1` to `firingMode && filtered ? 0.42 : index >= 10 ? 0.5 : 1`. Now ranks 7-10 (indices 6-9) stay at full opacity (still in the running for next week's launches) and only the bottom 2 (indices 10-11, ranks 11-12) get the 0.5 fade — matches ARENA_SPEC §3.3. Firing-mode override unchanged. Pinned by `polishArenaPass.test.tsx` (2 tests: the post-fix expression + the negative pin against `below ? 0.62 : 1`).
+
 **Severity:** Low
 **Files:** packages/web/src/components/arena/ArenaLeaderboard.tsx:270
 **Spec ref:** ARENA_SPEC §3.3
@@ -264,6 +278,8 @@ ColumnHeader reuses COL_TEMPLATE; if widths are wrong, header drifts in same dir
 **Effort:** S
 
 ### [Arena] Cut line badge uses ambiguous "5×14 padded pill" interpretation
+**Status:** 📋 **DOC** in `audit/polish-arena` (Polish 4 — Audit L-Arena-2). Verified the rendered CutLine pill in DevTools (Chrome 122, 1440×980 viewport): the 5×14 padding interpretation produces a 24 px pill height that reads visually as the spec intends — narrow enough to feel like a marker, tall enough to anchor the cut-line bar. The spec ambiguity is genuine but the current implementation is the conservative read; documented as such. No code change.
+
 **Severity:** Low
 **Files:** packages/web/src/components/arena/ArenaLeaderboard.tsx:214-231
 **Spec ref:** ARENA_SPEC §6.4.4
@@ -275,6 +291,8 @@ ColumnHeader reuses COL_TEMPLATE; if widths are wrong, header drifts in same dir
 **Effort:** XS
 
 ### [Arena] Leaderboard row missing chevron column (8th cell)
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit L-Arena-3, combined with M-Arena-1 + M-Arena-8). Row body now renders a `›` glyph (display 14/900) in the trailing 24 px column, coloured pink when the row is selected else faint, per ARENA_SPEC §6.4.3. ColumnHeader gets a matching blank header cell so the header grid stays aligned. The chevron is `aria-hidden` because the click affordance is already on the parent `<button>` and the glyph adds no semantic information. Combined-fix coverage in the M-Arena-1 cases of `polishArenaPass.test.tsx`.
+
 **Severity:** Low
 **Files:** packages/web/src/components/arena/ArenaLeaderboard.tsx:236-407
 **Spec ref:** ARENA_SPEC §6.4.3
@@ -286,6 +304,8 @@ ColumnHeader reuses COL_TEMPLATE; if widths are wrong, header drifts in same dir
 **Effort:** XS
 
 ### [Arena] Top bar gap between sections is 12 (spec 22)
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit L-Arena-4). `<header>` `gap` changed from 12 to 22 per ARENA_SPEC §6.1. Pinned by `polishArenaPass.test.tsx` `L-Arena-4 + L-Arena-5` block.
+
 **Severity:** Low
 **Files:** packages/web/src/components/arena/ArenaTopBar.tsx:48
 **Spec ref:** ARENA_SPEC §6.1
@@ -295,6 +315,8 @@ ColumnHeader reuses COL_TEMPLATE; if widths are wrong, header drifts in same dir
 **Effort:** XS
 
 ### [Arena] Top bar padding `12px 18px` (spec `0 22px`); height not explicitly 56px
+**Status:** ✅ **FIXED** in `audit/polish-arena` (Polish 4 — Audit L-Arena-5). `<header>` `padding` changed from `"12px 18px"` to `"0 22px"` and explicit `minHeight: 56` added so the bar's vertical chrome comes from the min-height anchor rather than stacked vertical padding. Pinned by `polishArenaPass.test.tsx` `L-Arena-4 + L-Arena-5` block (3 sub-tests covering gap, padding shape, and min-height value).
+
 **Severity:** Low
 **Files:** packages/web/src/components/arena/ArenaTopBar.tsx:49
 **Spec ref:** ARENA_SPEC §6.1
@@ -319,23 +341,33 @@ ColumnHeader reuses COL_TEMPLATE; if widths are wrong, header drifts in same dir
 ## INFO
 
 ### [Arena] Triangle component renders correctly (gradient pink→red, unique id)
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-arena` (Polish 4 — Audit I-Arena-1). Re-inspection confirms the Triangle component renders the spec'd pink→red gradient with a unique id per instance (so multiple triangles on the same page don't collide). No code change.
+
 **Severity:** Info
 **Files:** packages/web/src/components/Triangle.tsx
 **Spec ref:** comprehensive spec §32.4
 
 ### [Arena] Cut-line badge, FILTERED status, AT-RISK chip, firing-mode stamp all use ▼
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-arena` (Polish 4 — Audit I-Arena-2). Re-inspection confirms all four ▼ surfaces use the U+25BC literal Unicode glyph (NOT 🔻 emoji), per the project memory + the H-Arena-3 fix on AT_RISK status badge. No code change.
+
 **Severity:** Info
 **Files:** packages/web/src/components/arena/{StatusBadge.tsx, ArenaLeaderboard.tsx}
 
 ### [Arena] Ticker fallback uses ▼; live wire payload may contain 🔻 (intentional, documented)
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-arena` (Polish 4 — Audit I-Arena-3). Re-inspection confirms the ticker fallback uses ▼ (consistent with Audit I-Arena-2 above) and the wire payload may carry 🔻 because the indexer is the canonical formatter; documented as intentional. No code change.
+
 **Severity:** Info
 **Files:** packages/web/src/components/arena/ArenaTicker.tsx:250-256
 
 ### [Arena] StatusBadge uses icon + label per ARENA_SPEC §12 a11y
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-arena` (Polish 4 — Audit I-Arena-4). Re-inspection confirms StatusBadge renders both icon AND label so screen readers announce the label and sighted users get the icon affordance. No code change.
+
 **Severity:** Info
 **Files:** packages/web/src/components/arena/StatusBadge.tsx:36-39
 
 ### [Arena] Sparkline colour fallback (zero change → cyan/dim by HP) is reasonable but spec-silent
+**Status:** 🔍 **CLOSE-AS-PASS** in `audit/polish-arena` (Polish 4 — Audit I-Arena-5). Re-inspection confirms the colour-fallback ladder is conservative (cyan when HP is healthy, dim when not). The spec is silent on this corner case so the implementation choice is reasonable; pinning a stricter rule would be premature. No code change.
+
 **Severity:** Info
 **Files:** packages/web/src/components/arena/ArenaLeaderboard.tsx:461-466
 
