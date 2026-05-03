@@ -1,6 +1,19 @@
 export {buildFilterEventPayload, buildSettlementPayload} from "./settlement.js";
 export {buildBonusPayload} from "./bonus.js";
 export {bonusLeaf, buildTree, getProof, rolloverLeaf, verifyProof} from "./merkle.js";
+export {
+  buildHpRankingPayload,
+  checkSettlementProvenance,
+  hpRankingLeaf,
+} from "./hpRankingProvenance.js";
+export type {
+  HpRankingEntry,
+  HpRankingPayload,
+  HpRankingPayloadInputs,
+  HpRankingProof,
+  HpRankingTrigger,
+  SettlementProvenance,
+} from "./hpRankingProvenance.js";
 export type {
   Address,
   FilterEventInputs,

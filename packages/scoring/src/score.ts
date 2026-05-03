@@ -158,46 +158,64 @@ export function score(
   return scored.map((s, idx) => ({...s, rank: idx + 1}));
 }
 
-/// Applies feature flags to a weight set:
-/// - `flags.concentration === false` → zero holderConcentration and
-///   renormalize the remaining five weights to sum to the original total
-///   (preserves HP ∈ [0, 1]).
-/// - `flags.momentum === false` → zero momentum's *weight* in addition to
-///   the score (the score short-circuit happens in `score`); this guarantees
+/// Applies feature flags to a weight set. Inactive components zero out;
+/// active components renormalize so the total sum is preserved (preserves
+/// HP ∈ [0, 1] for any base weight set, not just LOCKED_WEIGHTS).
+///
+/// - `flags.momentum === false` → zero momentum's weight (in addition to
+///   the score short-circuit in `score`). This guarantees
 ///   `flagsActive.momentum:false` rows have momentum.weight = 0 in the
 ///   stamped breakdown, so consumers reading historical rows can see that
 ///   the gate was off without ambiguity.
+/// - `flags.concentration === false` → zero holderConcentration's weight.
+///
+/// Renormalization runs once over the *active* subset after both gates have
+/// applied. **PR #71 bugbot caught a stacking bug** in the prior two-pass
+/// implementation: when both flags were off and `base.momentum > 0`, the
+/// concentration-off renormalization scaled to the post-momentum-zeroed
+/// sum rather than the original total, so the final weights summed to
+/// `1.0 - base.momentum` instead of 1.0. Harmless under LOCKED_WEIGHTS
+/// (momentum = 0 in v4) but the function is publicly exported and the
+/// docstring promises sum-preservation for any caller. The squash-merge
+/// of #71 dropped the original fix commit; re-applying here in 1.17b.
+/// Compute the active subset once, scale to `baseSum` in a single pass.
 export function applyFlagsToWeights(
   base: ScoringWeights,
   flags: WeightFlags,
 ): ScoringWeights {
-  let w: ScoringWeights = {...base};
-  if (!flags.momentum) {
-    w = {...w, momentum: 0};
-  }
-  if (!flags.concentration) {
-    const dropped = w.holderConcentration;
-    const remainingSum =
-      w.velocity + w.effectiveBuyers + w.stickyLiquidity + w.retention + w.momentum;
-    if (remainingSum > 0 && dropped > 0) {
-      // Scale the remaining weights so the total sum is preserved
-      // (i.e. we redistribute the dropped concentration mass proportionally
-      // across the other components). After scaling, the remaining sum
-      // equals `remainingSum + dropped` = original total.
-      const scale = (remainingSum + dropped) / remainingSum;
-      w = {
-        velocity: w.velocity * scale,
-        effectiveBuyers: w.effectiveBuyers * scale,
-        stickyLiquidity: w.stickyLiquidity * scale,
-        retention: w.retention * scale,
-        momentum: w.momentum * scale,
-        holderConcentration: 0,
-      };
-    } else {
-      w = {...w, holderConcentration: 0};
-    }
-  }
-  return w;
+  const baseSum =
+    base.velocity +
+    base.effectiveBuyers +
+    base.stickyLiquidity +
+    base.retention +
+    base.momentum +
+    base.holderConcentration;
+
+  const active: ScoringWeights = {
+    velocity: base.velocity,
+    effectiveBuyers: base.effectiveBuyers,
+    stickyLiquidity: base.stickyLiquidity,
+    retention: base.retention,
+    momentum: flags.momentum ? base.momentum : 0,
+    holderConcentration: flags.concentration ? base.holderConcentration : 0,
+  };
+  const activeSum =
+    active.velocity +
+    active.effectiveBuyers +
+    active.stickyLiquidity +
+    active.retention +
+    active.momentum +
+    active.holderConcentration;
+  if (activeSum <= 0 || activeSum === baseSum) return active;
+  const scale = baseSum / activeSum;
+  return {
+    velocity: active.velocity * scale,
+    effectiveBuyers: active.effectiveBuyers * scale,
+    stickyLiquidity: active.stickyLiquidity * scale,
+    retention: active.retention * scale,
+    momentum: active.momentum * scale,
+    holderConcentration: active.holderConcentration * scale,
+  };
 }
 
 /// Decayed net buy inflow with sybil dampening + churn discount.

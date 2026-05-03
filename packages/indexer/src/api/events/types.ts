@@ -21,7 +21,8 @@ export type EventType =
   | "LARGE_TRADE"         // single trade ≥ threshold (LOW unless near cut)
   | "FILTER_FIRED"        // contract emitted Filter phase / liquidation (HIGH)
   | "FILTER_COUNTDOWN"    // < N min until filter (HIGH)
-  | "PHASE_ADVANCED";     // any season phase advance (MEDIUM)
+  | "PHASE_ADVANCED"      // any season phase advance (MEDIUM)
+  | "HP_UPDATED";         // hpSnapshot row written (LOW; per-trigger, fires on every recompute — Epic 1.17b)
 
 export interface TokenSnapshot {
   address: `0x${string}`;

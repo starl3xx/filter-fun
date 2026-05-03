@@ -176,6 +176,21 @@ export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
   /// so it round-trips cleanly through Ponder's onchainTable shapes; consumers
   /// JSON.parse on read.
   flagsActive: t.text().notNull().default('{"momentum":true,"concentration":false}'),
+  /// What caused this row to be written (Epic 1.17b — compute pathway). One of:
+  ///   - `BLOCK_TICK`        — periodic block-interval handler (legacy default)
+  ///   - `SWAP`              — V4 PoolManager Swap event
+  ///   - `HOLDER_SNAPSHOT`   — FilterToken Transfer (holder-balance change → HHI shift)
+  ///   - `PHASE_BOUNDARY`    — scheduler tick at h0/24/48/72/96/168
+  ///   - `CUT`               — scheduler at h96 ± 10s, settlement-authoritative
+  ///   - `FINALIZE`          — scheduler at h168, winner-declaration data
+  ///
+  /// Settlement provenance: rows tagged `CUT` or `FINALIZE` are the inputs the
+  /// oracle Merkle-publishes BEFORE calling `SeasonVault.cut()` /
+  /// `.submitWinner()`. The on-chain settlement reads the oracle-posted root,
+  /// not the indexed row directly — this column lets auditors trace
+  /// "which scoring snapshot drove this settlement" without joining txs.
+  /// Pre-Epic-1.17b rows backfill to `BLOCK_TICK` (the only writer that existed).
+  trigger: t.text().notNull().default("BLOCK_TICK"),
 }));
 
 /// Running per-(token, holder) balance. Updated on every FilterToken Transfer.

@@ -226,6 +226,47 @@ psql "$INDEXER_DATABASE_URL" -c "
       treat as an incident (the writer isn't reading the version stamp).
 - [ ] `flags_active` = `{"momentum":false,"concentration":true}` for all live writes.
 
+#### Compute pathway (Epic 1.17b — `trigger` provenance)
+
+```sh
+psql "$INDEXER_DATABASE_URL" -c "
+  SELECT trigger, COUNT(*), MAX(snapshot_at_sec) AS last_at
+  FROM hp_snapshot
+  WHERE snapshot_at_sec > extract(epoch from now() - interval '24 hours')
+  GROUP BY 1 ORDER BY 1;
+"
+```
+
+- [ ] Expected triggers populated: `BLOCK_TICK` (every ~5 min), `SWAP` (during active trading
+      windows), `HOLDER_SNAPSHOT` (on Transfer events), `PHASE_BOUNDARY` (h0/24/48/72), `CUT`
+      (h96 ±10s), `FINALIZE` (h168 ±10s). Missing `SWAP` rows during a known-active window
+      means the swap handler isn't firing the recompute — page.
+- [ ] `MAX(snapshot_at_sec)` for `BLOCK_TICK` is within the last 5 minutes. Stale = engine
+      stalled; confirm `/readiness` is 200.
+
+```sh
+# Latency-SLA breaches in the last hour. Threshold: 3s for swap/holder, 5s end-to-end.
+kubectl -n filter-fun logs deploy/indexer --since=1h | grep '\[hp-recompute\] SLA breach'
+```
+
+- [ ] Empty output (or transient one-off lines). Sustained breaches = under-provisioned
+      DB / overloaded indexer; scale before alerts page.
+
+```sh
+# Settlement-authoritative provenance: every season produces exactly one CUT + one FINALIZE.
+psql "$INDEXER_DATABASE_URL" -c "
+  SELECT s.id AS season, t.trigger, COUNT(*) AS rows
+  FROM season s
+  LEFT JOIN hp_snapshot t ON t.snapshot_at_sec BETWEEN s.started_at AND s.started_at + 169*3600
+                          AND t.trigger IN ('CUT','FINALIZE')
+  GROUP BY s.id, t.trigger ORDER BY s.id DESC LIMIT 5;
+"
+```
+
+- [ ] Each closed season has exactly 12 CUT rows + 12 FINALIZE rows (one per token).
+      Missing rows = scheduler didn't fire its boundary tick or the webhook to the indexer
+      failed; cross-check `/scheduler/logs` for `phase-tick` entries.
+
 ### 2.2 Scheduler heartbeats
 
 ```sh

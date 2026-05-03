@@ -26,6 +26,9 @@ const PRIORITY_BY_TYPE: Record<DetectedEvent["type"], EventPriority> = {
   VOLUME_SPIKE: "MEDIUM",
   PHASE_ADVANCED: "MEDIUM",
   LARGE_TRADE: "LOW",
+  // HP_UPDATED is data refresh, not a ticker line — keep LOW so it sheds first
+  // under backpressure when a slow client is also receiving HIGH events.
+  HP_UPDATED: "LOW",
 };
 
 export function priorityOf(d: DetectedEvent): EventPriority {
@@ -93,6 +96,12 @@ function composeMessage(d: DetectedEvent): string {
     }
     case "PHASE_ADVANCED":
       return `Phase advanced → ${String(d.data.toPhase ?? "?")}`;
+    case "HP_UPDATED": {
+      // HP_UPDATED is data, not ticker copy — emit an empty message so the
+      // ticker UI skips rendering a line while web clients still see the
+      // structured `data` payload (hp + components + trigger + version).
+      return "";
+    }
     default:
       return `${t}`.trim() || "event";
   }

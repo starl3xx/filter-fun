@@ -2,71 +2,27 @@
 /// `blocks.HpSnapshot` filter (default every 150 blocks ≈ 5 min on Base). On each tick:
 ///
 ///   1. Resolve the current season + cohort via the same query shapes used by /season
-///      and /tokens. (We don't share code with the API tick engine because that's
-///      HTTP-side periodic; this is on-chain block-driven and the schemas of "what HP
-///      means *now*" must agree on a single source of truth — `scoreCohort`.)
-///   2. Run `scoreCohort` to derive HP + 5 components per token under phase weights.
-///   3. Write one `hpSnapshot` row per token. The endpoint reads these rows back and
-///      buckets/decimates per the user's interval query param.
+///      and /tokens.
+///   2. Run `scoreCohort` to derive HP + components per token under the v4-locked weights.
+///   3. Write one `hpSnapshot` row per token, tagged `trigger = "BLOCK_TICK"`.
 ///
-/// We intentionally key snapshots by `(token, snapshotAtSec)` (not block number) so the
-/// timeseries reads cleanly even when block cadence shifts. `snapshotAtSec` is the block
-/// timestamp of the firing block — Ponder doesn't expose wall-clock here.
+/// **Epic 1.17b refactor.** This handler now delegates to `recomputeAndStampHp`
+/// from `api/hpRecomputeWriter.ts`. The same primitive serves swap-driven,
+/// holder-driven, and scheduler-driven recomputes — keeping a single source
+/// of truth for "how to write an hpSnapshot row." `BLOCK_TICK` is the
+/// cohort-wide periodic floor; coalescing logic only applies to per-token
+/// triggers (SWAP, HOLDER_SNAPSHOT) and is a no-op here.
 
 import {ponder} from "@/generated";
-import {desc, eq} from "@ponder/core";
 
-import {hpSnapshot, season, token} from "../ponder.schema";
-
-import {hpAsInt100} from "./api/builders.js";
-import {scoreCohort} from "./api/hp.js";
-import {toApiPhase} from "./api/phase.js";
+import {recomputeAndStampHp} from "./api/hpRecomputeWriter.js";
 
 ponder.on("HpSnapshot:block", async ({event, context}) => {
-  // Resolve "current season" exactly the way the API does — highest seasonId in `season`.
-  // No season ⇒ nothing to snapshot. (Indexer just started; no token launches yet.)
-  const seasonRows = await context.db.sql
-    .select()
-    .from(season)
-    .orderBy(desc(season.id))
-    .limit(1);
-  const seasonRow = seasonRows[0];
-  if (!seasonRow) return;
-
-  const tokens = await context.db.sql
-    .select()
-    .from(token)
-    .where(eq(token.seasonId, seasonRow.id));
-  if (tokens.length === 0) return;
-
-  const apiPhase = toApiPhase(seasonRow.phase);
-  const scored = scoreCohort(
-    tokens.map((t) => ({id: t.id, liquidationProceeds: t.liquidationProceeds})),
-    apiPhase,
-    event.block.timestamp,
-  );
-
-  for (const t of tokens) {
-    const s = scored.get(t.id.toLowerCase());
-    if (!s) continue;
-    await context.db.insert(hpSnapshot).values({
-      id: `${t.id}:${event.block.timestamp.toString()}`.toLowerCase(),
-      token: t.id,
-      snapshotAtSec: event.block.timestamp,
-      hp: hpAsInt100(s.hp),
-      rank: s.rank,
-      velocity: s.components.velocity.score,
-      effectiveBuyers: s.components.effectiveBuyers.score,
-      stickyLiquidity: s.components.stickyLiquidity.score,
-      retention: s.components.retention.score,
-      momentum: s.components.momentum.score,
-      phase: apiPhase,
-      blockNumber: event.block.number,
-      // Epic 1.17a provenance: stamp the active version + flag bundle from the
-      // scoring package output. Every row written from now on can be re-derived
-      // by reading `weightsVersion` and looking up the corresponding spec entry.
-      weightsVersion: s.weightsVersion,
-      flagsActive: JSON.stringify(s.flagsActive),
-    });
-  }
+  await recomputeAndStampHp(context, {
+    // Cohort-wide trigger ignores the tokenAddress; pass a zero placeholder.
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    trigger: "BLOCK_TICK",
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+  });
 });
