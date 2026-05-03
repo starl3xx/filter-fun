@@ -6,7 +6,17 @@
 ///   • H-Arena-6: Wordmark renders `filter` (white) + `.fun` (pink), not a
 ///     single white string.
 import {render, screen} from "@testing-library/react";
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
+
+// Audit M-Ux-1 (Phase 1, 2026-05-03): ArenaTopBar now renders a wallet
+// connect button via wagmi hooks. These tests don't care about wallet
+// state — they assert top-bar visual spec — so mock the hooks at the
+// module boundary so a missing WagmiProvider doesn't crash the render.
+vi.mock("wagmi", () => ({
+  useAccount: () => ({address: undefined, isConnected: false}),
+  useConnect: () => ({connect: () => {}, connectors: [], status: "idle"}),
+  useDisconnect: () => ({disconnect: () => {}}),
+}));
 
 import {ArenaTopBar} from "../../src/components/arena/ArenaTopBar.js";
 import type {SeasonResponse} from "../../src/lib/arena/api.js";

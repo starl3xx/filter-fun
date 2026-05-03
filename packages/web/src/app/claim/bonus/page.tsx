@@ -7,6 +7,7 @@ import {BonusDistributorAbi, claimBonusCall} from "@filter-fun/scheduler";
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
 import {toIntegerBigInt} from "@/lib/claim/parseInteger";
 import {validateProof} from "@/lib/claim/validateProof";
+import {C, F} from "@/lib/tokens";
 
 /// Expected JSON shape (matches the per-user entries in the oracle's published bonus file):
 ///   { "seasonId": "1", "distributor": "0x…", "amount": "1000000000000000000", "proof": ["0x…"] }
@@ -37,6 +38,24 @@ function parseBonus(raw: string): ParsedClaim {
 }
 
 export default function ClaimBonusPage() {
+  // Audit L-Ux-1 (Phase 1, 2026-05-03): the 14-day hold window gates
+  // eligibility. Pre-fix the user had no way to see when their bonus
+  // opens — a wallet that submits before the window opens hits an
+  // on-chain revert (mapped by humanizeClaimError to a friendly
+  // message, but better to prevent the round trip entirely). The static
+  // card below explains the cycle so a newly-rolled holder knows to
+  // wait. A future enhancement would read `bonusOpensAt(seasonId)` from
+  // the BonusDistributor and render an exact local-time "Bonus opens
+  // at…" countdown here; not in scope for Phase 1 (no public indexer
+  // endpoint exists for that read yet, and adding one is its own ticket).
+  //
+  // Bugbot (PR #81 round 2): pre-fix the card rendered as a fragment
+  // sibling of `<ClaimForm/>`, which placed it OUTSIDE ClaimForm's
+  // `<main>` element — the global `main:not(.ff-arena-grid)…` rule in
+  // globals.css applies `max-width: 720px; margin: 0 auto` to the form
+  // but not to a sibling, so the card spanned the full viewport while
+  // the form below it was 720px-capped. Routing the card through
+  // ClaimForm's `headerSlot` puts it inside the constrained `<main>`.
   return (
     <ClaimForm
       title="Claim hold bonus"
@@ -51,6 +70,42 @@ export default function ClaimBonusPage() {
         functionName: "claimed",
         args: [c.seasonId, user],
       })}
+      headerSlot={<BonusWindowCard />}
     />
+  );
+}
+
+function BonusWindowCard() {
+  return (
+    <section
+      aria-label="When can I claim my bonus?"
+      style={{
+        marginBottom: 24,
+        padding: "12px 14px",
+        borderRadius: 8,
+        border: `1px solid ${C.cyan}66`,
+        background: `${C.cyan}14`,
+        fontSize: 13,
+        color: C.text,
+        lineHeight: 1.5,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontWeight: 800,
+          fontSize: 10,
+          letterSpacing: "0.16em",
+          color: C.cyan,
+          textTransform: "uppercase",
+          marginBottom: 6,
+        }}
+      >
+        When does this open?
+      </div>
+      <p style={{margin: 0, color: C.dim}}>
+        The hold bonus unlocks <strong style={{color: C.text}}>14 days after the rollover</strong> — your wallet must hold ≥80% of its rolled tokens through that window. The oracle publishes claim JSON ~30 seconds after the window closes; if you're early, the contract reverts and the bonus stays in the reserve until you can claim.
+      </p>
+    </section>
   );
 }

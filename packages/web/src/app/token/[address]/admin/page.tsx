@@ -66,7 +66,7 @@ function AdminConsole({token}: {token: Address}) {
   const {data: season, error: seasonError} = useSeason();
   const {data: tokens, error: tokensError} = useTokens();
   const {context} = useSeasonContext();
-  const {stats} = useTokenStats(token);
+  const {stats, isLoading: statsLoading} = useTokenStats(token);
   const {status: stakeStatus, error: stakeError} = useStakeStatus(token, context.seasonId);
   const {connect, connectors} = useConnect();
 
@@ -215,6 +215,18 @@ function AdminConsole({token}: {token: Address}) {
               )}
               <SurvivalActions token={tokenStats} />
             </>
+          ) : statsLoading ? (
+            // Audit M-Ux-7 (Phase 1, 2026-05-03): pre-fix the center column
+            // showed "This token isn't in the current season's cohort" the
+            // moment the page mounted, BEFORE the /tokens fetch resolved —
+            // so a creator landing on their own admin console saw a
+            // false-negative "not in cohort" message during the (~1s)
+            // loading window. Distinguishing the two states by checking
+            // `statsLoading` lets us render skeleton cards instead. The
+            // skeleton matches the visual rhythm of the real panels (HP
+            // bar + rank chip + countdown clock + stake panel) so the
+            // loading-to-loaded transition doesn't shift the layout.
+            <SkeletonStack />
           ) : (
             <Card label="Token">
               <p style={{margin: 0, fontSize: 13, color: C.dim, fontFamily: F.display}}>
@@ -297,6 +309,32 @@ function LiveDataErrorCard({error}: {error: Error}) {
         </code>
       </div>
     </Card>
+  );
+}
+
+/// Audit M-Ux-7: skeleton placeholder rendered in the center column
+/// while `useTokenStats` is still resolving. Four cards mirroring the
+/// shape of HpPanel + RankPanel + PhaseCountdown + StakeStatusPanel so
+/// the layout doesn't shift when the data lands. Pulses via the
+/// existing `ff-pulse` keyframe so the skeleton reads as "loading,"
+/// not "broken." Aria-hidden because the loading state is purely
+/// visual — screen readers get the rendered cards once they appear.
+function SkeletonStack() {
+  return (
+    <div aria-hidden style={{display: "flex", flexDirection: "column", gap: 12}}>
+      {[80, 56, 56, 72].map((h, i) => (
+        <div
+          key={i}
+          className="ff-pulse"
+          style={{
+            height: h,
+            borderRadius: 10,
+            background: "rgba(255,255,255,0.04)",
+            border: `1px solid ${C.line}`,
+          }}
+        />
+      ))}
+    </div>
   );
 }
 

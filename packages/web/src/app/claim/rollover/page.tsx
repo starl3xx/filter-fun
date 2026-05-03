@@ -7,6 +7,7 @@ import {claimRolloverCall, SeasonVaultAbi} from "@filter-fun/scheduler";
 import {ClaimForm, type ParsedClaim} from "@/components/ClaimForm";
 import {toIntegerBigInt} from "@/lib/claim/parseInteger";
 import {validateProof} from "@/lib/claim/validateProof";
+import {C} from "@/lib/tokens";
 
 /// Expected JSON shape (matches the per-user entries in the oracle's published settlement file):
 ///   { "seasonId": "1", "vault": "0x…", "share": "100", "proof": ["0x…"] }
@@ -39,6 +40,19 @@ function parseRollover(raw: string): ParsedClaim {
 }
 
 export default function ClaimRolloverPage() {
+  // Audit M-Ux-10 (Phase 1, 2026-05-03): users who lose their claim JSON
+  // (deleted email, lost the copy from the post-filter card, switched
+  // devices) had no recovery path pre-fix — the form just presents an
+  // empty textarea with no hint about what to do if they don't have the
+  // JSON anymore. The footer link points to the per-season claims
+  // directory in the docs site, where each season's full settlement file
+  // is mirrored and indexable by wallet address.
+  //
+  // Bugbot (PR #81 round 2): pre-fix the footer rendered as a fragment
+  // sibling of `<ClaimForm/>`, which placed it OUTSIDE ClaimForm's
+  // `<main>` element and stretched it to full viewport width while the
+  // form above was 720px-capped via globals.css. Routed through
+  // ClaimForm's `footerSlot` so it inherits the same constraint.
   return (
     <ClaimForm
       title="Claim rollover"
@@ -53,6 +67,23 @@ export default function ClaimRolloverPage() {
         functionName: "claimed",
         args: [user],
       })}
+      footerSlot={<ClaimRecoveryFooter />}
     />
+  );
+}
+
+function ClaimRecoveryFooter() {
+  return (
+    <p style={{marginTop: 32, color: C.dim, fontSize: 13, textAlign: "center"}}>
+      Need your claim JSON again?{" "}
+      <a
+        href="https://docs.filter.fun/claims/recovery"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{color: C.cyan, textDecoration: "underline"}}
+      >
+        Look it up by wallet in the claims directory →
+      </a>
+    </p>
   );
 }

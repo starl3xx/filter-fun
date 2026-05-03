@@ -2650,6 +2650,13 @@ exports[`Arena visual snapshots > ArenaTopBar matches snapshot 1`] = `
           Ξ6.42
         </span>
       </div>
+      <button
+        disabled=""
+        style="padding: 6px 14px; border-radius: 8px; background: linear-gradient(135deg, #ff3aa1, #9c5cff); color: rgb(255, 255, 255); font-weight: 800; font-size: 12px; cursor: not-allowed; font-family: "Bricolage Grotesque", Archivo, ui-sans-serif, sans-serif; letter-spacing: 0.02em; box-shadow: 0 3px 12px #ff3aa166, inset 0 1px 0 #ffffff44; opacity: 0.6;"
+        type="button"
+      >
+        Connect Wallet
+      </button>
     </div>
   </header>
 </DocumentFragment>

@@ -46,6 +46,14 @@ export interface ClaimFormProps {
   /// Builds the `claimed(...)` read call. Per-flow because rollover keys claims on
   /// `address` only (one vault per season) while bonus keys on `(seasonId, address)`.
   buildClaimedRead: (claim: ParsedClaim, user: Address) => ContractCallShape;
+  /// Optional content rendered ABOVE the title, INSIDE the `<main>` so it
+  /// inherits the global 720px max-width constraint. Bugbot caught (PR #81
+  /// round 2) that callers rendering siblings of `<ClaimForm/>` in a fragment
+  /// produced full-viewport-width helper cards while the form below stayed
+  /// 720px-capped — the slots route the content through the constraint.
+  headerSlot?: ReactNode;
+  /// Optional content rendered BELOW the form, inside the same `<main>`.
+  footerSlot?: ReactNode;
 }
 
 export function ClaimForm({
@@ -56,6 +64,8 @@ export function ClaimForm({
   parseJson,
   buildCall,
   buildClaimedRead,
+  headerSlot,
+  footerSlot,
 }: ClaimFormProps) {
   const {address, isConnected, chain: walletChain} = useAccount();
   const {switchChain, isPending: isSwitchingChain} = useSwitchChain();
@@ -137,6 +147,7 @@ export function ClaimForm({
 
   return (
     <main>
+      {headerSlot}
       <h1 style={{fontSize: 24, marginBottom: 8}}>{title}</h1>
       <p style={{color: C.dim, marginTop: 0, marginBottom: 32}}>{subtitle}</p>
 
@@ -224,11 +235,12 @@ export function ClaimForm({
                   tx: <code>{txHash}</code>
                 </p>
               )}
-              {submitError && <ErrorRow>{submitError.message}</ErrorRow>}
+              {submitError && <ErrorRow>{humanizeClaimError(submitError.message)}</ErrorRow>}
             </>
           )}
         </Section>
       )}
+      {footerSlot}
     </main>
   );
 }
@@ -326,6 +338,81 @@ function Row({k, children}: {k: string; children: ReactNode}) {
 
 function ErrorRow({children}: {children: ReactNode}) {
   return <p style={{color: C.pink, marginTop: 12, fontSize: 14}}>{children}</p>;
+}
+
+/// Audit M-Ux-9 (Phase 1, 2026-05-03): map known on-chain revert
+/// signatures to friendly, actionable messages so a Merkle-proof failure
+/// (the most common claim error) doesn't surface as raw
+/// "execution reverted (0x09bde339)" hex. The wagmi/viem error message
+/// includes either the decoded error name (when the ABI carries the
+/// custom error definition — `useWriteContract` does pass the ABI) or
+/// the raw selector hex (when decoding fails). We match on BOTH so the
+/// fix works regardless of which path viem takes for a given chain /
+/// RPC combination.
+///
+/// Selectors are first 4 bytes of keccak256(signature) — verified via
+/// `viem.toFunctionSelector()` at PR-write time so a typo here can't
+/// silently mismatch a real on-chain revert:
+///   - InvalidProof()              → 0x09bde339   (TournamentVault, BonusDistributor)
+///   - AlreadyClaimed()            → 0x646cf558   (TournamentVault, BonusDistributor)
+///   - WrongPhase()                → 0xe2586bcc   (TournamentVault — claim before t.phase == Settled)
+///   - BonusLocked()               → 0xf1192f69   (TournamentVault — bonus claim before unlockTime)
+///   - AlreadySettled()            → 0x560ff900   (TournamentVault — admin-side, oracle settle*)
+///   - AlreadyFunded()             → 0x5adf6387   (BonusDistributor — admin-only, not a user error)
+///   - ClaimExceedsAllocation()    → 0x12f02dca   (TournamentVault — share > allocated)
+///
+/// Bugbot caught (PR #81) that the pre-fix `AlreadySettled()` mapping was
+/// attached to the wrong revert: claim functions in TournamentVault revert
+/// with `WrongPhase()` (not `AlreadySettled()`) when called pre-settlement
+/// — `AlreadySettled()` is only thrown by the oracle-only `settle*` paths
+/// (and means "already settled, can't settle again", not "settlement
+/// hasn't completed yet"). Re-anchored the user-facing settlement-timing
+/// copy to `WrongPhase()` and demoted `AlreadySettled()` to a separate,
+/// admin-flavoured message in case it ever surfaces via this code path.
+///
+/// The "user rejected" branch is a wallet-side error not an on-chain
+/// revert, but it's the second-most-common error here and surfaces with
+/// a known string from every wallet (MetaMask, Rabby, Coinbase Wallet,
+/// WalletConnect injected providers); folding it in here keeps all the
+/// "the claim didn't work" copy in one place.
+///
+/// Returned string is the message to render. Falls back to a generic
+/// "Claim failed" header + the raw message in a small muted line so
+/// the user still has the original hex / decoded name to share with
+/// support if the friendly text doesn't help.
+export function humanizeClaimError(raw: string | null | undefined): string {
+  if (!raw) return "Claim failed.";
+  if (/InvalidProof\(\)|0x09bde339/i.test(raw)) {
+    return "This claim isn't valid for your wallet. Double-check that you pasted the JSON for THIS wallet — the proof is bound to the address it was issued for. If you switched wallets after the cut, reconnect the original one.";
+  }
+  if (/AlreadyClaimed\(\)|0x646cf558/i.test(raw)) {
+    return "This claim has already been redeemed. The funds went to your wallet on the original claim transaction — check your balance or transaction history.";
+  }
+  // Bugbot (PR #81): WrongPhase() is what TournamentVault.claimQuarterly*/
+  // claimAnnual* revert with when called before t.phase == Settled — this
+  // is the actual "claim too early" surface. AlreadySettled() (below) is
+  // unreachable from claim paths but kept mapped in case it ever surfaces
+  // via a different caller wired through this same humanizer.
+  if (/WrongPhase\(\)|0xe2586bcc/i.test(raw)) {
+    return "The week's settlement hasn't completed yet. Claims open shortly after the FILTER_FIRED event lands and the Merkle root publishes — try again in a moment.";
+  }
+  if (/BonusLocked\(\)|0xf1192f69/i.test(raw)) {
+    return "The hold-bonus window for this season hasn't opened yet. Bonuses unlock 14 days after settlement to reward holders who don't sell — come back after the unlock date listed on the bonus page.";
+  }
+  if (/AlreadySettled\(\)|0x560ff900/i.test(raw)) {
+    return "This season has already been settled. If you're trying to claim, your claim should already be open — try refreshing the page; if you're an operator, the settle call has already been made.";
+  }
+  if (/ClaimExceedsAllocation\(\)|0x12f02dca/i.test(raw)) {
+    return "The amount in this claim exceeds your allocated share. The JSON may be from a different season or a different wallet — re-fetch your claim.";
+  }
+  if (/User rejected the request|user rejected|UserRejectedRequestError/i.test(raw)) {
+    return "Transaction was rejected in your wallet. Click Claim again and approve in the wallet popup to retry.";
+  }
+  // Unknown — render a header + the raw underneath so the user can copy
+  // it for support. Truncate the raw at 240 chars so a long viem stack
+  // trace doesn't push the rest of the form off-screen.
+  const trimmed = raw.length > 240 ? `${raw.slice(0, 240)}…` : raw;
+  return `Claim failed. ${trimmed}`;
 }
 
 /// Audit C-6 (Phase 1 audit 2026-05-01) preflight chip. Renders inline above

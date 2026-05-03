@@ -19,8 +19,13 @@ import {Card, Field} from "./Card";
 ///     `recipient`. Since admin-transfer doesn't move creator identity, the
 ///     button is gated by *creator*, not admin.
 ///
-/// In-flight tx surfaces as "Submitting…" → "Confirming…" → flips to
-/// "Claimed Ξ…" on success.
+/// In-flight tx surfaces as "Sign in wallet…" → "Confirming…" → flips
+/// to "Claim confirmed." on success. Audit M-Ux-8 (Phase 1, 2026-05-03):
+/// the four admin sub-forms (this, MetadataForm, AdminTransferForms,
+/// BagLockCard) all follow the same 3-state pattern, vocabulary
+/// normalized to match the launch flow's SnapshotBadge phase labels
+/// ("Sign in your wallet…" / "Broadcasting…" → here "Confirming…"
+/// because the receipt-wait stage is what the admin forms call out).
 
 export type ClaimFeesPanelProps = {
   token: Address;
@@ -44,7 +49,7 @@ export function ClaimFeesPanel({token, creator, recipient, auth}: ClaimFeesPanel
   } else if (!isCreator) {
     label = "Only the creator can claim";
   } else if (fees.isSubmitting) {
-    label = "Submitting…";
+    label = "Sign in wallet…";
   } else if (fees.isMining) {
     label = "Confirming…";
   } else if (fees.pending === 0n) {

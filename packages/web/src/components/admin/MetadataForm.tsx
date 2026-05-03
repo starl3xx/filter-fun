@@ -101,10 +101,15 @@ export function MetadataForm({token, currentUri, canEdit}: MetadataFormProps) {
           fontFamily: F.display,
         }}
       >
+        {/* Audit M-Ux-8 (Phase 1, 2026-05-03): vocabulary normalized to
+            the launch SnapshotBadge pattern — "Sign in wallet…" while
+            wagmi is awaiting wallet approval, "Confirming…" while
+            useWaitForTransactionReceipt is polling. Matches
+            ClaimFeesPanel, AdminTransferForms, BagLockCard. */}
         {!canEdit
           ? "Admin only"
           : isSubmitting
-            ? "Submitting…"
+            ? "Sign in wallet…"
             : isMining
               ? "Confirming…"
               : "Update metadata"}
