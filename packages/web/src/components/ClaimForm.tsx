@@ -343,9 +343,20 @@ function ErrorRow({children}: {children: ReactNode}) {
 /// silently mismatch a real on-chain revert:
 ///   - InvalidProof()              → 0x09bde339   (TournamentVault, BonusDistributor)
 ///   - AlreadyClaimed()            → 0x646cf558   (TournamentVault, BonusDistributor)
-///   - AlreadySettled()            → 0x560ff900   (TournamentVault — claim before week settles)
+///   - WrongPhase()                → 0xe2586bcc   (TournamentVault — claim before t.phase == Settled)
+///   - BonusLocked()               → 0xf1192f69   (TournamentVault — bonus claim before unlockTime)
+///   - AlreadySettled()            → 0x560ff900   (TournamentVault — admin-side, oracle settle*)
 ///   - AlreadyFunded()             → 0x5adf6387   (BonusDistributor — admin-only, not a user error)
 ///   - ClaimExceedsAllocation()    → 0x12f02dca   (TournamentVault — share > allocated)
+///
+/// Bugbot caught (PR #81) that the pre-fix `AlreadySettled()` mapping was
+/// attached to the wrong revert: claim functions in TournamentVault revert
+/// with `WrongPhase()` (not `AlreadySettled()`) when called pre-settlement
+/// — `AlreadySettled()` is only thrown by the oracle-only `settle*` paths
+/// (and means "already settled, can't settle again", not "settlement
+/// hasn't completed yet"). Re-anchored the user-facing settlement-timing
+/// copy to `WrongPhase()` and demoted `AlreadySettled()` to a separate,
+/// admin-flavoured message in case it ever surfaces via this code path.
 ///
 /// The "user rejected" branch is a wallet-side error not an on-chain
 /// revert, but it's the second-most-common error here and surfaces with
@@ -365,8 +376,19 @@ export function humanizeClaimError(raw: string | null | undefined): string {
   if (/AlreadyClaimed\(\)|0x646cf558/i.test(raw)) {
     return "This claim has already been redeemed. The funds went to your wallet on the original claim transaction — check your balance or transaction history.";
   }
+  // Bugbot (PR #81): WrongPhase() is what TournamentVault.claimQuarterly*/
+  // claimAnnual* revert with when called before t.phase == Settled — this
+  // is the actual "claim too early" surface. AlreadySettled() (below) is
+  // unreachable from claim paths but kept mapped in case it ever surfaces
+  // via a different caller wired through this same humanizer.
+  if (/WrongPhase\(\)|0xe2586bcc/i.test(raw)) {
+    return "The week's settlement hasn't completed yet. Claims open shortly after the FILTER_FIRED event lands and the Merkle root publishes — try again in a moment.";
+  }
+  if (/BonusLocked\(\)|0xf1192f69/i.test(raw)) {
+    return "The hold-bonus window for this season hasn't opened yet. Bonuses unlock 14 days after settlement to reward holders who don't sell — come back after the unlock date listed on the bonus page.";
+  }
   if (/AlreadySettled\(\)|0x560ff900/i.test(raw)) {
-    return "The week's settlement hasn't completed yet. Claims open ~30 seconds after the FILTER_FIRED event lands and the Merkle root publishes — try again in a moment.";
+    return "This season has already been settled. If you're trying to claim, your claim should already be open — try refreshing the page; if you're an operator, the settle call has already been made.";
   }
   if (/ClaimExceedsAllocation\(\)|0x12f02dca/i.test(raw)) {
     return "The amount in this claim exceeds your allocated share. The JSON may be from a different season or a different wallet — re-fetch your claim.";

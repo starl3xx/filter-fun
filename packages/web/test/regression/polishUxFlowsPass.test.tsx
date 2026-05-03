@@ -212,9 +212,27 @@ describe("M-Ux-9: humanizeClaimError maps known revert selectors", () => {
     expect(humanizeClaimError("AlreadyClaimed()")).toMatch(/already/i);
     expect(humanizeClaimError("0x646cf558")).toMatch(/already/i);
   });
-  it("AlreadySettled() → mentions settlement timing", () => {
-    expect(humanizeClaimError("AlreadySettled()")).toMatch(/settlement/i);
-    expect(humanizeClaimError("0x560ff900")).toMatch(/settlement/i);
+  // Bugbot caught (PR #81 round 1): pre-fix this test was on AlreadySettled()
+  // which is unreachable from claim paths — TournamentVault.claim* revert
+  // with WrongPhase() when called before t.phase == Settled. Pinned the
+  // settlement-timing copy to the actual user-reachable error so a future
+  // refactor that drops the WrongPhase mapping fails this test.
+  it("WrongPhase() → mentions settlement timing (the real claim-too-early error)", () => {
+    expect(humanizeClaimError("WrongPhase()")).toMatch(/settlement/i);
+    expect(humanizeClaimError("0xe2586bcc")).toMatch(/settlement/i);
+  });
+  it("BonusLocked() → mentions hold-bonus window", () => {
+    expect(humanizeClaimError("BonusLocked()")).toMatch(/bonus/i);
+    expect(humanizeClaimError("0xf1192f69")).toMatch(/14 days/);
+  });
+  it("AlreadySettled() → admin-flavoured 'already settled' copy (NOT pre-settlement)", () => {
+    // AlreadySettled() is not reachable from claim paths but kept mapped
+    // for completeness. Anti-pin: must NOT carry the pre-settlement copy
+    // (that belongs on WrongPhase) — this guards against a regression that
+    // re-confuses the two errors.
+    expect(humanizeClaimError("AlreadySettled()")).toMatch(/already been settled/i);
+    expect(humanizeClaimError("AlreadySettled()")).not.toMatch(/hasn't completed yet/i);
+    expect(humanizeClaimError("0x560ff900")).toMatch(/already been settled/i);
   });
   it("ClaimExceedsAllocation() → mentions exceeds allocated", () => {
     expect(humanizeClaimError("ClaimExceedsAllocation()")).toMatch(/exceeds/i);
