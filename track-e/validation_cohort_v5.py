@@ -67,7 +67,6 @@ from fetch_corpus import (
     get_logs,
     hex_to_int,
     resolve_launch_timestamps,
-    save_state,
     topic0,
     write_corpus,
 )
@@ -355,7 +354,10 @@ def main(argv: list[str] | None = None) -> int:
     output_path = (Path(__file__).parent / args.output).resolve() \
         if not Path(args.output).is_absolute() else Path(args.output)
     write_corpus(extractions, output_path)
-    save_state(state)
+    # Don't persist `state` — bugbot #87 finding 1 caught that this would
+    # clobber shared `.fetch_state.json` (which is owned by fetch_corpus.py
+    # and seeded with cumulative discovery metadata across runs). The v4
+    # validation script deliberately omits save_state for the same reason.
     print(f"\nWrote {len(extractions)} cohort tokens → {output_path}")
     return 0
 
