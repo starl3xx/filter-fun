@@ -48,6 +48,16 @@ When asked to "canonicalize URLs" or "sweep URLs," replace:
 - Operator runbooks: `docs/runbook-*.md`.
 - Roadmap + epic structure: lives outside this repo (referenced from the docs site).
 
+## Solidity dependencies
+
+Audit L-Deps-2 (Phase 1, 2026-05-03): `forge-std`, `openzeppelin-contracts`, and
+`solady` are tracked as git submodules under `packages/contracts/lib/` rather than
+through `foundry.toml`'s `[dependencies]` registry. The submodule commit hash IS the
+version — pin updates land as submodule SHA bumps in regular PRs. This is the
+standard Foundry pattern; don't move these to a `[dependencies]` block without a
+specific reason (the submodule form survives offline checkouts and has no
+network-fetched cache to invalidate).
+
 ## Project memory
 
 User-specific preferences and rolling context are persisted under
