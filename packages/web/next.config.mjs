@@ -3,6 +3,31 @@ import {fileURLToPath} from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/// Sanitize NEXT_PUBLIC_INDEXER_URL for safe interpolation into the CSP
+/// `connect-src` directive. See the inline comment in `headers()` for
+/// the threat model. Throws at config-load time if the env var is
+/// malformed — that surfaces as a build-time error rather than a silent
+/// broken / exploitable CSP at runtime. Keep this helper at module
+/// scope (not inside `headers()`) so the throw fires when next.config
+/// is parsed, not lazily on the first request.
+function safeIndexerUrl() {
+  const raw = process.env.NEXT_PUBLIC_INDEXER_URL ?? "http://localhost:42069";
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      `NEXT_PUBLIC_INDEXER_URL is not a valid URL: ${JSON.stringify(raw)}`,
+    );
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      `NEXT_PUBLIC_INDEXER_URL must use http: or https: scheme, got ${parsed.protocol} (raw: ${JSON.stringify(raw)})`,
+    );
+  }
+  return parsed.origin;
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -123,7 +148,20 @@ const nextConfig = {
   // to every route with `source: "/(.*)"` — the API routes return their
   // own JSON content-type and don't conflict with the page-level CSP.
   async headers() {
-    const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL ?? "http://localhost:42069";
+    // Bugbot fix on PR #80 (round 4): NEXT_PUBLIC_INDEXER_URL is
+    // deployer-controlled but is interpolated into a CSP directive, where
+    // `;` separates directives and whitespace separates source
+    // expressions. A raw value like
+    // `https://api.filter.fun; worker-src *` would terminate
+    // `connect-src` early and inject an attacker-controlled `worker-src`
+    // directive. Defend by parsing through `new URL()` and reducing to
+    // `.origin` (protocol + host + optional port) — that strips path,
+    // query, fragment, and (more importantly) makes the parser reject
+    // any value that isn't a single well-formed URL. We additionally
+    // require http: or https: so a `javascript:` or `data:` scheme can't
+    // sneak in. A bad env var fails the build with a clear error message
+    // at config-load time, not a silent broken CSP at runtime.
+    const indexerUrl = safeIndexerUrl();
     const csp = [
       "default-src 'self'",
       "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",

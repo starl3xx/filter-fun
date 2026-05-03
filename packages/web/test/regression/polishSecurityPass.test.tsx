@@ -128,6 +128,99 @@ describe("H-Sec-CSP: next.config.mjs ships security headers on every route", () 
     expect(src).toMatch(/key\s*:\s*["']Referrer-Policy["']/);
     expect(src).toMatch(/key\s*:\s*["']Permissions-Policy["']/);
   });
+
+  // Bugbot fix on PR #80 (round 4): NEXT_PUBLIC_INDEXER_URL is
+  // deployer-controlled but is interpolated into the CSP `connect-src`
+  // directive. CSP uses `;` as directive separator and whitespace as
+  // source-expression separator — a raw value like
+  // `https://api.foo; worker-src *` would terminate `connect-src` early
+  // and inject an attacker-controlled `worker-src` directive. The
+  // `safeIndexerUrl` helper parses through `new URL()` and reduces to
+  // `.origin` so the parser rejects garbage and the result is
+  // syntactically incapable of carrying a `;` or whitespace. These
+  // tests pin both the helper's existence in next.config.mjs (so a
+  // future "simplify" pass can't silently revert to raw interpolation)
+  // and the helper's behavior on hostile inputs (so a "looks ok"
+  // weakening of the validation logic — e.g. swapping `parsed.origin`
+  // for `parsed.toString()` — is caught here). Behavior is verified by
+  // re-implementing the same check inline in this test rather than
+  // importing the helper, because next.config.mjs runs a full Next
+  // config-load chain on import. Source-grep is sufficient to pin that
+  // the production code matches this shape; the inline behavior tests
+  // are the contract.
+  describe("safeIndexerUrl validates NEXT_PUBLIC_INDEXER_URL before CSP interpolation", () => {
+    it("source has a safeIndexerUrl helper that uses new URL(...) and .origin", () => {
+      expect(src, "next.config.mjs must define a safeIndexerUrl() helper").toMatch(/function\s+safeIndexerUrl\s*\(\s*\)/);
+      const helperBody = src.match(/function\s+safeIndexerUrl\s*\(\s*\)\s*\{([\s\S]*?)^\}/m)?.[1] ?? "";
+      expect(helperBody.length, "could not locate safeIndexerUrl function body").toBeGreaterThan(0);
+      expect(helperBody, "safeIndexerUrl must read NEXT_PUBLIC_INDEXER_URL").toMatch(/NEXT_PUBLIC_INDEXER_URL/);
+      expect(helperBody, "safeIndexerUrl must call new URL(...) to validate the env var").toMatch(/new\s+URL\s*\(/);
+      expect(helperBody, "safeIndexerUrl must reduce to `.origin` (strips path/query/fragment, can't contain `;` or whitespace)").toMatch(/\.origin/);
+      expect(helperBody, "safeIndexerUrl must reject non-http(s) schemes (no javascript:/data:)").toMatch(/['"]https?:['"]/);
+    });
+
+    it("the connect-src directive interpolates the helper output, not the raw env var", () => {
+      const cspArray = src.match(/const\s+csp\s*=\s*\[([\s\S]*?)\]\.join/)?.[1] ?? "";
+      const connectSrcLine = cspArray.match(/`connect-src[^`]*`/)?.[0] ?? "";
+      expect(connectSrcLine, "connect-src interpolates raw process.env.NEXT_PUBLIC_INDEXER_URL — must go through safeIndexerUrl()").not.toMatch(/process\.env\.NEXT_PUBLIC_INDEXER_URL/);
+      expect(connectSrcLine, "connect-src must interpolate ${indexerUrl}").toMatch(/\$\{indexerUrl\}/);
+      // The `const indexerUrl = safeIndexerUrl()` declaration lives in
+      // the `headers()` function body, BEFORE the csp array literal —
+      // so search the full source, not just cspArray. The `headers()`
+      // body is the only legitimate place this binding can appear (the
+      // helper itself is module-scope and named differently).
+      expect(src, "indexerUrl must be the result of safeIndexerUrl()").toMatch(/const\s+indexerUrl\s*=\s*safeIndexerUrl\s*\(\s*\)/);
+      // Negative pin: nowhere should the raw env var be assigned to
+      // `indexerUrl` — that would silently revert the round-4 fix.
+      expect(src, "indexerUrl must not be a raw process.env read").not.toMatch(/const\s+indexerUrl\s*=\s*process\.env\.NEXT_PUBLIC_INDEXER_URL/);
+    });
+
+    // Re-implement the validation inline so behavior is contract-tested
+    // even though the helper lives in next.config.mjs (which we can't
+    // cleanly import in vitest — Next runs a full config-load chain).
+    // If this inline implementation drifts from the helper, the
+    // source-grep test above catches the shape change.
+    function validateInline(raw: string): string {
+      let parsed: URL;
+      try {
+        parsed = new URL(raw);
+      } catch {
+        throw new Error(`bad url: ${raw}`);
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error(`bad scheme: ${parsed.protocol}`);
+      }
+      return parsed.origin;
+    }
+
+    it("rejects a value with a CSP injection attempt (semicolon + new directive)", () => {
+      expect(() => validateInline("https://api.filter.fun; worker-src *")).toThrow();
+    });
+
+    it("rejects a value with whitespace (would split into multiple source expressions)", () => {
+      expect(() => validateInline("https://api.filter.fun https://evil.example")).toThrow();
+    });
+
+    it("rejects a javascript: scheme", () => {
+      expect(() => validateInline("javascript:alert(1)")).toThrow(/scheme/);
+    });
+
+    it("rejects a data: scheme", () => {
+      expect(() => validateInline("data:text/plain,hi")).toThrow(/scheme/);
+    });
+
+    it("rejects unparseable garbage", () => {
+      expect(() => validateInline("not a url at all")).toThrow();
+    });
+
+    it("accepts a clean https origin and reduces it to its .origin (drops path/query/fragment)", () => {
+      expect(validateInline("https://indexer.filter.fun/api/v1?token=abc#frag")).toBe("https://indexer.filter.fun");
+    });
+
+    it("accepts the localhost dev default", () => {
+      expect(validateInline("http://localhost:42069")).toBe("http://localhost:42069");
+    });
+  });
 });
 
 // M-Sec-2 -------------------------------------------------------------------
