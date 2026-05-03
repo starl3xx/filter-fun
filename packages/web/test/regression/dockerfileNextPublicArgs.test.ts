@@ -85,6 +85,47 @@ describe("Dockerfile forwards every NEXT_PUBLIC_* env var to the Next.js build (
     ).toEqual([]);
   });
 
+  // Bugbot regression (PR #86): `ENV FOO=$FOO` with an unset ARG produces
+  // `""` (empty string), not `undefined`. The `??` operator only catches
+  // null/undefined, so `process.env.NEXT_PUBLIC_X ?? "fallback"` evaluates
+  // to `""` instead of `"fallback"` when the ARG isn't passed — silently
+  // breaking the fallback path. Assert that consumers of NEXT_PUBLIC_*
+  // env vars use `||` (truthy-coerce, treats `""` as missing) for any
+  // expression that has a meaningful default value, NOT `??`.
+  describe("consumers of NEXT_PUBLIC_* must use `||` not `??` for fallback expressions", () => {
+    const consumerFiles = [
+      "src/lib/arena/api.ts",      // INDEXER_URL fallback
+      "src/lib/wagmi.ts",          // chainName fallback (deploymentMeta)
+    ];
+    for (const rel of consumerFiles) {
+      it(`${rel} must not use \`?? \` with a NEXT_PUBLIC_* read that has a non-empty fallback`, () => {
+        const src = readFileSync(path.join(repoRoot, rel), "utf-8");
+        // Capture `process.env.NEXT_PUBLIC_FOO ?? <token>` where <token> is
+        // the start of the fallback expression (a string literal, identifier,
+        // or open-paren). We then filter out fallbacks that are exactly `""`
+        // because those are behaviorally identical regardless of `??` vs `||`
+        // (e.g. `?? ""` for NEXT_PUBLIC_WC_PROJECT_ID — the connector code
+        // accepts an empty project ID as "WC disabled" same as undefined).
+        const re = /process\.env\.NEXT_PUBLIC_[A-Z0-9_]+\s*\?\?\s*(\S+)/g;
+        const hits = [...src.matchAll(re)]
+          .filter((m) => {
+            const fallback = m[1];
+            // Strip trailing punctuation that bordered the captured token
+            // (`,`, `;`, `)`) so `""` and `"",` both register as empty.
+            const stripped = fallback.replace(/[,;)\]}]+$/, "");
+            return stripped !== '""' && stripped !== "''";
+          })
+          .map((m) => m[0]);
+        expect(
+          hits,
+          `${rel} uses \`?? \` with a non-empty fallback for a NEXT_PUBLIC_* read. ` +
+            `In a Docker build, an unset ARG produces \`""\` (not \`undefined\`), and \`"" ?? "fallback"\` is \`""\`. ` +
+            `Use \`|| \` instead so empty strings also fall through. Found: ${hits.join(", ")}`,
+        ).toEqual([]);
+      });
+    }
+  });
+
   it("the ARG declarations appear BEFORE the `RUN npm run build` step (otherwise they're not in scope)", () => {
     // Search for the literal `RUN npm run build` directive (with the leading
     // `RUN ` prefix) so we don't match the same string in our own comment

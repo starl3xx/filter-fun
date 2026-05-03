@@ -19,8 +19,19 @@ import {deploymentMeta} from "./addresses.js";
 ///   1. NEXT_PUBLIC_CHAIN env override (explicit op-set).
 ///   2. The deployment manifest's `network` field (synced via `npm run sync:deployment`).
 ///   3. base-sepolia default (testnet rehearsal target).
+///
+/// Use `||` not `??` (bugbot caught on PR #86): with the Docker ARG /
+/// ENV pattern that forwards Railway env vars into the build, an unset
+/// ARG still produces an empty string `""` (not `undefined`) in
+/// `process.env.NEXT_PUBLIC_CHAIN`, which Next.js inlines into the bundle.
+/// `"" ?? fallback` evaluates to `""` because `??` only catches null /
+/// undefined — that would silently force the chain to base-sepolia even
+/// when the deployment manifest says "base", flipping a mainnet build
+/// to testnet. `""`-aware `||` makes the deployment-manifest fallback
+/// work for both "not set anywhere" (undefined, dev) and "declared as
+/// ARG without --build-arg" (empty string, Docker).
 const chainName =
-  process.env.NEXT_PUBLIC_CHAIN ??
+  process.env.NEXT_PUBLIC_CHAIN ||
   (deploymentMeta.network === "base" ? "base" : "base-sepolia");
 const chain = chainName === "base" ? base : baseSepolia;
 

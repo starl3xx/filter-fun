@@ -9,7 +9,15 @@
 /// service; the web app reaches it via `NEXT_PUBLIC_INDEXER_URL`. In dev with
 /// `ponder dev`, the default `http://localhost:42069` works out of the box.
 
-export const INDEXER_URL = (process.env.NEXT_PUBLIC_INDEXER_URL ?? "http://localhost:42069").replace(/\/+$/, "");
+// Use `||` not `??` (bugbot caught on PR #86): with the Docker ARG /
+// ENV pattern that forwards Railway env vars into the build, an unset
+// ARG still produces an empty string `""` (not `undefined`) in
+// `process.env.NEXT_PUBLIC_INDEXER_URL`, which Next.js inlines into the
+// bundle. `"" ?? fallback` evaluates to `""` because `??` only catches
+// null/undefined, silently breaking the localhost fallback. `""`-aware
+// `||` makes the fallback work for both "not set anywhere" (undefined,
+// dev) and "declared as ARG without --build-arg" (empty string, Docker).
+export const INDEXER_URL = (process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:42069").replace(/\/+$/, "");
 
 // ============================================================ /season
 
