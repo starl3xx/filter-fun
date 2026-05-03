@@ -1250,6 +1250,14 @@ def main():
             "--stratified requires --pilot N to set the target bucket size "
             "(N/2 each). Re-run with e.g. --pilot 250 --stratified."
         )
+    # bugbot #66 finding 12: --pilot 1 --stratified produces target_per_bucket=0
+    # via integer division, which makes the bucket-full check always-true and
+    # silently drops every extraction. Require pilot ≥ 2.
+    if args.stratified and args.pilot < 2:
+        sys.exit(
+            f"--pilot must be ≥ 2 in stratified mode (got {args.pilot}); "
+            "smaller values produce target_per_bucket=0 and an empty corpus."
+        )
 
     if ENV_PATH.exists():
         load_dotenv(ENV_PATH)

@@ -838,22 +838,16 @@ def _recompute_survived_to_day_7(df: pd.DataFrame, *,
                                   lp_min_eth: float,
                                   vol_min_eth: float) -> int:
     """Track-E v4: recompute the survived_to_day_7 column from the raw 168h
-    gate components (`holders_at_168h`, `lp_depth_168h_eth`,
-    `vol_24h_at_168h_eth`). Lets the dispatch's [30%, 70%] true-rate band
-    calibration land without re-running the multi-hour Alchemy crawl. The
-    fetcher writes survived_to_day_7 with whatever gate was active at
-    fetch-time; this overwrites it in-place. No-op (and warns) if the raw
-    columns are absent — i.e., for v3 corpora pre-cache_schema=6."""
-    needed = ["holders_at_168h", "lp_depth_168h_eth", "vol_24h_at_168h_eth"]
-    if not all(c in df.columns for c in needed):
-        return 0  # silent no-op for pre-v4 corpora; data-quality section flags
-    h = pd.to_numeric(df["holders_at_168h"], errors="coerce").fillna(0)
-    l = pd.to_numeric(df["lp_depth_168h_eth"], errors="coerce").fillna(0.0)
-    v = pd.to_numeric(df["vol_24h_at_168h_eth"], errors="coerce").fillna(0.0)
-    df["survived_to_day_7"] = (
-        (h >= holders_min) & (l >= lp_min_eth) & (v > vol_min_eth)
-    ).astype(int)
-    return int(df["survived_to_day_7"].sum())
+    gate components. Delegates the actual gate semantics to survival_gate
+    (single source of truth — bugbot #66 finding 13). No-op for pre-v4
+    corpora that lack the raw gate fields."""
+    from survival_gate import survival_mask
+    mask = survival_mask(df, holders_min=holders_min,
+                          lp_min_eth=lp_min_eth, vol_min_eth=vol_min_eth)
+    if mask is None:
+        return 0  # silent no-op; data-quality section flags missing columns
+    df["survived_to_day_7"] = mask
+    return int(mask.sum())
 
 
 def main():

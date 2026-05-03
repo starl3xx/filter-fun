@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from survival_gate import survival_mask
+
 
 # Gate combos to sweep — chosen to cover the dispatch's "loosen until [30%,
 # 70%] band is hit" iteration. Listed coarse → tight so the first match in
@@ -77,12 +79,11 @@ def main(argv: list[str] | None = None) -> int:
 
     rows = []
     for h, l, v in product(HOLDER_THRESHOLDS, LP_THRESHOLDS_ETH, VOL_THRESHOLDS_ETH):
-        m = (
-            (survivor_half["holders_at_168h"] >= h)
-            & (survivor_half["lp_depth_168h_eth"] >= l)
-            & (survivor_half["vol_24h_at_168h_eth"] > v)
-        )
-        rate = m.mean()
+        # Delegate to the shared gate (bugbot #66 finding 13) so the sweep
+        # stays in sync with pipeline.py / marino_xcheck.py / fetch_corpus.py.
+        m = survival_mask(survivor_half, holders_min=h,
+                          lp_min_eth=l, vol_min_eth=v)
+        rate = float(m.mean())
         in_band = args.target_low <= rate <= args.target_high
         rows.append((h, l, v, rate, int(m.sum()), in_band))
         if not args.quiet:

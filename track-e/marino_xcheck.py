@@ -37,6 +37,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from survival_gate import survival_mask
+
 
 def _effective_buyers_from_row(row: pd.Series) -> float:
     """Mirror pipeline.py::effective_buyers_score so this script doesn't
@@ -59,16 +61,15 @@ def _effective_buyers_from_row(row: pd.Series) -> float:
 
 def _recompute_survival(df: pd.DataFrame, *, holders_min: int,
                         lp_min_eth: float, vol_min_eth: float) -> pd.Series:
-    """Return a recomputed survived_to_day_7 series from raw 168h fields.
-    Mirrors pipeline.py::_recompute_survived_to_day_7 — kept local so the
-    Marino check runs against whatever gate the analyst chooses."""
-    needed = ["holders_at_168h", "lp_depth_168h_eth", "vol_24h_at_168h_eth"]
-    if not all(c in df.columns for c in needed):
+    """Recompute survived_to_day_7 from raw 168h fields via the shared
+    `survival_gate.survival_mask` (single source of truth — bugbot #66
+    finding 13). Falls back to the CSV's existing column when the raw
+    fields are absent (pre-CACHE_SCHEMA=6 corpus)."""
+    mask = survival_mask(df, holders_min=holders_min,
+                         lp_min_eth=lp_min_eth, vol_min_eth=vol_min_eth)
+    if mask is None:
         return df.get("survived_to_day_7", pd.Series([0] * len(df))).astype(int)
-    h = pd.to_numeric(df["holders_at_168h"], errors="coerce").fillna(0)
-    l = pd.to_numeric(df["lp_depth_168h_eth"], errors="coerce").fillna(0.0)
-    v = pd.to_numeric(df["vol_24h_at_168h_eth"], errors="coerce").fillna(0.0)
-    return ((h >= holders_min) & (l >= lp_min_eth) & (v > vol_min_eth)).astype(int)
+    return mask
 
 
 def main(argv: list[str] | None = None) -> int:
