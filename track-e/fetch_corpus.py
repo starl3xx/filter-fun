@@ -1356,6 +1356,9 @@ def main():
     # first ~30+ tokens are queued in memory and only land on disk when the
     # fetch ends). Line buffering trades a tiny per-write syscall cost for
     # observable progress.
+    # bugbot #66 finding 8: previously a bare open()/close() pair — a
+    # KeyboardInterrupt or unhandled exception between them would leak the
+    # file handle and lose buffered writes. try/finally guarantees cleanup.
     snapshot_log_fp = (
         open(args.snapshot_log, "w", buffering=1) if args.snapshot_log else None
     )
@@ -1363,53 +1366,64 @@ def main():
     survivors: list[TokenExtraction] = []
     dead: list[TokenExtraction] = []
     n_processed = 0
-    for tok in candidates_to_scan:
-        n_processed += 1
-        symbol = (tok.get("symbol") or "")[:12]
-        # Compact progress line — bucket counts let the operator gauge
-        # how fast the survivor half is filling.
-        prefix = f"  [{n_processed}/{len(candidates_to_scan)} | s:{len(survivors)} d:{len(dead)}]"
-        print(f"{prefix} {symbol:<12} {tok['token_address']}…",
-              end="", flush=True)
-        t0 = time.monotonic()
-        try:
-            ext = extract_token_features(rpc, tok, head_block=head_block,
-                                         snapshot_log_fp=snapshot_log_fp)
-        except Exception as e:
-            print(f" FAILED ({e})")
-            continue
-        if ext is None:
-            print(" skipped (non-WETH paired or invalid pool)")
-            continue
-        dt = time.monotonic() - t0
-
-        is_survivor = (ext.unique_buyers >= 1 and ext.total_buy_volume_eth >= 0.001)
-        if not is_survivor:
-            ext.notes = (ext.notes + ";" if ext.notes else "") + "zero-activity"
-
-        if args.stratified and args.pilot is not None:
-            bucket = survivors if is_survivor else dead
-            if len(bucket) >= target_per_bucket:
-                # Bucket already full — skip and don't write to corpus.
-                print(f" ({dt:.1f}s, bucket full, skipped)")
+    try:
+        for tok in candidates_to_scan:
+            n_processed += 1
+            symbol = (tok.get("symbol") or "")[:12]
+            # Compact progress line — bucket counts let the operator gauge
+            # how fast the survivor half is filling.
+            prefix = f"  [{n_processed}/{len(candidates_to_scan)} | s:{len(survivors)} d:{len(dead)}]"
+            print(f"{prefix} {symbol:<12} {tok['token_address']}…",
+                  end="", flush=True)
+            t0 = time.monotonic()
+            try:
+                ext = extract_token_features(rpc, tok, head_block=head_block,
+                                             snapshot_log_fp=snapshot_log_fp)
+            except Exception as e:
+                print(f" FAILED ({e})")
                 continue
-            bucket.append(ext)
-            tag = "✓ SURVIVOR" if is_survivor else "dead"
-            print(f" {tag} ({dt:.1f}s, {ext.unique_buyers} buyers, "
-                  f"{ext.total_buy_volume_eth:.3f} ETH, survived={ext.survived_to_day_7})")
-            if len(survivors) >= target_per_bucket and len(dead) >= target_per_bucket:
-                print(f"\nBoth buckets full at {n_processed}/{len(candidates_to_scan)} scanned.")
-                break
-        else:
-            (survivors if is_survivor else dead).append(ext)
-            tag = "✓" if is_survivor else "zero-activity"
-            print(f" {tag} ({dt:.1f}s, {ext.unique_buyers} buyers, "
-                  f"lp_depth={ext.lp_depth_eth:.3f} ETH, "
-                  f"survived={ext.survived_to_day_7})")
+            if ext is None:
+                print(" skipped (non-WETH paired or invalid pool)")
+                continue
+            dt = time.monotonic() - t0
 
-    save_state(state)
-    if snapshot_log_fp:
-        snapshot_log_fp.close()
+            is_survivor = (ext.unique_buyers >= 1 and ext.total_buy_volume_eth >= 0.001)
+            # bugbot #66 finding 7: tag must distinguish "no buyers + no
+            # volume" (truly dead-on-arrival) from "had some activity but
+            # below survivor threshold" (e.g. 3 buyers + 0.0008 ETH). The
+            # original "zero-activity" label was overloaded — analysts
+            # filtering on it would conflate the two regimes. Now we tag
+            # the precise reason; analysts who want the broad bucket can
+            # still filter on either.
+            if ext.unique_buyers == 0 and ext.total_buy_volume_eth == 0.0:
+                ext.notes = (ext.notes + ";" if ext.notes else "") + "zero-activity"
+            elif not is_survivor:
+                ext.notes = (ext.notes + ";" if ext.notes else "") + "below-survivor-threshold"
+
+            if args.stratified and args.pilot is not None:
+                bucket = survivors if is_survivor else dead
+                if len(bucket) >= target_per_bucket:
+                    # Bucket already full — skip and don't write to corpus.
+                    print(f" ({dt:.1f}s, bucket full, skipped)")
+                    continue
+                bucket.append(ext)
+                tag = "✓ SURVIVOR" if is_survivor else "dead"
+                print(f" {tag} ({dt:.1f}s, {ext.unique_buyers} buyers, "
+                      f"{ext.total_buy_volume_eth:.3f} ETH, survived={ext.survived_to_day_7})")
+                if len(survivors) >= target_per_bucket and len(dead) >= target_per_bucket:
+                    print(f"\nBoth buckets full at {n_processed}/{len(candidates_to_scan)} scanned.")
+                    break
+            else:
+                (survivors if is_survivor else dead).append(ext)
+                tag = "✓" if is_survivor else "below-threshold"
+                print(f" {tag} ({dt:.1f}s, {ext.unique_buyers} buyers, "
+                      f"lp_depth={ext.lp_depth_eth:.3f} ETH, "
+                      f"survived={ext.survived_to_day_7})")
+
+        save_state(state)
+    finally:
+        if snapshot_log_fp:
+            snapshot_log_fp.close()
 
     extractions = survivors + dead
     print(f"\nPhase 3: writing corpus.csv "
