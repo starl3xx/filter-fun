@@ -108,8 +108,18 @@ def main(argv: list[str] | None = None) -> int:
         "| token | platform | fdv_eth | hp_locked | hp_spec |",
         "|---|---|---:|---:|---:|",
     ]
+    def _label(r: pd.Series) -> str:
+        # pandas missing values are NaN (truthy), not None (falsy), so an
+        # `or`-chain fallback short-circuits on NaN and then raises on
+        # `NaN[:24]` (bugbot #76 finding 4). Walk explicitly with isna.
+        for col in ("name", "ticker"):
+            v = r.get(col)
+            if isinstance(v, str) and v:
+                return v[:24]
+        return r["token_address"][:10]
+
     for _, r in df_sorted.iterrows():
-        name = (r.get("name") or r.get("ticker") or r["token_address"][:10])[:24]
+        name = _label(r)
         out.append(
             f"| `{r['token_address'][:10]}…` ({name}) | "
             f"{r.get('platform', '')} | {r['fdv_eth']:.3f} | "
