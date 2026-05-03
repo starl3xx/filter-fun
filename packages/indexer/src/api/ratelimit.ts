@@ -153,8 +153,15 @@ export function tryClaimConnection(
 ): ConnectionResult {
   const current = state.countsByIp.get(ip) ?? 0;
   if (current >= cfg.eventsConns) {
-    // Retry-After for SSE is fuzzier — there's no guaranteed time at which a slot frees.
-    // 30s is a reasonable hint that says "try again shortly, but not in a tight loop".
+    // Audit M-Indexer-4 (Phase 1, 2026-05-01): Retry-After for SSE is intentionally
+    // a fixed 30s rather than a dynamic estimate. The token-bucket retry header below
+    // can compute "ms until 1 token refills" because the refill rate is deterministic;
+    // SSE has no equivalent — slots free when an existing client closes its stream
+    // (a process we don't predict). A dynamic estimate (e.g., based on rolling
+    // average connection duration) would be misleadingly precise: clients would tight-
+    // loop on the suggested retry time and find the slot still occupied. 30s is a
+    // pragmatic "back off but not for too long" hint that pairs naturally with an
+    // `EventSource` reconnect — most browsers default to a similar reconnect window.
     return {allowed: false, current, retryAfterSec: 30};
   }
   state.countsByIp.set(ip, current + 1);
@@ -181,18 +188,50 @@ export function releaseConnection(state: ConnectionState, ip: string): void {
 /// send `X-Forwarded-For: <victim>` and burn another IP's rate-limit budget. The default
 /// is intentionally restrictive.
 ///
-/// `socketAddr` may be empty in test environments; we fall back to the literal string
-/// `"unknown"` which still partitions per-process tests but makes the missing data
-/// observable in production logs (any "unknown" IP rate is a deployment misconfig).
+/// `socketAddr` may be empty in test environments. Audit M-Indexer-5 (Phase 1,
+/// 2026-05-01): pre-fix the fallback was the literal string `"unknown"`, which
+/// collapsed every socketAddr-less client into a SINGLE rate-limit bucket — so a
+/// DoS originating from any one of them throttled all the others. The fallback
+/// now derives a stable bucket-id from request fingerprint headers (UA +
+/// Accept-Language); it doesn't identify the client (multiple legitimate clients
+/// behind a misbehaving proxy still share a bucket if their fingerprints match)
+/// but it spreads the load across the realistic distribution of headers instead
+/// of pinning everyone to one row in the bucket map.
 export function resolveClientIp(
   xff: string | null,
   socketAddr: string,
   trustProxy: boolean,
+  /// Optional fingerprint headers used ONLY when both `xff` (or `trustProxy`) and
+  /// `socketAddr` fail. Pass the raw `User-Agent` and `Accept-Language` strings
+  /// from the request; missing values are tolerated.
+  fingerprint?: {userAgent?: string | null; acceptLanguage?: string | null},
 ): string {
   if (trustProxy && xff && xff.length > 0) {
     const first = xff.split(",")[0]?.trim();
     if (first && first.length > 0) return first;
   }
-  return socketAddr || "unknown";
+  if (socketAddr) return socketAddr;
+  // Both header + socket fell through. Build a fingerprint bucket from the
+  // optional headers; if those are also empty, fall back to the literal "unknown"
+  // (preserves the prior behaviour for the truly-headerless edge case so
+  // existing logs still see the same sentinel for the deployment misconfig).
+  const ua = (fingerprint?.userAgent ?? "").trim();
+  const al = (fingerprint?.acceptLanguage ?? "").trim();
+  if (ua.length === 0 && al.length === 0) return "unknown";
+  return `fp:${stableHash(`${ua}|${al}`)}`;
+}
+
+/// Tiny stable hash for fingerprint bucketing. djb2 — non-cryptographic, no deps,
+/// adequate for the "spread the bucket map over the header distribution" goal.
+/// Keep this in this file (not @noble/hashes etc.) so the rate-limit module stays
+/// dep-free and pure-JS testable.
+function stableHash(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; ++i) {
+    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  }
+  // Render as unsigned hex so two clients with the same fingerprint always land
+  // on the same bucket key.
+  return (h >>> 0).toString(16);
 }
 

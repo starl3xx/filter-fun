@@ -57,7 +57,11 @@ import {isAddressLike} from "./builders.js";
 import {cached} from "./cache.js";
 import {loadCorsConfigFromEnv, originAllowed} from "./cors.js";
 import {toMwContext} from "./mwContext.js";
-import {checkAndLogCadence, consoleCadenceLogger} from "./snapshotCadence.js";
+import {
+  checkAndLogCadence,
+  consoleCadenceLogger,
+  type HolderSnapshotTrigger,
+} from "./snapshotCadence.js";
 import {
   getReadinessHandler,
   getSeasonHandler,
@@ -468,12 +472,19 @@ function buildProfileQueries(db: ApiDb): ProfileQueries {
             consoleCadenceLogger,
           );
         }
-        if (r.trigger === "FINALIZE") {
+        // Audit L-Indexer-4: trigger comparisons against the canonical
+        // HolderSnapshotTrigger union (re-exported from snapshotCadence.ts) instead
+        // of bare string literals. The cast narrows from the schema's `string`
+        // column type — adding a third trigger to the union forces this branch to
+        // be re-considered (the type system catches the missing case at the next
+        // build, even though the runtime fall-through silently drops the row).
+        const trigger: HolderSnapshotTrigger | string = r.trigger;
+        if (trigger === "FINALIZE") {
           const winner = winnerBySeason.get(r.seasonId);
           if (winner && winner.toLowerCase() === r.token.toLowerCase()) {
             weekWinner = true;
           }
-        } else if (r.trigger === "CUT") {
+        } else if (trigger === "CUT") {
           filterSurvivor = true;
           cutSeasons.add(r.seasonId);
         }

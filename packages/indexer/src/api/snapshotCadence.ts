@@ -20,6 +20,18 @@ const SECONDS_PER_HOUR = 3600n;
 export const CUT_OFFSET_HOURS = 96n;
 export const FINALIZE_OFFSET_HOURS = 168n;
 
+/// Audit L-Indexer-4 (Phase 1, 2026-05-01): canonical type for the holder snapshot
+/// trigger label. Re-export so consumers (`/api/index.ts` `holderBadgeFlagsForUser`,
+/// `events/tick.ts` cadence call site) compare against this union instead of bare
+/// string literals — single source of truth for the legal label set.
+///
+/// Adding a third trigger requires:
+///   1. Extend this union here.
+///   2. Decide the cadence anchor in `validateSnapshotCadence` below — unknown
+///      labels currently silently accept (returning `drifted: false`), so a
+///      forgotten step here is operationally non-fatal but loses observability.
+export type HolderSnapshotTrigger = "CUT" | "FINALIZE";
+
 /// Drift threshold above which we surface a warning. 5 minutes is a deliberate
 /// over-budget for normal chain timing variance: Base mainnet posts L1 batches at
 /// roughly 2-second cadence; the worst-case oracle-emit latency we've seen on Sepolia
@@ -28,7 +40,7 @@ export const FINALIZE_OFFSET_HOURS = 168n;
 export const DRIFT_THRESHOLD_SECONDS = 300n;
 
 export interface SnapshotCadenceInput {
-  trigger: "CUT" | "FINALIZE" | string;
+  trigger: HolderSnapshotTrigger | string;
   /// Snapshot timestamp from the chain (`holderSnapshot.blockTimestamp`).
   blockTimestamp: bigint;
   /// Season anchor (`season.startedAt`).

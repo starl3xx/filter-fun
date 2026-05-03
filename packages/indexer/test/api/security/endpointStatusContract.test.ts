@@ -72,6 +72,8 @@ describe("endpoint status convention (Audit H-2)", () => {
       isFinalist: true,
       liquidated: false,
       liquidationProceeds: null,
+      // Audit M-Indexer-1: creator now required on TokenRow / TokenDetailRow.
+      creator: "0x000000000000000000000000000000000000beef",
       name: "filter.fun",
       seasonId: 1n,
       isProtocolLaunched: true,

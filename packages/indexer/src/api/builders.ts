@@ -76,10 +76,16 @@ export interface TokenRow {
   liquidated: boolean;
   liquidationProceeds: bigint | null;
   /// Creator-of-record from the launch event, surfaced so /tokens can report the
-  /// bag-lock owner alongside `bagLock.unlockTimestamp`. Optional on the row so
-  /// existing test fixtures (which don't set it) keep compiling — the builder
-  /// falls back to `0x0` and labels the lock as "unlocked / unset" in that case.
-  creator?: `0x${string}`;
+  /// bag-lock owner alongside `bagLock.unlockTimestamp`.
+  ///
+  /// Audit M-Indexer-1 (Phase 1, 2026-05-01): pre-fix this was optional and the
+  /// builder substituted `0x0000…` for missing values, which surfaced to the UI as
+  /// "lock owner: 0x0" — silent data loss masked as a real address. Drizzle schema
+  /// requires creator on the row anyway (the `tokens` table column is NOT NULL),
+  /// so the optional declaration was lying. Marking required moves the contract to
+  /// the type system: callers that supply incomplete rows (e.g., a future query
+  /// path that joins partial data) fail at compile time, not silently in the UI.
+  creator: `0x${string}`;
 }
 
 /// Per-token bag-lock surface, derived from `creator_lock` rows the indexer mirrors
@@ -199,9 +205,16 @@ export function buildTokensResponse(
           creator: lock.creator,
         }
       : {
+          // Audit L-Indexer-3 (Phase 1, 2026-05-01): `unlockTimestamp > nowSec` above
+          // assumes `unlockTimestamp` is a positive Unix-seconds bigint. The schema
+          // mirrors `CreatorCommitments.Committed`'s `uint64 unlockTimestamp` (always
+          // > 0 by contract — `commit(0)` reverts), so a 0 / negative value would
+          // require a contract bug or a row a future query path inserts manually.
+          // The comparison stays correct in either case; we just don't degrade
+          // gracefully into "permanently unlocked" if the source ever drifts.
           isLocked: false,
           unlockTimestamp: null,
-          creator: r.creator ?? "0x0000000000000000000000000000000000000000",
+          creator: r.creator,
         };
     return {
       token: r.id,

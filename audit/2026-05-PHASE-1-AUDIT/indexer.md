@@ -162,6 +162,8 @@ No middleware explicitly sets `Access-Control-Allow-Origin`. Ponder's HTTP serve
 ## MEDIUM
 
 ### [Indexer] BagLock creator field optional on TokenRow but not validated
+**Status:** ✅ **FIXED** (2026-05-02, audit/polish-indexer; M-Indexer-1). `TokenRow.creator` is now required (was `creator?:`); the `0x0000…` substitution in `buildTokensResponse` is gone — the row's value flows straight to `bagLock.creator`. Compile-time enforcement caught 4 test fixtures that had been silently relying on the optional field; all 4 updated to supply a stub creator. Also reworked the existing "renders default creator:0x0" test (which was pinning the bug) to assert the post-fix contract: row creator surfaces directly, never `0x0`. Pinned by `test/api/security/polishIndexerPass.test.ts::M-Indexer-1` (1 runtime test) + the type system at every TokenRow construction site.
+
 **Severity:** Medium
 **Files:** packages/indexer/src/api/builders.ts:81, 163
 **Spec ref:** n/a
@@ -174,6 +176,8 @@ No middleware explicitly sets `Access-Control-Allow-Origin`. Ponder's HTTP serve
 **Effort:** XS
 
 ### [Indexer] Test coverage gap — /token/:address handler
+**Status:** ↩ **CLOSE-INCIDENTAL** (2026-05-02, audit/polish-indexer). Already covered in `test/api/handlers.test.ts` lines 252-303 — `describe("/token/:address")` block has 4 tests: 404 unknown / 400 malformed / 200 + shape / address-validator edge cases. Audit was authored against an earlier revision; coverage landed alongside the indexer-high-batch-2 work.
+
 **Severity:** Medium
 **Files:** packages/indexer/test/handlers.test.ts (no test for getTokenDetailHandler)
 **Spec ref:** n/a
@@ -189,6 +193,8 @@ handlers.test.ts covers /season and /tokens with detailed fixtures but does not 
 **Effort:** S
 
 ### [Indexer] Test coverage gap — /tokens/:address/history edge cases
+**Status:** ✅ **FIXED** (2026-05-02, audit/polish-indexer; M-Indexer-3). Two of the three audit-flagged gaps were already covered in `test/api/history.test.ts` (interval validation: 4 cases at lines 71-82; range validation: 3 cases at lines 84-102). The third — "empty result sets (token exists, no snapshots in range)" — landed in `polishIndexerPass.test.ts::M-Indexer-3` (3 tests: handler returns 200 + empty points; `bucketize([], 300)` returns `[]`; `parseRange` boundary equality rejection).
+
 **Severity:** Medium
 **Files:** packages/indexer/test/history.test.ts
 **Spec ref:** n/a
@@ -204,6 +210,8 @@ history.test.ts does not exercise:
 **Effort:** S
 
 ### [Indexer] SSE rate-limit retry-after fixed at 30s
+**Status:** 📋 **DOC** (2026-05-02, audit/polish-indexer; M-Indexer-4). Documented the rationale for the fixed 30s value at the call site in `ratelimit.ts::tryClaimConnection` — token-bucket retry can compute "ms until 1 token refills" because the refill rate is deterministic; SSE has no equivalent (slots free when an existing client closes its stream). A dynamic estimate based on rolling average connection duration would be misleadingly precise — clients would tight-loop on the suggested time and find the slot still occupied. 30s pairs naturally with default `EventSource` reconnect windows.
+
 **Severity:** Medium
 **Files:** packages/indexer/src/api/ratelimit.ts:157
 **Spec ref:** n/a
@@ -216,6 +224,8 @@ SSE connection denial returns `Retry-After: 30`. Doc comment acknowledges "there
 **Effort:** S
 
 ### [Indexer] IP rate-limit fallback collapses unknown clients to a single bucket
+**Status:** ✅ **FIXED** (2026-05-02, audit/polish-indexer; M-Indexer-5). `resolveClientIp` now derives a stable bucket-id from optional fingerprint headers (UA + Accept-Language) when both `xff` (via `trustProxy`) and `socketAddr` fall through. Hash function is djb2 — non-cryptographic, no deps, adequate for "spread the bucket map over the realistic header distribution." The truly-headerless edge case still falls back to the literal `"unknown"` so existing log dashboards keep their misconfig sentinel. Pinned by `polishIndexerPass.test.ts::M-Indexer-5` (4 tests: distinct fingerprints → distinct keys; identical → shared; both-absent → "unknown"; socketAddr wins when present).
+
 **Severity:** Medium
 **Files:** packages/indexer/src/api/ratelimit.ts:196
 **Spec ref:** n/a
@@ -228,6 +238,8 @@ SSE connection denial returns `Retry-After: 30`. Doc comment acknowledges "there
 **Effort:** S
 
 ### [Indexer] Logging — console.error in tick.ts without structured context
+**Status:** ✅ **FIXED** (2026-05-02, audit/polish-indexer; M-Indexer-6). New pure module `src/api/events/redact.ts` exports `redactErrorMessage(err)` + `errName(err)`; tick.start()'s error handler now emits a single-line JSON record `{level, source, message, name}` with both the wallet-address (40-hex) and tx-hash (64-hex) shapes redacted before the message hits the log sink. Hash regex runs FIRST (caught by the regression test — address pattern was eating the first 40 chars of a 64-hex hash). Sink stays as `console.error` rather than adding a pino dep — Railway / Datadog auto-parse single-line JSON when a `level` field is present. Pinned by `polishIndexerPass.test.ts::M-Indexer-6` (6 tests: single addr, multi-addr, hash, no-PII passthrough, non-Error throws, errName fallback).
+
 **Severity:** Medium
 **Files:** packages/indexer/src/api/events/tick.ts:145
 **Spec ref:** n/a
@@ -244,6 +256,8 @@ A bare `console.error(...)` in the tick loop has no request id, no PII redaction
 ## LOW
 
 ### [Indexer] Profile endpoint asymmetric error semantics
+**Status:** 🔍 **CLOSE-AS-PASS** (2026-05-02, audit/polish-indexer; L-Indexer-1). Already documented — `handlers.ts` top-of-file convention block (Audit H-2) explicitly calls out the privacy-driven 200/empty exception for `/profile/:address`, and the profile handler's JSDoc references §22. The asymmetry is intentional and visible at the canonical convention site.
+
 **Severity:** Low
 **Files:** packages/indexer/src/api/index.ts:153, profile.ts:149,172
 **Spec ref:** §22
@@ -256,6 +270,8 @@ profile returns 400 for invalid address but 200/empty for unknown wallets. Asymm
 **Effort:** XS
 
 ### [Indexer] No pagination on /tokens
+**Status:** 🚧 **DEFER** (2026-05-02, audit/polish-indexer; L-Indexer-2). Genesis cohort max is 12 tokens (`MAX_LAUNCHES`); a 12-row payload doesn't justify pagination's surface-area cost (cursor format, sort key stability, off-by-one tests). Revisit when the per-season cohort grows past ~50 tokens or when an aggregate view (multi-season historical scan) lands.
+
 **Severity:** Low
 **Files:** packages/indexer/src/api/handlers.ts (getTokensHandler)
 **Spec ref:** §26.4
@@ -268,6 +284,8 @@ profile returns 400 for invalid address but 200/empty for unknown wallets. Asymm
 **Effort:** S
 
 ### [Indexer] BagLock unlockTimestamp comparison assumes positive bigint
+**Status:** 📋 **DOC** (2026-05-02, audit/polish-indexer; L-Indexer-3). Pinned the assumption directly above the comparison in `builders.ts`: schema mirrors `CreatorCommitments.Committed`'s `uint64 unlockTimestamp` (always > 0 by contract — `commit(0)` reverts), so a 0/negative value would require a contract bug or a future query path that inserts manually. The comparison stays correct in either case; the comment ensures the next maintainer touching this branch knows the source-of-truth assumption.
+
 **Severity:** Low
 **Files:** packages/indexer/src/api/builders.ts:156
 **Spec ref:** n/a
@@ -280,6 +298,8 @@ profile returns 400 for invalid address but 200/empty for unknown wallets. Asymm
 **Effort:** XS
 
 ### [Indexer] Holder snapshot trigger values hardcoded as strings
+**Status:** ✅ **FIXED** (2026-05-02, audit/polish-indexer; L-Indexer-4). Exported canonical `HolderSnapshotTrigger = "CUT" | "FINALIZE"` union from `snapshotCadence.ts` (where the cadence anchors already lived); wired into both consumer call sites (`index.ts::holderBadgeFlagsForUser` + `snapshotCadence.ts::SnapshotCadenceInput.trigger`). Single source of truth for the legal label set; adding a third trigger now forces a type-system audit at every comparison site. Pinned by `polishIndexerPass.test.ts::L-Indexer-4`.
+
 **Severity:** Low
 **Files:** packages/indexer/src/api/index.ts:367, 372
 **Spec ref:** n/a
@@ -315,6 +335,8 @@ Placeholders pending V4 PoolManager integration; documented in code comment.
 - V4 PoolManager wiring is a separate epic; this PR only stops the response from lying.
 
 ### [Indexer] EventsQueries.latestSeason takenAtSec captured at query time
+**Status:** 📋 **DOC** (2026-05-02, audit/polish-indexer; I-Indexer-2). Documented at the assembly site in `tick.ts`: `takenAtSec` is the wall-clock at QUERY time, not snapshot-assembly time. For the genesis tick rate (`tickMs` defaults to 5_000), the gap is sub-millisecond; for genuinely slow ticks (DB stall, GC pause) the value drifts late by however long the gap was. Detectors key off DELTAs between consecutive `takenAtSec` values, so a uniformly-late capture stays self-consistent — only an asymmetric delay would skew detector windowing. Acceptable for the current tick rate; re-evaluate if `tickMs` ever moves into the multi-second range.
+
 **Severity:** Info
 **Files:** packages/indexer/src/api/events/tick.ts:137
 **Spec ref:** n/a
@@ -327,6 +349,8 @@ If a tick takes 10+ seconds, takenAtSec drifts from the actual snapshot time.
 **Effort:** XS
 
 ### [Indexer] No API version endpoint
+**Status:** 🚧 **DEFER** (2026-05-02, audit/polish-indexer; I-Indexer-3). The audit's own recommendation defers this until the first breaking change — there's nothing to version when only one shape exists. Adding `/api/version` now would be premature scaffolding (the indexer ABI is in flux through Phase 2 anyway). Revisit with the first deliberately-breaking response-shape change.
+
 **Severity:** Info
 **Files:** packages/indexer/src/api/index.ts
 **Spec ref:** n/a
@@ -339,6 +363,8 @@ No `/api/version` for forward-compatibility.
 **Effort:** XS
 
 ### [Indexer] Concentration filtering deferred per spec §41.2
+**Status:** 📋 **DOC** (2026-05-02, audit/polish-indexer; I-Indexer-4). Already tracked as a deferred item in the indexer README's "Outstanding" section + the route docstring at `index.ts:1-23` (both landed alongside the C-4 deferral). The §41.3 holder-concentration component is gated on the `/tokens/:address/holders` endpoint shipping in Phase 2; same blocker, same deferral note.
+
 **Severity:** Info
 **Files:** packages/indexer/ (no holderConcentration)
 **Spec ref:** §41.2-§41.3
