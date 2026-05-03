@@ -390,14 +390,15 @@ def _decode_token_created(
 
 
 def decode_token_created(log: dict) -> dict:
-    # Clanker V4 indexed slots verified via on-chain inspection: topic[1] is
-    # msgSender (deployer EOA / relayer), topic[2] is tokenAddress (the
-    # deployed ERC-20 with bytecode). The canonical ABI signature gives the
-    # same topic0 hash regardless of param ordering, so we pinned slot order
-    # empirically.
+    # Clanker V4 indexed slots verified empirically on Base mainnet:
+    # topic[1] is the deployed ERC-20 (eth_getCode returns ~12.8KB of
+    # bytecode); topic[2] is the deployer EOA (eth_getCode returns "0x").
+    # Bugbot #66 finding 5 caught a regression where the refactor flipped
+    # the order — see test_decode_token_created_indexed_order which now
+    # locks this against future regressions.
     return _decode_token_created(
         log,
-        indexed_names=["msgSender", "tokenAddress"],
+        indexed_names=["tokenAddress", "msgSender"],
         nonindexed_types=NONINDEXED_TYPES,
         nonindexed_names=NONINDEXED_NAMES,
     )

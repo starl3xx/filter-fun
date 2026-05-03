@@ -61,6 +61,8 @@ from fetch_corpus import (
     hex_to_int,
     resolve_launch_timestamps,
     save_state,
+    sqrtPriceX96_to_price,
+    token_decimals,
     topic0,
     v4_full_range_weth_wei,
     write_corpus,
@@ -115,19 +117,26 @@ def _latest_pool_state(rpc: RpcClient, pool_id: str, *, head: int,
     }
 
 
-def _compute_fdv_eth(token_addr: str, state: dict, supply: int) -> float:
-    """FDV in ETH = (price of 1 token in WETH) × total_supply / 1e18."""
+def _compute_fdv_eth(token_addr: str, state: dict, supply: int,
+                     target_dec: int) -> float:
+    """FDV in ETH = (price per whole token in WETH) × supply_in_whole_tokens.
+
+    Tokens with non-18 decimals (rare on V4 launchpads but legal) need both
+    a price-side and supply-side decimal correction. Bugbot #66 finding 6
+    flagged the prior implementation that hardcoded 18 — for an 8-dec
+    token this gave an FDV off by 10^10. The fetcher's `sqrtPriceX96_to_price`
+    helper already does the correct decimal math; we delegate to it here.
+    """
     if supply == 0 or not state or state["sqrtPriceX96"] == 0:
         return 0.0
-    sqrtP = state["sqrtPriceX96"]
-    Q96 = 2 ** 96
-    p_raw = (sqrtP / Q96) ** 2  # token1/token0 in raw units
-    target_is_token0 = token_addr.lower() < "0x4200000000000000000000000000000000000006"
-    if target_is_token0:
-        price_target_in_weth = p_raw  # both 18-dec → no decimal adjustment
-    else:
-        price_target_in_weth = 1.0 / p_raw if p_raw > 0 else 0.0
-    return price_target_in_weth * (supply / 1e18)
+    target_is_token0 = (
+        token_addr.lower() < "0x4200000000000000000000000000000000000006"
+    )
+    price_per_whole_token_in_weth = sqrtPriceX96_to_price(
+        state["sqrtPriceX96"], target_is_token0, target_dec=target_dec
+    )
+    supply_in_whole_tokens = supply / (10 ** target_dec)
+    return price_per_whole_token_in_weth * supply_in_whole_tokens
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -212,7 +221,12 @@ def main(argv: list[str] | None = None) -> int:
         supply = _token_total_supply(rpc, addr)
         if supply == 0:
             continue
-        fdv = _compute_fdv_eth(addr, state_at, supply)
+        # bugbot #66 finding 6: read on-chain decimals instead of assuming
+        # 18. token_decimals defaults to 18 on RPC failure, which is the
+        # right default for V4 launchpads but doesn't silently mis-rank a
+        # rare 8/9-decimal token.
+        target_dec = token_decimals(rpc, addr)
+        fdv = _compute_fdv_eth(addr, state_at, supply, target_dec=target_dec)
         if fdv > 0:
             fdvs[addr] = fdv
             fdv_supplies[addr] = supply
