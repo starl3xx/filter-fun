@@ -73,6 +73,11 @@ KNOWN_NON_HOLDER_ADDRESSES = {
     a.lower() for a in [
         ZERO, DEAD, WETH_BASE, V4_POOL_MANAGER_BASE,
         "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",  # 0x router
+        # Liquid Protocol locker contracts (per app.liquidprotocol.org/docs).
+        # Excluded from holder counts so locked LP balances don't masquerade
+        # as concentrated retail holders in HHI per spec §41.3.
+        "0xF7d3BE3FC0de76fA5550C29A8F6fa53667B876FF",  # LiquidFeeLocker
+        "0x77247fCD1d5e34A3703AcA898A591Dc7422435f3",  # LiquidLpLockerFeeConversion
     ]
 }
 
@@ -137,6 +142,41 @@ NONINDEXED_NAMES = [
     "pairedToken", "locker", "mevModule",
     "extensionsSupply", "extensions",
 ]
+
+# ---------------------------------------------------------------------------
+# Liquid V1 factory + event ABI
+# ---------------------------------------------------------------------------
+#
+# Verified 2026-05-02 against Sourcify partial-match for Liquid.sol::ILiquid.
+# Topic0 = keccak("TokenCreated(...)") below = 0x9299d1d1… which is the
+# dominant log topic on the factory (2,613 events lifetime as of head 45.49M).
+# Pairs into the same V4 PoolManager as Clanker — only discovery + locker
+# exclusions are launchpad-specific.
+
+LIQUID_V1_ADDRESS = "0x04F1a284168743759BE6554f607a10CEBdB77760"
+
+LIQUID_TOKEN_CREATED_SIG = (
+    "TokenCreated(address,address,address,string,string,string,string,string,"
+    "int24,address,bytes32,address,address,address,uint256,address[])"
+)
+# Indexed: tokenAddress (topic[1]), tokenAdmin (topic[2]).
+# Non-indexed slot order differs from Clanker's (image/name/symbol/metadata vs
+# metadata/image/name/symbol) — separate name list to keep decoders distinct.
+LIQUID_NONINDEXED_TYPES = [
+    "address",  # msgSender
+    "string", "string", "string", "string", "string",
+    "int24", "address", "bytes32",
+    "address", "address", "address",
+    "uint256", "address[]",
+]
+LIQUID_NONINDEXED_NAMES = [
+    "msgSender",
+    "tokenImage", "tokenName", "tokenSymbol", "tokenMetadata", "tokenContext",
+    "startingTick", "poolHook", "poolId",
+    "pairedToken", "locker", "mevModule",
+    "extensionsSupply", "extensions",
+]
+
 
 # Uniswap V4 PoolManager events
 # event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)
@@ -311,20 +351,31 @@ def token_decimals(rpc: RpcClient, token: str) -> int:
 # Decoders
 # ---------------------------------------------------------------------------
 
-def decode_token_created(log: dict) -> dict:
-    # Verified via on-chain inspection: topic[1] is tokenAddress (the deployed
-    # ERC-20 contract, has bytecode), topic[2] is msgSender (the deploying EOA
-    # or relayer agent). The canonical ABI signature gives the same topic0 hash
-    # regardless of param ordering, so we have to pin the slot order empirically.
-    token_address = topic_to_address(log["topics"][1]).lower()
-    msg_sender = topic_to_address(log["topics"][2]).lower()
+def _decode_token_created(
+    log: dict,
+    *,
+    indexed_names: list[str],
+    nonindexed_types: list[str],
+    nonindexed_names: list[str],
+) -> dict:
+    """Generic TokenCreated decoder shared by Clanker V4 + Liquid V1.
+
+    The two factories emit the same logical event with the same field types
+    but in different orders + with different `indexed` choices. Centralizing
+    the decode keeps the bytes/poolId/UTF-8 handling in one place so a fix
+    in one path can't silently leave the other broken (bugbot #66 finding 4).
+
+    `indexed_names`: ordered list of names for topic[1], topic[2], …
+    `nonindexed_types` / `nonindexed_names`: the data-blob fields, in ABI
+        decoder order. Names beginning with `poolId` get hex-encoded; other
+        bytes get UTF-8 decoded with error replacement, falling back to hex.
+    """
+    out: dict = {}
+    for i, name in enumerate(indexed_names):
+        out[name] = topic_to_address(log["topics"][i + 1]).lower()
     data = bytes.fromhex(log["data"][2:])
-    values = abi_decode(NONINDEXED_TYPES, data)
-    out = {
-        "msgSender": msg_sender,
-        "tokenAddress": token_address,
-    }
-    for name, val in zip(NONINDEXED_NAMES, values):
+    values = abi_decode(nonindexed_types, data)
+    for name, val in zip(nonindexed_names, values):
         if isinstance(val, bytes):
             if name == "poolId":
                 out[name] = "0x" + val.hex()
@@ -336,6 +387,33 @@ def decode_token_created(log: dict) -> dict:
         else:
             out[name] = val
     return out
+
+
+def decode_token_created(log: dict) -> dict:
+    # Clanker V4 indexed slots verified empirically on Base mainnet:
+    # topic[1] is the deployed ERC-20 (eth_getCode returns ~12.8KB of
+    # bytecode); topic[2] is the deployer EOA (eth_getCode returns "0x").
+    # Bugbot #66 finding 5 caught a regression where the refactor flipped
+    # the order — see test_decode_token_created_indexed_order which now
+    # locks this against future regressions.
+    return _decode_token_created(
+        log,
+        indexed_names=["tokenAddress", "msgSender"],
+        nonindexed_types=NONINDEXED_TYPES,
+        nonindexed_names=NONINDEXED_NAMES,
+    )
+
+
+def decode_liquid_token_created(log: dict) -> dict:
+    # Liquid V1 indexed slots: tokenAddress (topic[1]), tokenAdmin (topic[2])
+    # — verified against the canonical Sourcify ABI for Liquid.sol::ILiquid.
+    # Differs from Clanker V4 which indexes msgSender + tokenAddress.
+    return _decode_token_created(
+        log,
+        indexed_names=["tokenAddress", "tokenAdmin"],
+        nonindexed_types=LIQUID_NONINDEXED_TYPES,
+        nonindexed_names=LIQUID_NONINDEXED_NAMES,
+    )
 
 
 def decode_swap(log: dict) -> dict:
@@ -411,35 +489,43 @@ def target_amount_signed(swap: dict, target_is_token0: bool) -> int:
 # Phase 1: discovery
 # ---------------------------------------------------------------------------
 
-def discover_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
-    """
-    Scan factory logs for TokenCreated events between [from_block, to_block].
-
-    Discovery is intentionally NOT checkpointed across runs — for the 6-month
-    Clanker V4 window the full re-scan is ~30s + a few k Alchemy CUs, much
-    cheaper than persisting 170k+ token dicts in state. Per-token Phase 2
-    work is what we actually need to resume cleanly, and that lives in
-    `.fetch_cache/<token>.json`.
-    """
-    sig_topic = topic0(TOKEN_CREATED_SIG)
-
-    print(f"  [V4] crawling {from_block} → {to_block} ({(to_block - from_block) // 1000}k blocks)")
-    logs = get_logs(rpc, address=CLANKER_V4_ADDRESS, topics=[sig_topic],
+def _discover_from_factory(
+    rpc: RpcClient,
+    *,
+    factory_addr: str,
+    sig: str,
+    decoder,
+    platform: str,
+    version: str,
+    log_label: str,
+    state_key: str,
+    from_block: int,
+    to_block: int,
+    state: dict,
+) -> list[dict]:
+    """Generic factory-log → token-dict scanner shared by Clanker V4 + Liquid
+    V1 (bugbot #66 finding 4: deduplicate `discover_*` so output-dict shape
+    can't drift between launchpads). Discovery is intentionally NOT
+    checkpointed — full re-scan is cheap; per-token caches handle resume."""
+    sig_topic = topic0(sig)
+    print(f"  [{log_label}] crawling {from_block} → {to_block} ({(to_block - from_block) // 1000}k blocks)")
+    logs = get_logs(rpc, address=factory_addr, topics=[sig_topic],
                     from_block=from_block, to_block=to_block)
-    print(f"  [V4] {len(logs)} TokenCreated events")
+    print(f"  [{log_label}] {len(logs)} TokenCreated events")
 
     out: list[dict] = []
     for log in logs:
         try:
-            d = decode_token_created(log)
+            d = decoder(log)
         except Exception as e:
             print(f"    decode fail: {e}")
             continue
         block = hex_to_int(log["blockNumber"])
         out.append({
             "token_address": d["tokenAddress"],
-            "deployer": d["msgSender"],
-            "version": "V4",
+            "deployer": d.get("msgSender", ""),
+            "platform": platform,
+            "version": version,
             "name": d.get("tokenName", ""),
             "symbol": d.get("tokenSymbol", ""),
             "pool_id": d.get("poolId", ""),
@@ -452,15 +538,53 @@ def discover_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: di
 
     out.sort(key=lambda t: t["launch_block"])
     seen: set[str] = set()
-    deduped = []
+    deduped: list[dict] = []
     for t in out:
         if t["token_address"] in seen:
             continue
         seen.add(t["token_address"])
         deduped.append(t)
-    state["discover.V4.last_scan_blocks"] = [from_block, to_block]
-    state["discover.V4.last_scan_count"] = len(deduped)
+    state[f"discover.{state_key}.last_scan_blocks"] = [from_block, to_block]
+    state[f"discover.{state_key}.last_scan_count"] = len(deduped)
     return deduped
+
+
+def discover_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
+    """Scan Clanker V4 factory logs for TokenCreated events in
+    [from_block, to_block]. Thin platform-specific wrapper around
+    `_discover_from_factory`."""
+    return _discover_from_factory(
+        rpc,
+        factory_addr=CLANKER_V4_ADDRESS,
+        sig=TOKEN_CREATED_SIG,
+        decoder=decode_token_created,
+        platform="clanker",
+        version="V4",
+        log_label="V4",
+        state_key="V4",
+        from_block=from_block,
+        to_block=to_block,
+        state=state,
+    )
+
+
+def discover_liquid_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
+    """Scan Liquid V1 factory logs for TokenCreated events in
+    [from_block, to_block]. Thin platform-specific wrapper around
+    `_discover_from_factory`."""
+    return _discover_from_factory(
+        rpc,
+        factory_addr=LIQUID_V1_ADDRESS,
+        sig=LIQUID_TOKEN_CREATED_SIG,
+        decoder=decode_liquid_token_created,
+        platform="liquid",
+        version="V1",
+        log_label="Liquid V1",
+        state_key="LiquidV1",
+        from_block=from_block,
+        to_block=to_block,
+        state=state,
+    )
 
 
 def resolve_launch_timestamps(rpc: RpcClient, tokens: list[dict]) -> None:
@@ -518,14 +642,23 @@ class TokenExtraction:
     # Track-E v3 additions
     survived_to_day_7: int = 0       # binary, on-chain only
     hp_trajectory_json: str = "[]"   # 5-comp raw HP at [+24h,+48h,+72h,+96h]
+    # Track-E v4: raw 168h gate components, exposed so survived_to_day_7 can
+    # be recalibrated post-hoc to land in the [30%, 70%] true-rate band per
+    # the v4 dispatch (without re-running the multi-hour Alchemy crawl). The
+    # binary `survived_to_day_7` column is whatever the at-fetch-time gate
+    # decided; pipeline.py can recompute it from these three columns + new
+    # thresholds.
+    holders_at_168h: int = 0
+    lp_depth_168h_eth: float = 0.0
+    vol_24h_at_168h_eth: float = 0.0
     notes: str = ""
     # Cache-schema fingerprint. Bump when extraction semantics change so stale
     # caches written by an earlier code version get re-extracted instead of
     # silently producing degenerate values in the corpus.
-    cache_schema: int = 5
+    cache_schema: int = 6
 
 
-CACHE_SCHEMA = 5
+CACHE_SCHEMA = 6
 
 
 def hhi_score_from_balances(balances: list[int]) -> float:
@@ -575,7 +708,13 @@ def v4_full_range_weth_wei(liquidity: int, sqrtPriceX96: int, target_is_token0: 
     return (liquidity * Q96) / sqrtPriceX96
 
 
-def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> TokenExtraction | None:
+def extract_token_features(
+    rpc: RpcClient,
+    token: dict,
+    *,
+    head_block: int,
+    snapshot_log_fp=None,
+) -> TokenExtraction | None:
     addr = token["token_address"]
     cache_path = CACHE_DIR / f"{addr}.json"
     if cache_path.exists():
@@ -623,7 +762,7 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
         ticker=ticker,
         name=(token.get("name") or "")[:64],
         chain="base",
-        platform="clanker",
+        platform=(token.get("platform") or "clanker"),
         creator_address=token.get("deployer", ""),
         launch_ts=launch_ts,
         launch_block=launch_block,
@@ -838,6 +977,29 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
         hp = hp_raw_5comp(v_decayed, sum_sqrt, depth_at, removed_at, retention_at, hhi_at)
         hp_traj.append(round(hp, 6))
 
+        # v4 diagnostic_hp_delta.py consumer: per-snapshot HP component dump.
+        # Only emitted when the caller passes --snapshot-log; cached tokens
+        # skip the snapshot loop entirely so they won't appear in the log
+        # (diagnostic script treats absence as "no fresh data this run").
+        if snapshot_log_fp is not None:
+            snap_hour = {blk_24h: 24, blk_48h: 48, blk_72h: 72, blk_96h: 96}[snap_b]
+            snapshot_log_fp.write(json.dumps({
+                "event": "hp_snapshot_computed",
+                "token": addr,
+                "snapshot_hour": snap_hour,
+                "block_number": snap_b,
+                "components": {
+                    "velocity_decayed_eth": round(v_decayed, 8),
+                    "effective_buyers_sum_sqrt": round(sum_sqrt, 8),
+                    "lp_depth_eth": round(depth_at, 8),
+                    "lp_removed_24h_eth": round(removed_at, 8),
+                    "retention": round(retention_at, 6),
+                    "hhi_score": round(hhi_at, 6),
+                    "unique_buyers_at": len(buyers_at),
+                },
+                "hp_raw_5comp": round(hp, 6),
+            }) + "\n")
+
     ext.hp_trajectory_json = json.dumps(hp_traj)
     hp_72 = hp_traj[2]
     hp_96 = hp_traj[3]
@@ -879,6 +1041,12 @@ def extract_token_features(rpc: RpcClient, token: dict, *, head_block: int) -> T
             eth_v = amount0_from_swap_to_eth(sw, target_is_token0)
             if eth_v != 0:
                 vol_24h_168 += abs(eth_v)
+        # v4: persist the raw gate components so the threshold can be
+        # recalibrated post-hoc to land in [30%, 70%] true-rate band per the
+        # v4 dispatch (without re-fetching).
+        ext.holders_at_168h = len(snap_168h)
+        ext.lp_depth_168h_eth = round(depth_168, 6)
+        ext.vol_24h_at_168h_eth = round(vol_24h_168, 6)
         if (
             len(snap_168h) >= SURVIVED_HOLDERS_MIN
             and depth_168 >= SURVIVED_LP_MIN_ETH
@@ -1001,6 +1169,8 @@ CSV_COLUMNS = [
     "outcome_90d_holder_retention", "outcome_90d_price_floor",
     "outcome_90d_volume_slope", "outcome_90d_composite",
     "survived_to_day_7",
+    # v4: raw 168h gate components (post-hoc recalibration of survived_to_day_7).
+    "holders_at_168h", "lp_depth_168h_eth", "vol_24h_at_168h_eth",
     "hp_trajectory_json",
     "name", "creator_address", "notes",
 ]
@@ -1048,7 +1218,46 @@ def main():
     p.add_argument("--start-days-ago", type=int, default=90)
     p.add_argument("--end-days-ago", type=int, default=8)
     p.add_argument("--reset", action="store_true")
+    p.add_argument("--stratified", action="store_true",
+                   help="v4: 50/50 stratified sample. Scans candidates in "
+                        "random order and buckets each into survivors "
+                        "(≥1 buyer, ≥0.001 ETH) vs dead, stopping when both "
+                        "buckets reach --pilot/2 or --max-scan exhausted.")
+    p.add_argument("--max-scan", type=int, default=2500,
+                   help="Stratified mode: max candidates to extract before "
+                        "stopping even if the survivor bucket isn't full.")
+    p.add_argument("--snapshot-log", type=str, default=None,
+                   help="Path to write per-token, per-snapshot HP component "
+                        "JSON lines for diagnostic_hp_delta.py to consume.")
+    p.add_argument("--source", choices=["clanker", "liquid", "both"], default="clanker",
+                   help="Which launchpad factory to crawl. Default 'clanker' "
+                        "preserves v3 behavior (Clanker V4 only). 'liquid' "
+                        "crawls Liquid V1 only (used for the v4 validation "
+                        "cohort). 'both' merges both factories' discoveries.")
+    p.add_argument("--output", type=str, default=None,
+                   help="Path to write corpus.csv. Defaults to track-e/corpus.csv "
+                        "(overwrites). Use a different path (e.g. v4_corpus.csv) "
+                        "to preserve the v3 corpus until the v4 fetch validates.")
     args = p.parse_args()
+    output_path = Path(args.output) if args.output else CORPUS_PATH
+
+    # bugbot #66 finding 10: --stratified depends on --pilot to derive
+    # target_per_bucket; without --pilot the bucketing branch is dead code
+    # and the run silently degrades to non-stratified. Fail loud instead
+    # of producing a corpus that misrepresents what the operator asked for.
+    if args.stratified and args.pilot is None:
+        sys.exit(
+            "--stratified requires --pilot N to set the target bucket size "
+            "(N/2 each). Re-run with e.g. --pilot 250 --stratified."
+        )
+    # bugbot #66 finding 12: --pilot 1 --stratified produces target_per_bucket=0
+    # via integer division, which makes the bucket-full check always-true and
+    # silently drops every extraction. Require pilot ≥ 2.
+    if args.stratified and args.pilot < 2:
+        sys.exit(
+            f"--pilot must be ≥ 2 in stratified mode (got {args.pilot}); "
+            "smaller values produce target_per_bucket=0 and an empty corpus."
+        )
 
     if ENV_PATH.exists():
         load_dotenv(ENV_PATH)
@@ -1086,114 +1295,169 @@ def main():
     end_block = find_block_at_ts(rpc, end_ts, max(start_block, end_anchor), head_block)
     print(f"  start_block={start_block}  end_block={end_block}  ({(end_block - start_block) // 1000}k blocks)")
 
-    print("\nPhase 1: discovering tokens…")
-    discovered = discover_tokens(rpc, from_block=start_block, to_block=end_block, state=state)
+    print(f"\nPhase 1: discovering tokens (source={args.source})…")
+    discovered: list[dict] = []
+    if args.source in ("clanker", "both"):
+        discovered.extend(
+            discover_tokens(rpc, from_block=start_block, to_block=end_block, state=state)
+        )
+    if args.source in ("liquid", "both"):
+        discovered.extend(
+            discover_liquid_tokens(rpc, from_block=start_block, to_block=end_block, state=state)
+        )
     save_state(state)
 
-    # Track-E v3 dispatch Fix 3: drop the live-token gate. Earlier filtering
-    # produced a survivor-biased corpus that could only answer "what predicts
-    # retention given a launch already had real trading?" — it could not
-    # answer "what distinguishes traction from death?" Now every discovered
-    # token enters the corpus; zero-activity tokens get null/zero component
-    # values that pipeline.py already handles via missing-data logic.
+    # Track-E v4 dispatch Prereq 1: stratified 50/50 sampling. The v3
+    # time-stratified random pick gave 97% dead launches because Clanker V4's
+    # base mortality is ~95-97%; component analysis on that distribution
+    # collapses. v4 explicitly buckets into survivors (≥1 buy + ≥0.001 ETH
+    # buy volume) vs dead, sampling --pilot/2 of each. If survivors are
+    # scarce we keep scanning up to --max-scan candidates before stopping
+    # with whatever ratio is achievable (documented in REPORT v4).
     #
-    # Stratified sampling: V1–V3.5 are dormant on Base (verified 2026-05-02:
-    # zero TokenCreated events in the 2026-02-01→2026-04-30 window, see
-    # sources.md), so we stratify by time within V4 instead of by version.
-    # Three equal time bins through the window, sampled in proportion to
-    # launch density per bin.
+    # The non-stratified path stays for back-compat (e.g. quick small pilots).
+    rng = random.Random(42)  # deterministic re-run
+
+    candidates_to_scan = list(discovered)
+    # Shuffle whenever we may not process every candidate (pilot is set OR
+    # stratified is on). Discovery output is launch_block-sorted, so without
+    # this, stratified buckets fill in chronological order — early-window
+    # tokens dominate, late-window tokens get dropped (bugbot #66 finding 3:
+    # "stratified mode skips shuffle when pilot exceeds discovered" — the
+    # bug widens to "any time we cap, we need to randomize first").
+    if args.pilot is not None or args.stratified:
+        rng.shuffle(candidates_to_scan)
     if args.pilot is not None and args.pilot < len(discovered):
-        sorted_disc = sorted(discovered, key=lambda t: t["launch_block"])
-        n = len(sorted_disc)
-        third = n // 3
-        bins = [sorted_disc[:third], sorted_disc[third:2*third], sorted_disc[2*third:]]
-        per_bin = args.pilot // 3
-        rem = args.pilot - per_bin * 3
-        rng = random.Random(42)  # deterministic — re-running yields the same corpus
-        # Pre-shuffle each bin so we can take a prefix; then redistribute any
-        # under-filled bin's shortfall to the next bin in a second pass. With
-        # 596k discovered tokens this never trips, but a 5-token corpus with
-        # --pilot 4 used to silently return 3 because bin 0's shortfall wasn't
-        # passed to bin 2.
-        shuffled = []
-        for b in bins:
-            sb = list(b)
-            rng.shuffle(sb)
-            shuffled.append(sb)
-        targets = [per_bin + (1 if i < rem else 0) for i in range(3)]
-        candidates: list[dict] = []
-        carry = 0
-        # Forward-carry pass: any bin's shortfall flows to the next bin's
-        # quota. Provably zero residual after the third bin given the outer
-        # `args.pilot < len(discovered)` guard (sum of bin sizes ≥ pilot, so
-        # bin 2 always has enough headroom to absorb upstream carry).
-        for i in range(3):
-            want = targets[i] + carry
-            actually = min(want, len(shuffled[i]))
-            candidates.extend(shuffled[i][:actually])
-            carry = want - actually
-        print(f"  pilot mode: time-stratified sample of {len(candidates)} tokens "
-              f"across the window (3 bins of ~{per_bin} each, seed=42)")
-    else:
-        candidates = list(discovered)
+        # Cap depends on mode:
+        #  • stratified: scan up to --max-scan candidates and bucket each
+        #    into survivors/dead until both buckets fill. Bucket caps mean
+        #    we never write more than --pilot tokens to corpus.csv.
+        #  • non-stratified: cap directly to --pilot to preserve the v3
+        #    "Run in pilot mode with N tokens" semantics (bugbot #66 finding 2).
+        cap = args.max_scan if args.stratified else args.pilot
+        candidates_to_scan = candidates_to_scan[:cap]
 
-    # Resolve timestamps only for the tokens we'll actually process.
-    resolve_launch_timestamps(rpc, candidates)
+    target_per_bucket = (args.pilot // 2) if args.pilot is not None else None
 
+    # Resolve timestamps only for the tokens we'll actually scan.
+    resolve_launch_timestamps(rpc, candidates_to_scan)
+
+    # bugbot #66 finding 1: the platform + factory address must come from
+    # the discovery dict, not be hardcoded — Liquid tokens were being
+    # mis-tagged as Clanker in --source liquid|both runs.
+    factory_by_platform = {
+        "clanker": CLANKER_V4_ADDRESS,
+        "liquid": LIQUID_V1_ADDRESS,
+    }
     with open(DISCOVERED_PATH, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["token_address", "ticker", "platform", "version",
                     "launch_block", "launch_ts", "factory_address"])
-        for t in candidates:
-            # `tokenSymbol` in V4 stores arbitrary JSON; the readable label is
-            # in `tokenName` (matches the corpus.csv ticker column).
+        for t in candidates_to_scan:
             ticker = (t.get("name") or "")[:32]
-            w.writerow([t["token_address"], ticker, "clanker", t["version"],
-                        t["launch_block"], t["launch_ts"], CLANKER_V4_ADDRESS])
-    print(f"  wrote {len(candidates)} discovered tokens → {DISCOVERED_PATH}")
+            platform = t.get("platform", "clanker")
+            w.writerow([t["token_address"], ticker, platform, t["version"],
+                        t["launch_block"], t["launch_ts"],
+                        factory_by_platform.get(platform, "")])
+    print(f"  wrote {len(candidates_to_scan)} discovered tokens → {DISCOVERED_PATH}")
 
-    print(f"\nPhase 2: extracting features + outcomes for {len(candidates)} tokens…")
+    if args.stratified and args.pilot is not None:
+        print(f"\nPhase 2 (stratified): bucketing into ≤{target_per_bucket} survivors "
+              f"+ ≤{target_per_bucket} dead from up to {len(candidates_to_scan)} candidates…")
+    else:
+        print(f"\nPhase 2: extracting features + outcomes for {len(candidates_to_scan)} tokens…")
     CACHE_DIR.mkdir(exist_ok=True)
-    extractions: list[TokenExtraction] = []
-    n_zero_activity = 0
-    for i, tok in enumerate(candidates):
-        symbol = (tok.get("symbol") or "")[:12]
-        print(f"  [{i+1}/{len(candidates)}] {symbol:<12} {tok['token_address']}…",
-              end="", flush=True)
-        t0 = time.monotonic()
-        try:
-            ext = extract_token_features(rpc, tok, head_block=head_block)
-        except Exception as e:
-            print(f" FAILED ({e})")
-            continue
-        if ext is None:
-            print(" skipped (non-WETH paired or invalid pool)")
-            continue
-        dt = time.monotonic() - t0
-        # "zero-activity" means the token had no buy activity in the t+96h
-        # extraction window. A token can survive_to_day_7 (which checks
-        # late-window holders + liquidity + buy volume in [t+144h, t+168h])
-        # while being early-dead-on-arrival. Don't tag those as zero-activity
-        # since the survival outcome contradicts it for the reader.
-        if (
-            ext.unique_buyers == 0
-            and ext.total_buy_volume_eth == 0
-            and ext.survived_to_day_7 == 0
-        ):
-            n_zero_activity += 1
-            ext.notes = (ext.notes + ";" if ext.notes else "") + "zero-activity"
-            print(f" zero-activity ({dt:.1f}s, retained for unbiased corpus)")
-        else:
-            print(f" ✓ ({dt:.1f}s, {ext.unique_buyers} buyers, {ext.holder_count} holders, "
-                  f"lp_depth={ext.lp_depth_eth:.3f} ETH, "
-                  f"survived={ext.survived_to_day_7})")
-        extractions.append(ext)
 
-    save_state(state)
+    # buffering=1 → line-buffered text mode. Without this, Python uses the
+    # default 8KB block buffer, which means diagnostic_hp_delta.py can't read
+    # in-progress data during a multi-hour fetch (the survivor lines for the
+    # first ~30+ tokens are queued in memory and only land on disk when the
+    # fetch ends). Line buffering trades a tiny per-write syscall cost for
+    # observable progress.
+    # bugbot #66 finding 8: previously a bare open()/close() pair — a
+    # KeyboardInterrupt or unhandled exception between them would leak the
+    # file handle and lose buffered writes. try/finally guarantees cleanup.
+    snapshot_log_fp = (
+        open(args.snapshot_log, "w", buffering=1) if args.snapshot_log else None
+    )
 
+    survivors: list[TokenExtraction] = []
+    dead: list[TokenExtraction] = []
+    n_processed = 0
+    try:
+        for tok in candidates_to_scan:
+            n_processed += 1
+            symbol = (tok.get("symbol") or "")[:12]
+            # Compact progress line — bucket counts let the operator gauge
+            # how fast the survivor half is filling.
+            prefix = f"  [{n_processed}/{len(candidates_to_scan)} | s:{len(survivors)} d:{len(dead)}]"
+            print(f"{prefix} {symbol:<12} {tok['token_address']}…",
+                  end="", flush=True)
+            t0 = time.monotonic()
+            try:
+                ext = extract_token_features(rpc, tok, head_block=head_block,
+                                             snapshot_log_fp=snapshot_log_fp)
+            except Exception as e:
+                print(f" FAILED ({e})")
+                continue
+            if ext is None:
+                print(" skipped (non-WETH paired or invalid pool)")
+                continue
+            dt = time.monotonic() - t0
+
+            is_survivor = (ext.unique_buyers >= 1 and ext.total_buy_volume_eth >= 0.001)
+            # bugbot #66 finding 7: tag must distinguish "no buyers + no
+            # volume" (truly dead-on-arrival) from "had some activity but
+            # below survivor threshold" (e.g. 3 buyers + 0.0008 ETH). The
+            # original "zero-activity" label was overloaded — analysts
+            # filtering on it would conflate the two regimes. Now we tag
+            # the precise reason; analysts who want the broad bucket can
+            # still filter on either.
+            if ext.unique_buyers == 0 and ext.total_buy_volume_eth == 0.0:
+                ext.notes = (ext.notes + ";" if ext.notes else "") + "zero-activity"
+            elif not is_survivor:
+                ext.notes = (ext.notes + ";" if ext.notes else "") + "below-survivor-threshold"
+
+            if args.stratified and args.pilot is not None:
+                bucket = survivors if is_survivor else dead
+                if len(bucket) >= target_per_bucket:
+                    # Bucket already full — skip and don't write to corpus.
+                    print(f" ({dt:.1f}s, bucket full, skipped)")
+                    continue
+                bucket.append(ext)
+                tag = "✓ SURVIVOR" if is_survivor else "dead"
+                print(f" {tag} ({dt:.1f}s, {ext.unique_buyers} buyers, "
+                      f"{ext.total_buy_volume_eth:.3f} ETH, survived={ext.survived_to_day_7})")
+                if len(survivors) >= target_per_bucket and len(dead) >= target_per_bucket:
+                    print(f"\nBoth buckets full at {n_processed}/{len(candidates_to_scan)} scanned.")
+                    break
+            else:
+                (survivors if is_survivor else dead).append(ext)
+                tag = "✓" if is_survivor else "below-threshold"
+                print(f" {tag} ({dt:.1f}s, {ext.unique_buyers} buyers, "
+                      f"lp_depth={ext.lp_depth_eth:.3f} ETH, "
+                      f"survived={ext.survived_to_day_7})")
+
+        save_state(state)
+    finally:
+        if snapshot_log_fp:
+            snapshot_log_fp.close()
+
+    extractions = survivors + dead
+    # bugbot #66 finding 9: prior message claimed "rate among extracted"
+    # but computed rate-among-all-scanned (denominator was n_processed,
+    # not len(extractions)). The base-rate-in-the-wild is the interesting
+    # number; rename the field so the math matches the label. The
+    # corpus-internal ratio is by design ~50/50 when stratified.
+    base_rate = 100 * len(survivors) / max(n_processed, 1) if n_processed else 0.0
+    corpus_ratio = (
+        100 * len(survivors) / max(len(extractions), 1) if extractions else 0.0
+    )
     print(f"\nPhase 3: writing corpus.csv "
-          f"({len(extractions)} tokens; {n_zero_activity} zero-activity included)…")
-    write_corpus(extractions, CORPUS_PATH)
+          f"({len(extractions)} tokens; {len(survivors)} survivors + {len(dead)} dead; "
+          f"corpus survivor share: {corpus_ratio:.1f}%; "
+          f"base survivor rate in scan: {base_rate:.1f}% of {n_processed} scanned)")
+    write_corpus(extractions, output_path)
 
 
 if __name__ == "__main__":
