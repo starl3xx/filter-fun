@@ -36,14 +36,8 @@ contract PolishContractsPassTest is Test {
         // Audit H-4 zero-address gates require non-zero on every constructor address;
         // we only need a launcher that can take a setFactory call, so the bonusDistributor
         // wire can be a stub address (the launcher doesn't dispatch through it in this test).
-        launcher = new FilterLauncher(
-            owner,
-            oracle,
-            treasury,
-            mechanics,
-            IBonusFunding(stubBonusDistributor),
-            weth
-        );
+        launcher =
+            new FilterLauncher(owner, oracle, treasury, mechanics, IBonusFunding(stubBonusDistributor), weth);
     }
 
     // M-Contracts-2 ------------------------------------------------------------------
@@ -70,7 +64,9 @@ contract PolishContractsPassTest is Test {
         vm.prank(owner);
         launcher.setFactory(IFilterFactory(fakeFactory));
 
-        assertEq(address(launcher.factory()), fakeFactory, "M-Contracts-2 regression: setFactory did not assign");
+        assertEq(
+            address(launcher.factory()), fakeFactory, "M-Contracts-2 regression: setFactory did not assign"
+        );
     }
 
     function test_MContracts2_SetFactory_RevertsOnZero_NoEvent() public {
