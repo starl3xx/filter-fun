@@ -46,31 +46,33 @@ const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID ?? "";
 // production load-bearing input. Pre-fix `http(undefined)` silently fell back
 // to viem's hard-coded public RPC, which is severely rate-limited and
 // produces sporadic UX failures (failed reads, stalled txs) that look like
-// dapp bugs to the user. Detect the missing-env case at module load and:
-//   - throw at server-start / browser-load in production (deploy-time
-//     fail-fast — a missing env var is an ops misconfig, not a runtime
-//     condition the app should tolerate);
-//   - warn in dev / test where falling back to the public RPC is the
-//     intended developer-friction-free behaviour and the test suite must
-//     keep importing this module without provisioning real RPCs.
+// dapp bugs to the user. Detect the missing-env case at module load and warn
+// loudly so ops sees it.
 //
-// Skip the throw during `next build` (NEXT_PHASE === "phase-production-build")
-// because static prerendering imports this module at build time when env
-// vars aren't necessarily provisioned in CI. The validation still fires at
-// runtime — both during server-render on `next start` and on the client
-// when the bundle loads in the browser.
+// Production incident (2026-05-03): the original M-Web-8 implementation
+// `throw`-ed in production. The "deploy-time fail-fast" intent was wrong:
+// the throw runs at MODULE-LOAD time, which means it fires in EVERY
+// visitor's browser and in EVERY SSR request — turning a missing env var
+// from "silent rate limits" (annoying) into "Application error: client-
+// side exception" on every page load (catastrophic). Cloudflare CDN
+// caches the broken bundle, making recovery slow even after the env
+// var is restored.
+//
+// New shape: always log loudly (so the missing env shows up in browser
+// console + Railway server logs), but never throw. viem's public-RPC
+// fallback is a strictly better failure mode than "no site at all" —
+// users get rate-limited reads instead of a broken page, and ops sees
+// the warn in logs and can fix it. The "fail-fast" objective is now
+// served by the dev-time .env.example documentation + the build-step
+// deploy hooks, not by a runtime throw that takes the whole site down.
 const expectedRpcEnvName: "NEXT_PUBLIC_BASE_RPC_URL" | "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL" =
   chain === base ? "NEXT_PUBLIC_BASE_RPC_URL" : "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL";
 const expectedRpcUrl =
   chain === base
     ? process.env.NEXT_PUBLIC_BASE_RPC_URL
     : process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL;
-const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 if (!expectedRpcUrl || expectedRpcUrl.trim() === "") {
   const message = `[wagmi] ${expectedRpcEnvName} is unset for active chain "${chain.name}" — viem will fall back to the rate-limited public RPC and reads/txs will silently fail under load.`;
-  if (process.env.NODE_ENV === "production" && !isBuildPhase) {
-    throw new Error(message);
-  }
   // eslint-disable-next-line no-console
   console.warn(message);
 }
