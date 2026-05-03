@@ -57,11 +57,7 @@ import {isAddressLike} from "./builders.js";
 import {cached} from "./cache.js";
 import {loadCorsConfigFromEnv, originAllowed} from "./cors.js";
 import {toMwContext} from "./mwContext.js";
-import {
-  checkAndLogCadence,
-  consoleCadenceLogger,
-  type HolderSnapshotTrigger,
-} from "./snapshotCadence.js";
+import {checkAndLogCadence, consoleCadenceLogger} from "./snapshotCadence.js";
 import {
   getReadinessHandler,
   getSeasonHandler,
@@ -472,19 +468,20 @@ function buildProfileQueries(db: ApiDb): ProfileQueries {
             consoleCadenceLogger,
           );
         }
-        // Audit L-Indexer-4: trigger comparisons against the canonical
-        // HolderSnapshotTrigger union (re-exported from snapshotCadence.ts) instead
-        // of bare string literals. The cast narrows from the schema's `string`
-        // column type — adding a third trigger to the union forces this branch to
-        // be re-considered (the type system catches the missing case at the next
-        // build, even though the runtime fall-through silently drops the row).
-        const trigger: HolderSnapshotTrigger | string = r.trigger;
-        if (trigger === "FINALIZE") {
+        // Audit L-Indexer-4: legal labels are pinned by `HolderSnapshotTrigger`
+        // in snapshotCadence.ts (the audit anchor + grep target). The schema
+        // returns `string`, so this is a runtime equality check against the
+        // canonical literals — no compile-time exhaustiveness here (bugbot
+        // follow-up on PR #70 corrected the earlier draft's wrong claim about
+        // type-system enforcement). Unknown labels silently fall through, which
+        // is the right behaviour for forward-compat with a future contract that
+        // adds a third trigger we haven't shipped wiring for yet.
+        if (r.trigger === "FINALIZE") {
           const winner = winnerBySeason.get(r.seasonId);
           if (winner && winner.toLowerCase() === r.token.toLowerCase()) {
             weekWinner = true;
           }
-        } else if (trigger === "CUT") {
+        } else if (r.trigger === "CUT") {
           filterSurvivor = true;
           cutSeasons.add(r.seasonId);
         }
