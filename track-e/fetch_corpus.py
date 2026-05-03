@@ -351,20 +351,31 @@ def token_decimals(rpc: RpcClient, token: str) -> int:
 # Decoders
 # ---------------------------------------------------------------------------
 
-def decode_token_created(log: dict) -> dict:
-    # Verified via on-chain inspection: topic[1] is tokenAddress (the deployed
-    # ERC-20 contract, has bytecode), topic[2] is msgSender (the deploying EOA
-    # or relayer agent). The canonical ABI signature gives the same topic0 hash
-    # regardless of param ordering, so we have to pin the slot order empirically.
-    token_address = topic_to_address(log["topics"][1]).lower()
-    msg_sender = topic_to_address(log["topics"][2]).lower()
+def _decode_token_created(
+    log: dict,
+    *,
+    indexed_names: list[str],
+    nonindexed_types: list[str],
+    nonindexed_names: list[str],
+) -> dict:
+    """Generic TokenCreated decoder shared by Clanker V4 + Liquid V1.
+
+    The two factories emit the same logical event with the same field types
+    but in different orders + with different `indexed` choices. Centralizing
+    the decode keeps the bytes/poolId/UTF-8 handling in one place so a fix
+    in one path can't silently leave the other broken (bugbot #66 finding 4).
+
+    `indexed_names`: ordered list of names for topic[1], topic[2], …
+    `nonindexed_types` / `nonindexed_names`: the data-blob fields, in ABI
+        decoder order. Names beginning with `poolId` get hex-encoded; other
+        bytes get UTF-8 decoded with error replacement, falling back to hex.
+    """
+    out: dict = {}
+    for i, name in enumerate(indexed_names):
+        out[name] = topic_to_address(log["topics"][i + 1]).lower()
     data = bytes.fromhex(log["data"][2:])
-    values = abi_decode(NONINDEXED_TYPES, data)
-    out = {
-        "msgSender": msg_sender,
-        "tokenAddress": token_address,
-    }
-    for name, val in zip(NONINDEXED_NAMES, values):
+    values = abi_decode(nonindexed_types, data)
+    for name, val in zip(nonindexed_names, values):
         if isinstance(val, bytes):
             if name == "poolId":
                 out[name] = "0x" + val.hex()
@@ -376,32 +387,32 @@ def decode_token_created(log: dict) -> dict:
         else:
             out[name] = val
     return out
+
+
+def decode_token_created(log: dict) -> dict:
+    # Clanker V4 indexed slots verified via on-chain inspection: topic[1] is
+    # msgSender (deployer EOA / relayer), topic[2] is tokenAddress (the
+    # deployed ERC-20 with bytecode). The canonical ABI signature gives the
+    # same topic0 hash regardless of param ordering, so we pinned slot order
+    # empirically.
+    return _decode_token_created(
+        log,
+        indexed_names=["msgSender", "tokenAddress"],
+        nonindexed_types=NONINDEXED_TYPES,
+        nonindexed_names=NONINDEXED_NAMES,
+    )
 
 
 def decode_liquid_token_created(log: dict) -> dict:
-    # Liquid V1 indexed slots: tokenAddress (topic[1]), tokenAdmin (topic[2]).
-    # Verified empirically against Sourcify ABI; differs from Clanker V4 which
-    # indexes msgSender + tokenAddress.
-    token_address = topic_to_address(log["topics"][1]).lower()
-    token_admin = topic_to_address(log["topics"][2]).lower()
-    data = bytes.fromhex(log["data"][2:])
-    values = abi_decode(LIQUID_NONINDEXED_TYPES, data)
-    out = {
-        "tokenAddress": token_address,
-        "tokenAdmin": token_admin,
-    }
-    for name, val in zip(LIQUID_NONINDEXED_NAMES, values):
-        if isinstance(val, bytes):
-            if name == "poolId":
-                out[name] = "0x" + val.hex()
-            else:
-                try:
-                    out[name] = val.decode("utf-8", errors="replace")
-                except Exception:
-                    out[name] = "0x" + val.hex()
-        else:
-            out[name] = val
-    return out
+    # Liquid V1 indexed slots: tokenAddress (topic[1]), tokenAdmin (topic[2])
+    # — verified against the canonical Sourcify ABI for Liquid.sol::ILiquid.
+    # Differs from Clanker V4 which indexes msgSender + tokenAddress.
+    return _decode_token_created(
+        log,
+        indexed_names=["tokenAddress", "tokenAdmin"],
+        nonindexed_types=LIQUID_NONINDEXED_TYPES,
+        nonindexed_names=LIQUID_NONINDEXED_NAMES,
+    )
 
 
 def decode_swap(log: dict) -> dict:
@@ -477,76 +488,34 @@ def target_amount_signed(swap: dict, target_is_token0: bool) -> int:
 # Phase 1: discovery
 # ---------------------------------------------------------------------------
 
-def discover_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
-    """
-    Scan factory logs for TokenCreated events between [from_block, to_block].
-
-    Discovery is intentionally NOT checkpointed across runs — for the 6-month
-    Clanker V4 window the full re-scan is ~30s + a few k Alchemy CUs, much
-    cheaper than persisting 170k+ token dicts in state. Per-token Phase 2
-    work is what we actually need to resume cleanly, and that lives in
-    `.fetch_cache/<token>.json`.
-    """
-    sig_topic = topic0(TOKEN_CREATED_SIG)
-
-    print(f"  [V4] crawling {from_block} → {to_block} ({(to_block - from_block) // 1000}k blocks)")
-    logs = get_logs(rpc, address=CLANKER_V4_ADDRESS, topics=[sig_topic],
+def _discover_from_factory(
+    rpc: RpcClient,
+    *,
+    factory_addr: str,
+    sig: str,
+    decoder,
+    platform: str,
+    version: str,
+    log_label: str,
+    state_key: str,
+    from_block: int,
+    to_block: int,
+    state: dict,
+) -> list[dict]:
+    """Generic factory-log → token-dict scanner shared by Clanker V4 + Liquid
+    V1 (bugbot #66 finding 4: deduplicate `discover_*` so output-dict shape
+    can't drift between launchpads). Discovery is intentionally NOT
+    checkpointed — full re-scan is cheap; per-token caches handle resume."""
+    sig_topic = topic0(sig)
+    print(f"  [{log_label}] crawling {from_block} → {to_block} ({(to_block - from_block) // 1000}k blocks)")
+    logs = get_logs(rpc, address=factory_addr, topics=[sig_topic],
                     from_block=from_block, to_block=to_block)
-    print(f"  [V4] {len(logs)} TokenCreated events")
+    print(f"  [{log_label}] {len(logs)} TokenCreated events")
 
     out: list[dict] = []
     for log in logs:
         try:
-            d = decode_token_created(log)
-        except Exception as e:
-            print(f"    decode fail: {e}")
-            continue
-        block = hex_to_int(log["blockNumber"])
-        out.append({
-            "token_address": d["tokenAddress"],
-            "deployer": d["msgSender"],
-            "version": "V4",
-            "name": d.get("tokenName", ""),
-            "symbol": d.get("tokenSymbol", ""),
-            "pool_id": d.get("poolId", ""),
-            "paired_token": d.get("pairedToken", "").lower() if isinstance(d.get("pairedToken"), str) else "",
-            "locker": d.get("locker", "").lower() if isinstance(d.get("locker"), str) else "",
-            "starting_tick": d.get("startingTick", 0),
-            "launch_block": block,
-            "tx_hash": log["transactionHash"],
-        })
-
-    out.sort(key=lambda t: t["launch_block"])
-    seen: set[str] = set()
-    deduped = []
-    for t in out:
-        if t["token_address"] in seen:
-            continue
-        seen.add(t["token_address"])
-        deduped.append(t)
-    state["discover.V4.last_scan_blocks"] = [from_block, to_block]
-    state["discover.V4.last_scan_count"] = len(deduped)
-    return deduped
-
-
-def discover_liquid_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
-    """
-    Scan Liquid V1 factory logs for TokenCreated events between [from_block,
-    to_block]. Mirrors discover_tokens (Clanker V4) but uses the Liquid
-    factory address + Liquid-specific ABI ordering. Output dicts share the
-    same shape so downstream code (extract_token_features) is launchpad-agnostic.
-    """
-    sig_topic = topic0(LIQUID_TOKEN_CREATED_SIG)
-
-    print(f"  [Liquid V1] crawling {from_block} → {to_block} ({(to_block - from_block) // 1000}k blocks)")
-    logs = get_logs(rpc, address=LIQUID_V1_ADDRESS, topics=[sig_topic],
-                    from_block=from_block, to_block=to_block)
-    print(f"  [Liquid V1] {len(logs)} TokenCreated events")
-
-    out: list[dict] = []
-    for log in logs:
-        try:
-            d = decode_liquid_token_created(log)
+            d = decoder(log)
         except Exception as e:
             print(f"    decode fail: {e}")
             continue
@@ -554,8 +523,8 @@ def discover_liquid_tokens(rpc: RpcClient, *, from_block: int, to_block: int, st
         out.append({
             "token_address": d["tokenAddress"],
             "deployer": d.get("msgSender", ""),
-            "platform": "liquid",
-            "version": "V1",
+            "platform": platform,
+            "version": version,
             "name": d.get("tokenName", ""),
             "symbol": d.get("tokenSymbol", ""),
             "pool_id": d.get("poolId", ""),
@@ -568,15 +537,53 @@ def discover_liquid_tokens(rpc: RpcClient, *, from_block: int, to_block: int, st
 
     out.sort(key=lambda t: t["launch_block"])
     seen: set[str] = set()
-    deduped = []
+    deduped: list[dict] = []
     for t in out:
         if t["token_address"] in seen:
             continue
         seen.add(t["token_address"])
         deduped.append(t)
-    state["discover.LiquidV1.last_scan_blocks"] = [from_block, to_block]
-    state["discover.LiquidV1.last_scan_count"] = len(deduped)
+    state[f"discover.{state_key}.last_scan_blocks"] = [from_block, to_block]
+    state[f"discover.{state_key}.last_scan_count"] = len(deduped)
     return deduped
+
+
+def discover_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
+    """Scan Clanker V4 factory logs for TokenCreated events in
+    [from_block, to_block]. Thin platform-specific wrapper around
+    `_discover_from_factory`."""
+    return _discover_from_factory(
+        rpc,
+        factory_addr=CLANKER_V4_ADDRESS,
+        sig=TOKEN_CREATED_SIG,
+        decoder=decode_token_created,
+        platform="clanker",
+        version="V4",
+        log_label="V4",
+        state_key="V4",
+        from_block=from_block,
+        to_block=to_block,
+        state=state,
+    )
+
+
+def discover_liquid_tokens(rpc: RpcClient, *, from_block: int, to_block: int, state: dict) -> list[dict]:
+    """Scan Liquid V1 factory logs for TokenCreated events in
+    [from_block, to_block]. Thin platform-specific wrapper around
+    `_discover_from_factory`."""
+    return _discover_from_factory(
+        rpc,
+        factory_addr=LIQUID_V1_ADDRESS,
+        sig=LIQUID_TOKEN_CREATED_SIG,
+        decoder=decode_liquid_token_created,
+        platform="liquid",
+        version="V1",
+        log_label="Liquid V1",
+        state_key="LiquidV1",
+        from_block=from_block,
+        to_block=to_block,
+        state=state,
+    )
 
 
 def resolve_launch_timestamps(rpc: RpcClient, tokens: list[dict]) -> None:
@@ -1292,24 +1299,24 @@ def main():
     # The non-stratified path stays for back-compat (e.g. quick small pilots).
     rng = random.Random(42)  # deterministic re-run
 
-    candidates_to_scan: list[dict]
-    if args.pilot is not None and args.pilot < len(discovered):
-        # Pre-shuffle the entire discovered set; we walk it in this order
-        # until both buckets fill or max-scan is exhausted.
-        candidates_to_scan = list(discovered)
+    candidates_to_scan = list(discovered)
+    # Shuffle whenever we may not process every candidate (pilot is set OR
+    # stratified is on). Discovery output is launch_block-sorted, so without
+    # this, stratified buckets fill in chronological order — early-window
+    # tokens dominate, late-window tokens get dropped (bugbot #66 finding 3:
+    # "stratified mode skips shuffle when pilot exceeds discovered" — the
+    # bug widens to "any time we cap, we need to randomize first").
+    if args.pilot is not None or args.stratified:
         rng.shuffle(candidates_to_scan)
+    if args.pilot is not None and args.pilot < len(discovered):
         # Cap depends on mode:
         #  • stratified: scan up to --max-scan candidates and bucket each
         #    into survivors/dead until both buckets fill. Bucket caps mean
         #    we never write more than --pilot tokens to corpus.csv.
         #  • non-stratified: cap directly to --pilot to preserve the v3
-        #    "Run in pilot mode with N tokens" semantics. Without this
-        #    cap, --pilot 10 would scan up to 2500 tokens (bugbot #66
-        #    finding 2 — the v3 cap was lost when --max-scan landed).
+        #    "Run in pilot mode with N tokens" semantics (bugbot #66 finding 2).
         cap = args.max_scan if args.stratified else args.pilot
         candidates_to_scan = candidates_to_scan[:cap]
-    else:
-        candidates_to_scan = list(discovered)
 
     target_per_bucket = (args.pilot // 2) if args.pilot is not None else None
 
