@@ -12,7 +12,7 @@
 /// — this component just calls `onSubmit(fields)` once everything checks
 /// out. The page wires that into pin → write → redirect.
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useId, useMemo, useState} from "react";
 import {useAccount} from "wagmi";
 
 import type {TokenResponse} from "@/lib/arena/api";
@@ -212,6 +212,14 @@ export function LaunchForm({
         />
       </Field>
 
+      {/* Audit M-A11y-2 (Phase 1, 2026-05-03): pre-fix the link inputs used
+          `aria-label` only — invisible to sighted users with cognitive /
+          visual disabilities and a fragile fallback per WCAG 1.3.1. The
+          fieldset's `<legend>` ("Links (optional)") covers the group label,
+          but each input now also wraps in its own `<LinkField>` with
+          visible label text. The visible labels (Website / X / Twitter /
+          Farcaster) match the placeholder text — both surfaces stay in
+          sync because they're sourced from the same `LinkField` invocation. */}
       <fieldset style={{border: "none", padding: 0, margin: 0, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10}}>
         <legend
           style={{
@@ -227,29 +235,26 @@ export function LaunchForm({
         >
           Links (optional)
         </legend>
-        <input
-          type="url"
-          placeholder="Website"
-          value={fields.website}
-          onChange={(e) => update("website", e.target.value)}
-          style={inputStyle}
-          aria-label="Website"
+        <LinkField
+          label="Website"
+          inputType="url"
+          placeholder="yourdomain.com"
+          value={fields.website ?? ""}
+          onChange={(v) => update("website", v)}
         />
-        <input
-          type="text"
-          placeholder="X / Twitter"
-          value={fields.twitter}
-          onChange={(e) => update("twitter", e.target.value)}
-          style={inputStyle}
-          aria-label="Twitter handle"
+        <LinkField
+          label="X / Twitter"
+          inputType="text"
+          placeholder="@handle"
+          value={fields.twitter ?? ""}
+          onChange={(v) => update("twitter", v)}
         />
-        <input
-          type="text"
-          placeholder="Farcaster"
-          value={fields.farcaster}
-          onChange={(e) => update("farcaster", e.target.value)}
-          style={inputStyle}
-          aria-label="Farcaster handle"
+        <LinkField
+          label="Farcaster"
+          inputType="text"
+          placeholder="username.eth"
+          value={fields.farcaster ?? ""}
+          onChange={(v) => update("farcaster", v)}
         />
       </fieldset>
       {(showError("website") || showError("twitter") || showError("farcaster")) && (
@@ -270,7 +275,15 @@ export function LaunchForm({
 
       <FilterMechanicHint />
 
+      {/* Audit M-A11y-1 (Phase 1, 2026-05-03): pre-fix the checkbox sat
+          inside its parent `<label>` via implicit nesting. Implicit
+          association works in most browsers but is fragile for some
+          screen-reader / VoiceOver combinations (WCAG 1.3.1). Explicit
+          `id` + `htmlFor` makes the pairing unambiguous and survives
+          DOM tree movement (e.g. a future portal that moves the input
+          out from under the label). */}
       <label
+        htmlFor="acknowledge-filtered"
         style={{
           display: "flex",
           alignItems: "flex-start",
@@ -283,6 +296,7 @@ export function LaunchForm({
         }}
       >
         <input
+          id="acknowledge-filtered"
           type="checkbox"
           checked={acknowledged}
           onChange={(e) => setAcknowledged(e.target.checked)}
@@ -383,9 +397,20 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
 };
 
+/// Audit L-A11y-1 (Phase 1, 2026-05-03): error/success copy in the launch
+/// form lives outside the page-level `<NoticeCard role="status" aria-live>`
+/// region (the form is rendered as a sibling, not a child). Without
+/// `role="alert"` + `aria-live="polite"` here, a screen reader user would
+/// never hear field-validation errors or the post-pin / post-tx error chip
+/// surface — the text would simply appear silently in the DOM. `role="alert"`
+/// is the implicit-`aria-live="assertive"` pattern; we override to "polite"
+/// because the form errors aren't urgent enough to interrupt the user's
+/// current speech. Same posture matches the page-level NoticeCard.
 function ErrorNotice({children}: {children: React.ReactNode}) {
   return (
     <div
+      role="alert"
+      aria-live="polite"
       style={{
         padding: 10,
         borderRadius: 8,
@@ -398,6 +423,50 @@ function ErrorNotice({children}: {children: React.ReactNode}) {
     >
       {children}
     </div>
+  );
+}
+
+/// Audit M-A11y-2 helper. Each link input gets a visible label (mirrors
+/// the placeholder text), uses `useId()` to generate a stable input id /
+/// htmlFor pair, and reuses the shared `inputStyle` so the visual surface
+/// stays in sync with the rest of the form.
+function LinkField({
+  label,
+  inputType,
+  placeholder,
+  value,
+  onChange,
+}: {
+  label: string;
+  inputType: "url" | "text";
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const inputId = useId();
+  return (
+    <label htmlFor={inputId} style={{display: "flex", flexDirection: "column", gap: 4}}>
+      <span
+        style={{
+          fontSize: 9,
+          fontFamily: F.mono,
+          color: C.faint,
+          letterSpacing: "0.16em",
+          fontWeight: 700,
+          textTransform: "uppercase",
+        }}
+      >
+        {label}
+      </span>
+      <input
+        id={inputId}
+        type={inputType}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle}
+      />
+    </label>
   );
 }
 
