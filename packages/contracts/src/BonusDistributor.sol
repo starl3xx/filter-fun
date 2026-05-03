@@ -52,7 +52,12 @@ contract BonusDistributor is ReentrancyGuard {
     error NotVaultOf();
     error AlreadyFunded();
     error NotFinalized();
-    error NotUnlocked();
+    /// @notice `postRoot` was called before the bonus's `unlockTime` had elapsed.
+    /// @dev    Audit I-Contracts-1 (Phase 1, 2026-05-01): renamed from `NotUnlocked` so the
+    ///         selector reads as a timing-error, not an authorisation-error. The previous
+    ///         name surfaced in revert traces alongside `NotOracle` / `NotLauncher` and read
+    ///         as "you are not unlocked" rather than "it is not yet time to post the root."
+    error NotYetUnlocked();
     error AlreadyClaimed();
     error InvalidProof();
 
@@ -129,7 +134,7 @@ contract BonusDistributor is ReentrancyGuard {
         if (msg.sender != oracle) revert NotOracle();
         SeasonBonus storage b = _bonuses[seasonId];
         if (b.vault == address(0)) revert AlreadyFunded(); // i.e. not funded
-        if (block.timestamp < b.unlockTime) revert NotUnlocked();
+        if (block.timestamp < b.unlockTime) revert NotYetUnlocked();
         b.root = root;
         b.finalized = true;
         emit BonusRootPosted(seasonId, root);

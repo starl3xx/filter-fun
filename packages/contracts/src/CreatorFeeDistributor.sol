@@ -37,6 +37,14 @@ contract CreatorFeeDistributor {
     address public immutable weth;
     address public immutable treasury;
     CreatorRegistry public immutable registry;
+    /// @notice Window during which swap-fee accrual is credited to the creator. Per spec §10.3
+    ///         "creator fees accrue until the earliest of: 72 hours after launch, token is
+    ///         filtered, final settlement." Implemented as a hard 72h post-launch cap because
+    ///         the launch window is 48h and the main cut fires at hour 96 — so the eligible
+    ///         range is `[launchedAt, launchedAt + 72h)` regardless of the cut. Filtered + the
+    ///         cut close out earlier via `markFiltered` and `eligible()` respectively.
+    ///         Audit M-Contracts-4 (Phase 1, 2026-05-01): pinned the spec rationale here so a
+    ///         future tweak that detunes 72h has the §10.3 anchor in front of the editor.
     uint256 public constant ELIGIBILITY_WINDOW = 72 hours;
 
     /// @notice Tracks per-token accrual state. `seasonId` lets `notifyFee` and
@@ -53,6 +61,15 @@ contract CreatorFeeDistributor {
 
     /// @notice Tracks last-seen WETH balance so `notifyFee` can verify the locker actually
     ///         transferred the WETH in this tx (vs. faking a bookkeeping call).
+    /// @dev    Audit I-Contracts-5 (Phase 1, 2026-05-01): the `currentBalance < lastSeenBalance + amount`
+    ///         check assumes sequential, single-locker calls per token — which holds today
+    ///         because (a) every token has exactly one `FilterLpLocker` (factory-deployed,
+    ///         immutable) and (b) every notify is gated to that locker. If a future iteration
+    ///         introduces a second contract that pushes WETH directly to this distributor
+    ///         (e.g., a sponsor-fee router), or splits a single locker into a multi-caller
+    ///         pool, the snapshot accounting will skew and the underflow on
+    ///         `lastSeenBalance -= amount` (in the redirect/claim paths) becomes the failure
+    ///         mode. Re-validate this assumption before adding any new caller surface.
     uint256 public lastSeenBalance;
 
     event TokenRegistered(address indexed token, uint256 indexed seasonId);
