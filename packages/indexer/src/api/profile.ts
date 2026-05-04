@@ -277,7 +277,20 @@ function createdTokenStatus(r: CreatedTokenRow): CreatedTokenStatus {
   // Tournament tier outranks the WEEKLY_WINNER fallback — once a token has won a
   // quarterly Filter Bowl or annual championship, the registry row promotes its
   // status above the season-level winner label.
-  if (r.tournamentStatus && r.tournamentStatus !== "ACTIVE") {
+  //
+  // Bugbot L PR #102 pass-9: defense-in-depth strip of ANNUAL_* on this
+  // wire field, mirroring `deriveBadges`. Spec §33.8 deferred annual
+  // settlement indefinitely; the registry should never carry ANNUAL_*
+  // today, but if a stale row or future re-activation populates one, we
+  // don't want it leaking out the per-token status channel while the
+  // badge channel strips it. Treat ANNUAL_* as if it were absent and
+  // fall through to the WEEKLY_WINNER / ACTIVE branch.
+  if (
+    r.tournamentStatus &&
+    r.tournamentStatus !== "ACTIVE" &&
+    r.tournamentStatus !== "ANNUAL_FINALIST" &&
+    r.tournamentStatus !== "ANNUAL_CHAMPION"
+  ) {
     // Defensive: don't surface `FILTERED` from the registry if our local `liquidated`
     // flag disagrees — covered above. WEEKLY_WINNER from the registry equates to the
     // legacy season-winner check; either path is correct.
