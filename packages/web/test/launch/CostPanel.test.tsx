@@ -44,11 +44,11 @@ describe("CostPanel — full economic picture", () => {
     expect(screen.getByText(/0\.20% of all trading volume/i)).toBeTruthy();
   });
 
-  it("renders the 'if you win' bounty + POL lines", () => {
+  it("renders the 'if you win' bounty + Reserve lines", () => {
     render(<CostPanel slotIndex={0} launchCostWei={parseEther("0.01")} stakeWei={0n} />);
     expect(screen.getByText(/if your token wins/i)).toBeTruthy();
     expect(screen.getByText(/2\.5% champion bounty/i)).toBeTruthy();
-    expect(screen.getByText(/permanent pol backing/i)).toBeTruthy();
+    expect(screen.getByText(/filter fund liquidity reserve/i)).toBeTruthy();
   });
 
   it("renders a bounty range from the live championPool when supplied", () => {

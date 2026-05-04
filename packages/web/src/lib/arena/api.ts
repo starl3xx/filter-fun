@@ -33,10 +33,22 @@ export type SeasonResponse = {
   /// ISO8601 — final settlement timestamp (Day 7 anchor).
   finalSettlementAt: string;
   /// Decimal-ether string (e.g. "14.82"). Pre-finalize this is "0".
+  /// Wire field stays `championPool` for indexer-API stability; surfaced in
+  /// the UI as "Filter Fund" (spec §11.0). Consumers can prefer the
+  /// `filterFund` alias below for new code.
   championPool: string;
-  /// Decimal-ether string. Champion Backing Pool — currently "0" until the
+  /// Alias for `championPool` — populated by `fetchSeason` (Epic 1.20). Not
+  /// returned by the wire API; web-side derived so new components can use the
+  /// post-§11.0 naming without each call site doing the rename inline.
+  filterFund?: string;
+  /// Decimal-ether string. Wire field stays `polReserve`; surfaced in the UI
+  /// as "Filter Fund Liquidity Reserve" (spec §11.0). Currently "0" until the
   /// indexer's POL-slice tracking lands. UI handles "0" as the empty state.
   polReserve: string;
+  /// Alias for `polReserve` — populated by `fetchSeason` (Epic 1.20). New
+  /// components should prefer this field; existing consumers reading
+  /// `polReserve` continue to work unchanged.
+  filterFundLiquidityReserve?: string;
 };
 
 // ============================================================ /tokens
@@ -158,7 +170,16 @@ export type TickerEvent = {
 type FetchOpts = {signal?: AbortSignal};
 
 export async function fetchSeason(opts: FetchOpts = {}): Promise<SeasonResponse> {
-  return fetchJson<SeasonResponse>(`${INDEXER_URL}/season`, opts);
+  const raw = await fetchJson<SeasonResponse>(`${INDEXER_URL}/season`, opts);
+  // Epic 1.20 (spec §11.0): populate user-facing field aliases so new
+  // components can read `filterFund` / `filterFundLiquidityReserve` without
+  // re-aliasing at every call site. The wire shape stays the same — these
+  // are derived web-side and won't appear in the indexer JSON response.
+  return {
+    ...raw,
+    filterFund: raw.championPool,
+    filterFundLiquidityReserve: raw.polReserve,
+  };
 }
 
 export async function fetchTokens(opts: FetchOpts = {}): Promise<TokenResponse[]> {

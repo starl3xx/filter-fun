@@ -2,15 +2,19 @@
 
 /// Arena top bar (spec §19.4).
 ///
-///   LIVE — Week 02      Next cut in: 04:12:33      Champion Pool: Ξ14.82      Champion Backing Pool: Ξ6.42 ↑
+///   LIVE — Week 02      Next cut in: 04:12:33      Filter Fund: Ξ14.82      Filter Fund Liquidity Reserve: Ξ6.42 ↑
+///
+/// Naming note (spec §11.0): user-facing labels use "Filter Fund" and
+/// "Filter Fund Liquidity Reserve". Internal contract / API field names
+/// (POL, polReserve, …) stay for audit-firm continuity.
 ///
 /// - LIVE indicator pulses green when SSE is connected, dims when reconnecting.
 /// - Countdown ticks locally every second; resyncs to `season.nextCutAt`
 ///   once per minute (countdownIso changes when the server publishes a new
 ///   anchor).
-/// - Champion Backing Pool gets a brief subtle glow when its value grows
-///   between polls — implemented by tracking the previous value in a ref and
-///   re-applying a CSS class for ~2s on increase.
+/// - The Filter Fund Liquidity Reserve stat gets a brief subtle glow when
+///   its value grows between polls — implemented by tracking the previous
+///   value in a ref and re-applying a CSS class for ~2s on increase.
 
 import {useEffect, useRef, useState} from "react";
 import {useAccount, useConnect, useDisconnect} from "wagmi";
@@ -73,13 +77,13 @@ export function ArenaTopBar({season, liveStatus}: ArenaTopBarProps) {
 
       <div style={{display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap"}}>
         <Stat label="Next cut in" value={countdownSec === null ? "—" : fmtCutCountdown(countdownSec)} mono />
-        <Stat label="Champion Pool" value={fmtEth(season?.championPool ?? "0")} accent={C.yellow} title="Spec §19.5: Winner takes everything." />
+        <Stat label="Filter Fund" value={fmtEth(season?.championPool ?? "0")} accent={C.yellow} title="Spec §19.5: Winner takes everything." />
         <Stat
-          label="Champion Backing"
+          label="Filter Fund Liquidity Reserve"
           value={fmtEth(season?.polReserve ?? "0")}
           accent={C.cyan}
           glow={backingGlow}
-          title="Spec §19.5: Protocol backing for the winner."
+          title="Spec §19.5: Permanent liquidity for the winner."
         />
         {/* Audit M-Ux-1 (Phase 1, 2026-05-03): pre-fix the homepage / had
             no wallet-connect CTA — first-time visitors had to click into
@@ -288,7 +292,7 @@ function useTickingCountdown(iso: string | null): number | null {
 }
 
 /// Returns true for ~2s after `value` increases between renders. Drives the
-/// "Champion Backing Pool ↑" glow without needing an explicit event.
+/// "Filter Fund Liquidity Reserve ↑" glow without needing an explicit event.
 ///
 /// The reset is anchored to a "glow-until" timestamp rather than a bare
 /// `setTimeout(setGlow(false))` because the previous timer-based approach
@@ -299,7 +303,7 @@ function useTickingCountdown(iso: string | null): number | null {
 ///
 /// Pass `null` while the upstream value is still loading. The hook treats
 /// the first `null → real` transition as "initial load, not growth" — so
-/// the Champion Backing Pool doesn't flash on every page mount.
+/// the Reserve stat doesn't flash on every page mount.
 function useGrowthGlow(value: string | null): boolean {
   const prev = useRef<string | null>(null);
   const glowUntilRef = useRef<number>(0);
