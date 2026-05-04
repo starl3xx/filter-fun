@@ -37,12 +37,8 @@ export const FilterLauncherAbi = [
     "stateMutability": "nonpayable"
   },
   {
-    "type": "receive",
-    "stateMutability": "payable"
-  },
-  {
     "type": "function",
-    "name": "ACTIVATION_THRESHOLD",
+    "name": "LAUNCH_WINDOW_DURATION",
     "inputs": [],
     "outputs": [
       {
@@ -68,84 +64,8 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "abortSeason",
-    "inputs": [
-      {
-        "name": "seasonId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "aborted",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "activated",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "activatedAt",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "addTickerToBlocklist",
-    "inputs": [
-      {
-        "name": "tickerHash",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
+    "name": "acceptOwnership",
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -162,6 +82,29 @@ export const FilterLauncherAbi = [
         "name": "target",
         "type": "uint8",
         "internalType": "enum IFilterLauncher.Phase"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "applySoftFilter",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "survivors",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "forfeited",
+        "type": "address[]",
+        "internalType": "address[]"
       }
     ],
     "outputs": [],
@@ -202,6 +145,19 @@ export const FilterLauncherAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "canLaunch",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -342,6 +298,95 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
+    "name": "getLaunchSlots",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokens",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "slotIndexes",
+        "type": "uint64[]",
+        "internalType": "uint64[]"
+      },
+      {
+        "name": "creators",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getLaunchStatus",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "s",
+        "type": "tuple",
+        "internalType": "struct IFilterLauncher.LaunchStatus",
+        "components": [
+          {
+            "name": "launchCount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxLaunches",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "timeRemaining",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "nextLaunchCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "launchCost",
+    "inputs": [
+      {
+        "name": "slotIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "launchCount",
     "inputs": [
       {
@@ -374,19 +419,6 @@ export const FilterLauncherAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "launchEscrow",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract LaunchEscrow"
       }
     ],
     "stateMutability": "view"
@@ -497,13 +529,58 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "lens",
-    "inputs": [],
+    "name": "launchToken",
+    "inputs": [
+      {
+        "name": "name_",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "symbol_",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "metadataURI_",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
     "outputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "locker",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "launchesByWallet",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
       {
         "name": "",
         "type": "address",
-        "internalType": "contract LauncherLens"
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -528,6 +605,19 @@ export const FilterLauncherAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxLaunchesPerWallet",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -573,6 +663,13 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
+    "name": "pause",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "paused",
     "inputs": [],
     "outputs": [
@@ -586,51 +683,13 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "pendingReservations",
-    "inputs": [
-      {
-        "name": "seasonId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
+    "name": "pendingOwner",
+    "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "tuple[]",
-        "internalType": "struct FilterLauncher.PendingReservation[]",
-        "components": [
-          {
-            "name": "creator",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "slotIndex",
-            "type": "uint64",
-            "internalType": "uint64"
-          },
-          {
-            "name": "tickerHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "metadataHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "ticker",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "metadataURI",
-            "type": "string",
-            "internalType": "string"
-          }
-        ]
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -640,7 +699,7 @@ export const FilterLauncherAbi = [
     "name": "phaseOf",
     "inputs": [
       {
-        "name": "",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -689,45 +748,29 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "reserve",
+    "name": "setBaseLaunchCost",
     "inputs": [
       {
-        "name": "ticker",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "metadataURI",
-        "type": "string",
-        "internalType": "string"
+        "name": "cost_",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
-    "stateMutability": "payable"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
-    "name": "seasonTickers",
+    "name": "setBonusUnlockDelay",
     "inputs": [
       {
-        "name": "",
+        "name": "delay_",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
       }
     ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -762,17 +805,25 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "setLaunchConfig",
+    "name": "setForfeitRecipient",
     "inputs": [
       {
-        "name": "baseLaunchCost_",
+        "name": "recipient_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setMaxLaunchesPerWallet",
+    "inputs": [
+      {
+        "name": "cap_",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "refundableStakeEnabled_",
-        "type": "bool",
-        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -793,19 +844,6 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "setPaused",
-    "inputs": [
-      {
-        "name": "paused_",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setPolManager",
     "inputs": [
       {
@@ -819,57 +857,16 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "setTournament",
+    "name": "setRefundableStakeEnabled",
     "inputs": [
       {
-        "name": "registry_",
-        "type": "address",
-        "internalType": "contract TournamentRegistry"
-      },
-      {
-        "name": "vault_",
-        "type": "address",
-        "internalType": "contract TournamentVault"
+        "name": "enabled_",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setWinnerTicker",
-    "inputs": [
-      {
-        "name": "seasonId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "tickerHash",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "winnerToken",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "stakeAdmin",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract LauncherStakeAdmin"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -883,25 +880,6 @@ export const FilterLauncherAbi = [
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "tickerBlocklist",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -976,10 +954,17 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
+    "name": "unpause",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "vaultOf",
     "inputs": [
       {
-        "name": "",
+        "name": "seasonId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1007,23 +992,17 @@ export const FilterLauncherAbi = [
     "stateMutability": "view"
   },
   {
-    "type": "function",
-    "name": "winnerTickers",
+    "type": "event",
+    "name": "BaseLaunchCostUpdated",
     "inputs": [
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
+        "name": "cost",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1034,6 +1013,25 @@ export const FilterLauncherAbi = [
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
+      },
+      {
+        "name": "finalists",
+        "type": "address[]",
+        "indexed": false,
+        "internalType": "address[]"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ForfeitRecipientUpdated",
+    "inputs": [
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1053,6 +1051,44 @@ export const FilterLauncherAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LaunchSlotFilled",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "slotIndex",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferStarted",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1110,26 +1146,13 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "event",
-    "name": "SeasonAborted",
+    "name": "RefundableStakeToggled",
     "inputs": [
       {
-        "name": "seasonId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "SeasonActivated",
-    "inputs": [
-      {
-        "name": "seasonId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
+        "name": "enabled",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -1167,13 +1190,62 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "event",
-    "name": "TickerBlocked",
+    "name": "StakeForfeited",
     "inputs": [
       {
-        "name": "tickerHash",
-        "type": "bytes32",
+        "name": "seasonId",
+        "type": "uint256",
         "indexed": true,
-        "internalType": "bytes32"
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "StakeRefunded",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1260,7 +1332,7 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "event",
-    "name": "WinnerTickerReserved",
+    "name": "WinnerSet",
     "inputs": [
       {
         "name": "seasonId",
@@ -1269,13 +1341,7 @@ export const FilterLauncherAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "tickerHash",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "winnerToken",
+        "name": "winner",
         "type": "address",
         "indexed": false,
         "internalType": "address"
@@ -1285,22 +1351,7 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "error",
-    "name": "ActivateBadQueueLength",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "AlreadyReserved",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "AlreadySet",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "BadTransition",
+    "name": "AlreadyResolved",
     "inputs": []
   },
   {
@@ -1320,22 +1371,22 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "error",
-    "name": "InsufficientEscrow",
+    "name": "InsufficientPayment",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "NotMultisig",
+    "name": "LaunchCapReached",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LaunchWindowClosed",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NotOracle",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NotSeasonVault",
     "inputs": []
   },
   {
@@ -1359,11 +1410,6 @@ export const FilterLauncherAbi = [
         "internalType": "address"
       }
     ]
-  },
-  {
-    "type": "error",
-    "name": "PolManagerUnset",
-    "inputs": []
   },
   {
     "type": "error",
@@ -1393,52 +1439,12 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "error",
-    "name": "SeasonAlreadyAborted",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "SeasonAlreadyActivated",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "SeasonNotActivated",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "SlotsExhausted",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "TickerBlocklisted",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "TickerTaken",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "TickerWinnerReserved",
+    "name": "SeasonAlreadyOpen",
     "inputs": []
   },
   {
     "type": "error",
     "name": "UnknownToken",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "WindowClosed",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "WindowStillOpen",
     "inputs": []
   },
   {
