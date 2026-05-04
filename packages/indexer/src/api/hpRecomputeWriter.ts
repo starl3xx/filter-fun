@@ -109,10 +109,14 @@ export async function recomputeAndStampHp(
 
   const apiPhase = toApiPhase(seasonRow.phase);
   const scored = scoreCohort(
-    tokens.map((t: {id: `0x${string}`; liquidationProceeds: bigint | null}) => ({
-      id: t.id,
-      liquidationProceeds: t.liquidationProceeds,
-    })),
+    tokens.map(
+      (t: {id: `0x${string}`; liquidationProceeds: bigint | null; createdAt: bigint}) => ({
+        id: t.id,
+        liquidationProceeds: t.liquidationProceeds,
+        // Epic 1.18: plumb `createdAt` through as the tie-break key.
+        createdAt: t.createdAt,
+      }),
+    ),
     apiPhase,
     args.blockTimestamp,
   );

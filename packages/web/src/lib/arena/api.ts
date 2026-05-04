@@ -70,7 +70,9 @@ export type TokenResponse = {
   ticker: string;
   /// 1-based; 0 means unscored (launch phase or empty cohort).
   rank: number;
-  /// 0–100 integer.
+  /// Integer in `[0, 10000]` (Epic 1.18 / spec §6.5 composite scale). Pre-1.18
+  /// the wire range was 0-100; clients gating on absolute thresholds were
+  /// updated in lockstep with the indexer.
   hp: number;
   status: TokenStatus;
   /// Decimal price strings — "0" until trade indexing lands.
@@ -118,7 +120,7 @@ export type EventType =
 /// indexer's block-time, used to tie-break stale-vs-fresh when both polls
 /// and SSE messages arrive interleaved.
 export type HpUpdatedData = {
-  /// 0–100 integer (matches TokenResponse.hp).
+  /// Integer in `[0, 10000]` (Epic 1.18) — matches TokenResponse.hp.
   hp: number;
   /// Raw [0,1] component scores — same shape as TokenResponse.components.
   components: {

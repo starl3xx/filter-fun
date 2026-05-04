@@ -153,7 +153,7 @@ Every `hpSnapshot` row write fires one HP_UPDATED event onto the indexer's
   "address": "0x…",
   "message": "",
   "data": {
-    "hp": 87,
+    "hp": 8700,
     "components": {
       "velocity": 0.5,
       "effectiveBuyers": 0.3,
@@ -162,13 +162,19 @@ Every `hpSnapshot` row write fires one HP_UPDATED event onto the indexer's
       "momentum": 0,
       "holderConcentration": 0.4
     },
-    "weightsVersion": "2026-05-03-v4-locked",
+    "weightsVersion": "2026-05-05-v4-locked-int10k",
     "computedAt": 1714521600,
     "trigger": "SWAP"
   },
-  "timestamp": "2026-05-03T10:30:00.000Z"
+  "timestamp": "2026-05-05T10:30:00.000Z"
 }
 ```
+
+> **Epic 1.18 — composite scale.** `hp` is integer in `[0, 10000]` (was
+> 0-100 pre-int10k cutover). Same effective resolution as the prior
+> 0-100 with two decimal places, but cleaner storage and aligned with
+> the BPS convention used elsewhere in the protocol. Clients gating on
+> absolute thresholds were updated in lockstep with the indexer.
 
 `priority: "LOW"` — HP_UPDATED is data refresh, not a ticker line; the
 hub sheds it first under backpressure, which preserves HIGH events

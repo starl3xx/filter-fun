@@ -82,10 +82,11 @@ export const dustSybilScenario: ScenarioDefinition = {
           };
         },
         ({finalHP}) => {
+          // Epic 1.18: HP scale is integer [0, 10000]; 60 → 6000.
           const test = finalHP.get(TEST_TOKEN.toLowerCase() as typeof TEST_TOKEN) ?? -1;
           return {
-            description: "sybil HP < 60",
-            passed: test >= 0 && test < 60,
+            description: "sybil HP < 6000",
+            passed: test >= 0 && test < 6000,
             detail: `HP=${test}`,
           };
         },

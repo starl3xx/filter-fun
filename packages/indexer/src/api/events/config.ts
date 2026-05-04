@@ -22,7 +22,9 @@ export interface EventsConfig {
   throttleWindowMs: number;
   throttlePerTokenMax: number;
 
-  /// HP-spike threshold (in the 0–100 wire-format HP scale). Drives the HP_SPIKE event.
+  /// HP-spike threshold in the integer composite scale (Epic 1.18 — [0, 10000]).
+  /// Drives the HP_SPIKE event. Pre-1.18 default was 10 on the 0-100 scale; the
+  /// new default 1000 preserves the same Δ-fraction (10%) of the full range.
   hpSpikeThreshold: number;
 
   /// Minimum integer change in rank required to fire a RANK_CHANGED event.
@@ -67,7 +69,9 @@ const DEFAULTS: EventsConfig = {
   dedupeWindowMs: 30_000,
   throttleWindowMs: 30_000,
   throttlePerTokenMax: 3,
-  hpSpikeThreshold: 10,
+  // Epic 1.18: HP scale flipped from 0-100 to 0-10000; default × 100 to keep the
+  // same Δ/range fraction (10% of full range).
+  hpSpikeThreshold: 1000,
   rankChangeMin: 1,
   volumeSpikeRatio: 2.5,
   volumeSpikeMinWethWei: 100_000_000_000_000_000n, // 0.1 WETH

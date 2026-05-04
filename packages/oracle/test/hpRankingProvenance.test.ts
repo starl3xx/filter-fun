@@ -6,6 +6,13 @@
 import {describe, expect, it} from "vitest";
 
 import {
+  HP_WEIGHTS_VERSION,
+  score,
+  type Address as ScoringAddress,
+  type TokenStats,
+} from "@filter-fun/scoring";
+
+import {
   buildHpRankingPayload,
   checkSettlementProvenance,
   hpRankingLeaf,
@@ -14,7 +21,9 @@ import {
   type SettlementProvenance,
 } from "../src/index.js";
 
-const VERSION = "2026-05-03-v4-locked";
+// Epic 1.18: HP composite scale flipped float[0,1] → integer[0,10000];
+// version constant bumped accordingly. Test inputs use the integer scale.
+const VERSION = "2026-05-05-v4-locked-int10k";
 const SEASON_ID = 1n;
 
 const tokenA = "0x000000000000000000000000000000000000000a" as const;
@@ -23,26 +32,26 @@ const tokenC = "0x000000000000000000000000000000000000000c" as const;
 
 describe("hpRankingLeaf", () => {
   it("is deterministic for the same inputs", () => {
-    const a = hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 87, weightsVersion: VERSION});
-    const b = hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 87, weightsVersion: VERSION});
+    const a = hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 8700, weightsVersion: VERSION});
+    const b = hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 8700, weightsVersion: VERSION});
     expect(a).toBe(b);
   });
 
   it("differs when ANY field changes (rank, hp, version, token, season)", () => {
-    const base = hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 87, weightsVersion: VERSION});
-    expect(hpRankingLeaf({seasonId: 2n, token: tokenA, rank: 1, hp: 87, weightsVersion: VERSION})).not.toBe(base);
-    expect(hpRankingLeaf({seasonId: 1n, token: tokenB, rank: 1, hp: 87, weightsVersion: VERSION})).not.toBe(base);
-    expect(hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 2, hp: 87, weightsVersion: VERSION})).not.toBe(base);
-    expect(hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 88, weightsVersion: VERSION})).not.toBe(base);
-    expect(hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 87, weightsVersion: "v5"})).not.toBe(base);
+    const base = hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 8700, weightsVersion: VERSION});
+    expect(hpRankingLeaf({seasonId: 2n, token: tokenA, rank: 1, hp: 8700, weightsVersion: VERSION})).not.toBe(base);
+    expect(hpRankingLeaf({seasonId: 1n, token: tokenB, rank: 1, hp: 8700, weightsVersion: VERSION})).not.toBe(base);
+    expect(hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 2, hp: 8700, weightsVersion: VERSION})).not.toBe(base);
+    expect(hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 8800, weightsVersion: VERSION})).not.toBe(base);
+    expect(hpRankingLeaf({seasonId: 1n, token: tokenA, rank: 1, hp: 8700, weightsVersion: "v5"})).not.toBe(base);
   });
 });
 
 describe("buildHpRankingPayload", () => {
   const cohort: HpRankingEntry[] = [
-    {token: tokenA, rank: 2, hp: 75},
-    {token: tokenB, rank: 1, hp: 87},
-    {token: tokenC, rank: 3, hp: 60},
+    {token: tokenA, rank: 2, hp: 7500},
+    {token: tokenB, rank: 1, hp: 8700},
+    {token: tokenC, rank: 3, hp: 6000},
   ];
 
   it("builds a Merkle root deterministically regardless of input order", () => {
@@ -107,11 +116,65 @@ describe("buildHpRankingPayload", () => {
       seasonId: SEASON_ID,
       trigger: "FINALIZE",
       weightsVersion: VERSION,
-      entries: [{token: tokenA, rank: 1, hp: 100}],
+      entries: [{token: tokenA, rank: 1, hp: 10000}],
     });
-    const expected = hpRankingLeaf({seasonId: SEASON_ID, token: tokenA, rank: 1, hp: 100, weightsVersion: VERSION});
+    const expected = hpRankingLeaf({seasonId: SEASON_ID, token: tokenA, rank: 1, hp: 10000, weightsVersion: VERSION});
     expect(p.root).toBe(expected);
     expect(p.entries[0]!.proof).toEqual([]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Epic 1.18 — canonical (hp DESC, launchedAt ASC) ranking integration test.
+//
+// The canonical ranking algorithm lives in the scoring package's `score()`
+// — sort by integer HP descending, ties broken by `launchedAt` ascending.
+// The oracle Merkle build (this package) consumes the indexer-supplied
+// rank field and does not re-sort on (hp, launchedAt). This test exercises
+// the end-to-end pipeline: scoring assigns ranks under the tie-break rule,
+// the oracle wraps them in a Merkle tree, and the rank order survives.
+// ----------------------------------------------------------------------------
+
+describe("Epic 1.18 — tie-break flows from scoring through the Merkle payload", () => {
+  it("two tied-HP tokens land in the proof in (earlier-launched first) order", () => {
+    // Build identical token-stats so HP comes out the same; only `launchedAt` differs.
+    const w1 = "0x1111111111111111111111111111111111111111" as ScoringAddress;
+    const baseHolders = new Set<ScoringAddress>([w1]);
+    const buys = [{wallet: w1, ts: 0n, amountWeth: 1_000_000_000_000_000_000n}];
+    const earlier: TokenStats = {
+      token: tokenA as ScoringAddress,
+      volumeByWallet: new Map([[w1, 1_000_000_000_000_000_000n]]),
+      buys,
+      sells: [],
+      liquidityDepthWeth: 1_000_000_000_000_000_000n,
+      currentHolders: baseHolders,
+      holdersAtRetentionAnchor: baseHolders,
+      launchedAt: 1_000_000n,
+    };
+    const later: TokenStats = {
+      ...earlier,
+      token: tokenB as ScoringAddress,
+      launchedAt: 2_000_000n,
+    };
+    const ranked = score([later, earlier], 100n);
+    // Same HP — tie-break: earlier-launched (tokenA) ranks 1, later (tokenB) ranks 2.
+    expect(ranked[0]?.hp).toBe(ranked[1]?.hp);
+    expect(ranked[0]?.token).toBe(tokenA);
+    expect(ranked[1]?.token).toBe(tokenB);
+    // The scoring package's version stamp matches what the oracle expects.
+    expect(ranked[0]?.weightsVersion).toBe(HP_WEIGHTS_VERSION);
+
+    // Now build the Merkle payload from the ranked output.
+    const payload = buildHpRankingPayload({
+      seasonId: SEASON_ID,
+      trigger: "CUT",
+      weightsVersion: VERSION,
+      entries: ranked.map((r) => ({token: r.token, rank: r.rank, hp: r.hp})),
+    });
+    // Proof entries are sorted by rank ascending — earlier-launched first.
+    expect(payload.entries.map((e) => e.token)).toEqual([tokenA, tokenB]);
+    expect(payload.entries[0]?.rank).toBe(1);
+    expect(payload.entries[1]?.rank).toBe(2);
   });
 });
 

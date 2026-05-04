@@ -397,7 +397,11 @@ export class ReplayEngine {
       tsSec,
       tick: tickNum,
       tokenId: s.token.toLowerCase() as Address,
-      hp: round2(s.hp * 100),
+      // Epic 1.18: scoring returns integer HP in [0, 10000]. Tick records
+      // surface the raw integer — downstream harness consumers (calibration
+      // notebooks, replay reports) receive the same value the indexer
+      // writes to hpSnapshot.
+      hp: s.hp,
       phase: s.phase,
       components: {
         velocity: round4(s.components.velocity.score),
@@ -428,9 +432,6 @@ interface LpMetrics {
 
 type Mutable<T> = {-readonly [K in keyof T]: T[K]};
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 function round4(n: number): number {
   return Math.round(n * 10_000) / 10_000;
 }

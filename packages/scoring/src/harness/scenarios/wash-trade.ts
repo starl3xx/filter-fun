@@ -73,12 +73,13 @@ export const washTradeScenario: ScenarioDefinition = {
           };
         },
         ({finalHP}) => {
-          // Sanity floor: wash trader's HP stays below 50/100 — no single
-          // wallet cycling its own buys should put a token in the top half.
+          // Sanity floor: wash trader's HP stays below 5000/10000 (Epic 1.18 int
+          // scale; was 50/100) — no single wallet cycling its own buys should
+          // put a token in the top half.
           const test = finalHP.get(TEST_TOKEN.toLowerCase() as typeof TEST_TOKEN) ?? -1;
           return {
-            description: "wash trader HP < 50",
-            passed: test >= 0 && test < 50,
+            description: "wash trader HP < 5000",
+            passed: test >= 0 && test < 5000,
             detail: `HP=${test}`,
           };
         },

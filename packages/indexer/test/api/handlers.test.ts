@@ -47,6 +47,9 @@ function mkToken(over: Partial<TokenRow> & {id: `0x${string}`; symbol: string}):
     // Audit M-Indexer-1: creator is required on TokenRow now (Drizzle schema NOT NULL).
     // Default to a stub address; per-test overrides supply real creators where needed.
     creator: "0x000000000000000000000000000000000000beef",
+    // Epic 1.18: createdAt drives the tie-break key. Default 0n so legacy
+    // tests' rank ordering stays stable; per-test overrides supply real values.
+    createdAt: 0n,
     ...over,
   };
 }
@@ -283,6 +286,7 @@ describe("/token/:address", () => {
       name: "filter.fun",
       seasonId: 1n,
       isProtocolLaunched: true,
+      createdAt: 0n,
     };
     const r = await getTokenDetailHandler(
       fixtureQueries({season: null, detailLookup: {[a]: detail}}),
@@ -356,14 +360,15 @@ describe("status mapping", () => {
 describe("HP component shape", () => {
   it("returns the v4-locked components per token with the locked weights", () => {
     const rows = [
-      {id: addr(1), liquidationProceeds: null},
-      {id: addr(2), liquidationProceeds: null},
+      {id: addr(1), liquidationProceeds: null, createdAt: 0n},
+      {id: addr(2), liquidationProceeds: null, createdAt: 0n},
     ];
     const scored = scoreCohort(rows, "competition", 0n);
     expect(scored.size).toBe(2);
     const first = scored.get(addr(1).toLowerCase())!;
     expect(first).toBeDefined();
-    // Epic 1.17a — v4 lock (`HP_WEIGHTS_VERSION = "2026-05-03-v4-locked"`).
+    // Epic 1.18 — v4-locked-int10k. Weights unchanged from 1.17a; only the
+    // composite scale flipped (float [0,1] → integer [0, 10000]).
     // 30/15/30/15/0/10 across velocity/effectiveBuyers/stickyLiq/retention/momentum/holderConcentration.
     expect(first.components.velocity.weight).toBeCloseTo(0.30);
     expect(first.components.effectiveBuyers.weight).toBeCloseTo(0.15);
@@ -375,12 +380,16 @@ describe("HP component shape", () => {
     expect(first.components.holderConcentration.weight).toBeCloseTo(0.10);
     expect(first.components.velocity.score).toBeGreaterThanOrEqual(0);
     expect(first.components.velocity.score).toBeLessThanOrEqual(1);
-    expect(first.weightsVersion).toBe("2026-05-03-v4-locked");
+    expect(first.weightsVersion).toBe("2026-05-05-v4-locked-int10k");
     expect(first.flagsActive).toEqual({momentum: false, concentration: true});
+    // Integer HP in [0, 10000].
+    expect(Number.isInteger(first.hp)).toBe(true);
+    expect(first.hp).toBeGreaterThanOrEqual(0);
+    expect(first.hp).toBeLessThanOrEqual(10000);
   });
 
   it("finals phase resolves to the same locked weight set under v4", () => {
-    const rows = [{id: addr(1), liquidationProceeds: null}];
+    const rows = [{id: addr(1), liquidationProceeds: null, createdAt: 0n}];
     const scored = scoreCohort(rows, "finals", 0n);
     const c = scored.get(addr(1).toLowerCase())!.components;
     // v4 lock collapses per-phase differentiation — finals === preFilter.

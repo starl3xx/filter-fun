@@ -299,6 +299,8 @@ function buildQueries(db: ApiDb): ApiQueries {
         liquidated: r.liquidated,
         liquidationProceeds: r.liquidationProceeds,
         creator: r.creator,
+        // Epic 1.18 — tie-break key for the scoring pass.
+        createdAt: r.createdAt,
       }));
     },
     tokenByAddress: async (addr) => {
@@ -315,6 +317,7 @@ function buildQueries(db: ApiDb): ApiQueries {
         name: row.name,
         seasonId: row.seasonId,
         isProtocolLaunched: row.isProtocolLaunched,
+        createdAt: row.createdAt,
       };
       return detail;
     },

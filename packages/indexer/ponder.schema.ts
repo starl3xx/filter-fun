@@ -150,16 +150,31 @@ export const swap = onchainTable("swap", (t) => ({
 /// (`{"momentum":bool,"concentration":bool}`); historical replays consult it
 /// to reproduce the gating context.
 ///
-/// Pre-Epic-1.17a rows backfill `weightsVersion = "pre-lock"` (rows that pre-
-/// date the lock can't be retroactively assigned a real version) and
-/// `flagsActive = '{"momentum":true,"concentration":false}'` (the legacy
-/// 5-component v3 state — momentum on, concentration not yet wired). The
-/// indexer writer always stamps the live values from the scoring package.
+/// **Epic 1.18 (2026-05-05) migration.** The HP composite scale flipped from
+/// float [0, 100] to integer [0, 10000]. Existing testnet (Sepolia) rows
+/// were dropped — see `scripts/migrate-int10k.sql` — so every row from the
+/// cutover forward carries `weightsVersion = "2026-05-05-v4-locked-int10k"`.
+/// The column type was already `integer()`; only the value range and the
+/// version stamp moved. Mainnet ships clean from this version.
+///
+/// Pre-Epic-1.17a rows would have backfilled `weightsVersion = "pre-lock"`
+/// (rows that pre-date the lock can't be retroactively assigned a real
+/// version) and `flagsActive = '{"momentum":true,"concentration":false}'`
+/// (the legacy 5-component v3 state — momentum on, concentration not yet
+/// wired). After the 1.18 cutover those defaults are unreachable in
+/// practice; the indexer writer always stamps the live values from the
+/// scoring package.
 export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
   id: t.text().primaryKey(), // `${token}:${snapshotAtSec}`
   token: t.hex().notNull(),
   snapshotAtSec: t.bigint().notNull(),
-  hp: t.integer().notNull(), // 0..100
+  // Integer in [HP_MIN, HP_MAX] = [0, 10000]. Spec §6.5 composite scale
+  // (Epic 1.18 — bumped from the prior 0..100 wire format to align with
+  // the BPS convention used elsewhere). Migration: existing Sepolia rows
+  // were dropped pre-mainnet; mainnet ships clean from int10k. The column
+  // type itself is unchanged (already `integer()`), only the value range
+  // and `weightsVersion` constant moved.
+  hp: t.integer().notNull(),
   rank: t.integer().notNull().default(0), // cohort rank at snapshot time, 0 = unranked
   velocity: t.real().notNull(),
   effectiveBuyers: t.real().notNull(),
@@ -170,8 +185,10 @@ export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
   blockNumber: t.bigint().notNull(),
   /// `HP_WEIGHTS_VERSION` value as of the snapshot. Indexed: history replays
   /// filter on it ("show me only post-v4-lock rows") and operator dashboards
-  /// alarm if writes start landing under an unexpected version.
-  weightsVersion: t.text().notNull().default("pre-lock"),
+  /// alarm if writes start landing under an unexpected version. Default
+  /// reflects the int10k cutover (Epic 1.18) — historical Sepolia rows were
+  /// dropped, so any new write lands under the active version.
+  weightsVersion: t.text().notNull().default("2026-05-05-v4-locked-int10k"),
   /// JSON: `{"momentum":bool,"concentration":bool}`. Stored as text (not jsonb)
   /// so it round-trips cleanly through Ponder's onchainTable shapes; consumers
   /// JSON.parse on read.

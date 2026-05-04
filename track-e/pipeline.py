@@ -192,13 +192,28 @@ def compute_components(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def composite_hp(components_df: pd.DataFrame, weights: dict) -> pd.Series:
-    """Linear combination of components × weights."""
+    """Linear combination of components × weights, scaled to integer HP.
+
+    Epic 1.18 (spec §6.5): the canonical composite-HP scale is integer
+    [0, 10000]. Same effective resolution as the prior float [0, 100]
+    with two decimal places, but cleaner storage + alignment with the
+    BPS convention used elsewhere in the protocol.
+
+    Rounding mode: round-half-up via `int(value + 0.5)` for positives —
+    matches the TypeScript scoring package's `Math.round` behavior so a
+    Track E retrospective recompute lands on the same integer the
+    indexer wrote on-chain. Python's default `round()` uses banker's
+    rounding (4234.5 → 4234), which would diverge at exact half-points;
+    we explicitly avoid it here.
+    """
     total = pd.Series(0.0, index=components_df.index)
     for name, w in weights.items():
         col = f"comp_{name}"
         if col in components_df.columns:
             total = total + w * components_df[col]
-    return total * 100.0  # scale to 0-100 HP
+    scaled = total.clip(0.0, 1.0) * 10000.0
+    # `int(x + 0.5)` is round-half-up for non-negative x; matches Math.round in JS.
+    return (scaled + 0.5).astype(int).clip(0, 10000)
 
 
 # ============================================================================

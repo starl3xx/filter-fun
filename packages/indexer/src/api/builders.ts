@@ -86,6 +86,11 @@ export interface TokenRow {
   /// the type system: callers that supply incomplete rows (e.g., a future query
   /// path that joins partial data) fail at compile time, not silently in the UI.
   creator: `0x${string}`;
+  /// Unix-seconds the token was deployed (`token.createdAt`). Drives the
+  /// Epic 1.18 tie-break: when two tokens land on the same integer HP, the
+  /// earlier-launched one ranks higher. Required since 1.18 — every cohort
+  /// row carries it from the underlying `token` table.
+  createdAt: bigint;
 }
 
 /// Per-token bag-lock surface, derived from `creator_lock` rows the indexer mirrors
@@ -220,9 +225,9 @@ export function buildTokensResponse(
       token: r.id,
       ticker: tickerWithDollar(r.symbol),
       rank,
-      // Spec §26.4 example shows `hp: 82` (an integer 0-100). The scoring package
-      // returns 0-1; round to 0-100 here for the wire format.
-      hp: hpAsInt100(s?.hp ?? 0),
+      // Spec §6.5 + §26.4 — Epic 1.18 composite scale: integer in [0, 10000].
+      // Scoring already returns the integer; the wire format passes it through.
+      hp: s?.hp ?? 0,
       status,
       // Audit H-1: emit null (not "0"/0) while v4Reads + holderEnumeration are pending.
       // The web app distinguishes "—" (null, value unknown) from "0" (value confirmed
@@ -262,16 +267,6 @@ export function buildTokensResponse(
 /// the ticker; keeping the rule in one place avoids drift when the formatting changes.
 export function tickerWithDollar(symbol: string): string {
   return symbol.startsWith("$") ? symbol : `$${symbol}`;
-}
-
-/// Convert a [0, 1] HP value into the 0–100 wire format. Exported so the events tick
-/// engine can use the same clamp/rounding behavior as the REST API — duplication risks
-/// the two surfaces drifting on edge cases (NaN, out-of-range) that the UI assumes are
-/// identical between `/tokens` and `/events`.
-export function hpAsInt100(hp01: number): number {
-  if (!Number.isFinite(hp01)) return 0;
-  const clamped = Math.max(0, Math.min(1, hp01));
-  return Math.round(clamped * 100);
 }
 
 /// Decimal-ether string from a wei `bigint`, with up to 6 decimal places of precision.

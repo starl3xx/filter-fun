@@ -21,6 +21,12 @@ import {SettlementHandler} from "./handlers/SettlementHandler.sol";
 ///             clause
 ///           - Reentrancy + auth invariants observe ghost flags the handler set during
 ///             attempted attacks; a true value means the attack landed and the test fails
+///
+/// @dev    HP storage + tie-break invariants are off-chain (the contracts only consume the
+///         oracle-published Merkle root, never HP values directly). They live in
+///         `packages/scoring/test/invariants_int10k.test.ts` — see Epic 1.18:
+///           - inv_hp_integer_storage:    every score() output is integer in [0, 10000]
+///           - inv_tie_break_deterministic: ties resolve earlier-launchedAt-wins
 contract SettlementInvariantsTest is StdInvariant, Test {
     SettlementHandler internal handler;
 

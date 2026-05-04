@@ -56,6 +56,14 @@ export interface TokenStats {
   /// flipping the flag for a future v5 weight set must not require an
   /// indexer-state migration.
   priorBaseComposite?: number;
+
+  // ── Tie-break (Epic 1.18) ──────────────────────────────
+  /// Unix-seconds the token launched. Used as the secondary sort key when two
+  /// tokens land on the exact-same integer HP — earlier `launchedAt` wins
+  /// (spec §6.5 "Composite scale + tie-break"). Optional: when omitted, the
+  /// tie falls through to the stable Array.sort order. Off-chain only; the
+  /// oracle Merkle root encodes the resolved rank.
+  launchedAt?: bigint;
 }
 
 /// Filter-week phases. Retained for API compatibility — under
@@ -101,14 +109,41 @@ export const LOCKED_WEIGHTS: ScoringWeights = {
 } as const;
 
 /// Active version stamped on every HP snapshot the indexer writes. Bump only
-/// in lockstep with `LOCKED_WEIGHTS` so a row tagged with this version can
-/// always be recomputed by reading the corresponding spec/§6.5 entry.
-export const HP_WEIGHTS_VERSION = "2026-05-03-v4-locked" as const;
+/// in lockstep with `LOCKED_WEIGHTS` *or* the composite scale (§6.5) so a
+/// row tagged with this version can always be recomputed by reading the
+/// corresponding spec entry.
+///
+/// **Epic 1.18 (2026-05-05).** Bumped from `2026-05-03-v4-locked` to
+/// `-int10k` to mark the float [0,1] → integer [0, 10000] composite scale
+/// flip. Underlying weight values are unchanged — same Track E v4 lock —
+/// only the storage scale + tie-break rule changed. Historical rows
+/// (Sepolia testnet) were dropped; mainnet ships clean from this version.
+export const HP_WEIGHTS_VERSION = "2026-05-05-v4-locked-int10k" as const;
 
 /// Wall-clock timestamp at which `HP_WEIGHTS_VERSION` activated. Surfaced via
 /// the public `/scoring/weights` endpoint so external auditors can verify
 /// "what was live when" without reading commit history.
-export const HP_WEIGHTS_ACTIVATED_AT = "2026-05-03T00:00:00Z" as const;
+export const HP_WEIGHTS_ACTIVATED_AT = "2026-05-05T00:00:00Z" as const;
+
+/// Composite-HP scale constants (Epic 1.18 / spec §6.5).
+///
+/// HP is stored and exchanged as a non-negative integer in `[HP_MIN, HP_MAX]`
+/// — same effective resolution as the prior float [0, 1] with two decimal
+/// places, but with cleaner storage (integer column), alignment to the BPS
+/// convention used elsewhere in the protocol (§9.2, §9.4, §11.1, §41.4 HHI),
+/// and elimination of float-precision bugs at rank-cut boundaries.
+///
+/// Rounding mode: round-half-up (`Math.round` for positives), applied once
+/// to the final weighted sum. Track E's Python pipeline uses
+/// `int(weighted_sum * 10000 + 0.5)` for byte-equivalent behavior — banker's
+/// rounding (Python's default `round`) would diverge at exact half-points.
+export const HP_MIN = 0 as const;
+export const HP_MAX = 10000 as const;
+export const HP_COMPOSITE_SCALE = {
+  min: HP_MIN,
+  max: HP_MAX,
+  type: "integer",
+} as const;
 
 /// Spec anchor for the active weights. Surfaced on `/scoring/weights` and
 /// referenced from operator runbooks.
@@ -164,7 +199,10 @@ export const DEFAULT_FLAGS: WeightFlags = {
 export interface ScoredToken {
   token: Address;
   rank: number;
-  /// Final weighted HP in [0, 1]. The leaderboard sorts on this, descending.
+  /// Final weighted HP — integer in `[HP_MIN, HP_MAX]` (= [0, 10000]). The
+  /// leaderboard sorts on this, descending; ties broken by `launchedAt`
+  /// ascending (earlier wins). The integer scale was introduced in Epic 1.18
+  /// (2026-05-05) — see `HP_COMPOSITE_SCALE` and spec §6.5.
   hp: number;
   /// Active phase used to pick weights.
   phase: Phase;

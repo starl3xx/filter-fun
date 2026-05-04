@@ -181,6 +181,8 @@ function buildQueries(db: ApiContext["db"]): EventsQueries {
         isFinalist: r.isFinalist,
         liquidated: r.liquidated,
         liquidationProceeds: r.liquidationProceeds,
+        // Epic 1.18 — surface createdAt for scoring's tie-break key.
+        createdAt: r.createdAt,
       }));
     },
     tokenAddressByLocker: async () => {

@@ -13,6 +13,7 @@
 
 import {
   DEFAULT_FLAGS,
+  HP_COMPOSITE_SCALE,
   HP_WEIGHTS_ACTIVATED_AT,
   HP_WEIGHTS_SPEC_REF,
   HP_WEIGHTS_VERSION,
@@ -48,6 +49,16 @@ export interface ScoringWeightsResponse {
   /// A future v5 revival of per-phase weights flips this and adds a
   /// `weightsByPhase` field; consumers should branch on this flag.
   phaseDifferentiation: false;
+  /// Composite-HP storage + wire scale (Epic 1.18 / spec §6.5). Surfaced for
+  /// downstream transparency: clients gating on absolute HP thresholds can
+  /// read `min`/`max` here rather than hardcoding the scale. Currently
+  /// `{min: 0, max: 10000, type: "integer"}` — bumped from the prior 0-100
+  /// integer wire shape with the int10k cutover.
+  compositeScale: {
+    min: number;
+    max: number;
+    type: "integer";
+  };
 }
 
 /// Builds the `/scoring/weights` response. Pure function — accepts an env
@@ -73,6 +84,11 @@ export function buildScoringWeightsResponse(
       HP_CONCENTRATION_ENABLED: flags.concentration,
     },
     phaseDifferentiation: false,
+    compositeScale: {
+      min: HP_COMPOSITE_SCALE.min,
+      max: HP_COMPOSITE_SCALE.max,
+      type: HP_COMPOSITE_SCALE.type,
+    },
   };
 }
 
