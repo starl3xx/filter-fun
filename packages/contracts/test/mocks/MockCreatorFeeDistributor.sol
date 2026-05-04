@@ -3,12 +3,9 @@ pragma solidity ^0.8.26;
 
 import {ICreatorFeeDistributor} from "../../src/SeasonVault.sol";
 
-/// @notice No-op stand-in for the creator-fee distributor. `markFiltered` is just a counter so
-///         tests can assert it was called for a given token; no auth.
-contract MockCreatorFeeDistributor is ICreatorFeeDistributor {
-    mapping(address => uint256) public markFilteredCount;
-
-    function markFiltered(address token) external override {
-        markFilteredCount[token] += 1;
-    }
-}
+/// @notice Empty stand-in for the creator-fee distributor. Per spec §10.3 (Epic 1.16) the
+///         distributor no longer exposes a `markFiltered` hook — creator-fee accrual is
+///         perpetual and pool lifecycle implicitly stops it. The interface is kept on
+///         SeasonVault as an empty marker so existing wiring + Deploy script signatures don't
+///         need a parallel-rev refactor.
+contract MockCreatorFeeDistributor is ICreatorFeeDistributor {}

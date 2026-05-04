@@ -41,6 +41,15 @@ export const CHAMPION_BOUNTY_BPS = 250; // 2.5%
 /// the winner's pool. Used for the "POL backing if you win" projection.
 export const POL_SLICE_BPS = 1000; // 10%
 
+/// Spec §10.3 + §10.6 (Epic 1.16, locked 2026-05-02): creator-fee accrual is perpetual.
+/// Winners earn 0.20% of every swap on their pool forever — there is no time cap and no
+/// settlement cap. The long-tail projection below assumes a geometric-decay weekly volume
+/// model: week 1 = launch-week volume, week N = `volume × WEEKLY_DECAY^(N-1)`. Defaults
+/// chosen to be visibly conservative — a 50% week-over-week decay implies the asymptotic
+/// total is `2 × launch-week volume` at most, which a reasonable creator can sanity-check.
+export const POST_SETTLEMENT_LONGTAIL_WEEKS = 12; // weeks projected past settlement
+export const POST_SETTLEMENT_WEEKLY_DECAY = 0.5; // 50% week-over-week volume decay
+
 /// Hardcoded ETH/USD fallback. Replace with a live feed once the indexer
 /// exposes one — see spec §45.3 (USD display is mandatory; price source is
 /// allowed to be a fallback for v1).
@@ -130,8 +139,10 @@ export type CalcOutputs = {
   /// Net cost in USD across the week (positive = creator paid out of pocket;
   /// negative = creator earned more than they spent).
   netUsd: number;
-  /// Creator-fee revenue this week in USD (full week if survives/wins, ~½
-  /// if filtered — fees stop accruing at the cut per spec §10.3).
+  /// Creator-fee revenue THIS WEEK in USD (full week if survives/wins, ~½
+  /// if filtered — fees stop because LP is unwound at the cut, per spec
+  /// §10.3 + Epic 1.16 perpetual model: the cap is implicit in the pool
+  /// lifecycle, not enforced in code).
   creatorFeesUsd: number;
   /// Champion-bounty range in USD. `null` when outcome is not `wins`.
   bountyRangeUsd: {low: number; high: number} | null;
@@ -139,19 +150,44 @@ export type CalcOutputs = {
   polBackingEth: number | null;
   /// Trading volume needed to recoup the launch cost via 0.20% fees alone.
   breakevenVolumeUsd: number;
+  /// Epic 1.16 (spec §10.3 + §10.6): post-settlement perpetual long-tail
+  /// projection in USD. Sums `POST_SETTLEMENT_LONGTAIL_WEEKS` of decaying
+  /// post-settlement volume × CREATOR_FEE_BPS. `null` when outcome is not
+  /// `wins`. This is now the dominant ROI term for winners over multi-month
+  /// horizons — the calculator's narrative copy gates on this being non-zero
+  /// to surface the "you keep earning forever" framing.
+  postSettlementLongTailUsd: number | null;
 };
 
 export function calculateOutcomes(input: CalcInputs): CalcOutputs {
   const slotCostUsd = weiToUsd(input.slotCostWei, input.ethUsd);
   const stakeUsd = weiToUsd(input.stakeWei, input.ethUsd);
 
-  // Spec §10.3 — fees stop at filter, otherwise accrue full week. We
-  // approximate "filtered" as half the week of trading (the filter fires
-  // mid-week; volume traded before that point still earns the creator
-  // their slice). Survives/wins keep the full week.
+  // Spec §10.3 (Epic 1.16): creator fees accrue forever for winners. For filtered +
+  // non-winning tokens the LP is unwound at the cut, so trading stops and so does the
+  // fee stream — the cap is implicit in the pool lifecycle, not in the contract. We
+  // approximate "filtered" as half the week of trading (the filter fires mid-week;
+  // volume traded before that point still earned the creator their slice). Survives /
+  // wins keep the full launch week revenue.
   const feeShare = CREATOR_FEE_BPS / 10_000; // 0.0020
   const accrualFactor = input.outcome === "filtered" ? 0.5 : 1;
   const creatorFeesUsd = input.weeklyVolumeUsd * feeShare * accrualFactor;
+
+  // Epic 1.16 (spec §10.3 + §10.6): post-settlement perpetual long-tail. For wins, sum
+  // a 12-week geometric series of decaying weekly volume at 50% w/w decay. The launch-
+  // week revenue (`creatorFeesUsd`) is the FIRST week; the long-tail captures weeks 2..N
+  // as ADDITIONAL revenue past settlement. Survives/filtered cases are null — only the
+  // winning pool survives past settlement to keep generating fees.
+  let postSettlementLongTailUsd: number | null = null;
+  if (input.outcome === "wins") {
+    let cumulative = 0;
+    let weekVolume = input.weeklyVolumeUsd;
+    for (let week = 1; week < POST_SETTLEMENT_LONGTAIL_WEEKS; week++) {
+      weekVolume *= POST_SETTLEMENT_WEEKLY_DECAY;
+      cumulative += weekVolume * feeShare;
+    }
+    postSettlementLongTailUsd = cumulative;
+  }
 
   // Net out-of-pocket: slot cost is always paid; stake is forfeited only
   // on `filtered`; bounty offsets cost only on `wins`. We sign so that a
@@ -171,9 +207,13 @@ export function calculateOutcomes(input: CalcInputs): CalcOutputs {
   const bountyMidpoint = (bountyLow + bountyHigh) / 2;
 
   // Net cost: positive = creator out of pocket, negative = net profit.
-  // For `wins`, subtract the bounty midpoint as the central estimate.
+  // For `wins`, subtract the bounty midpoint AND the perpetual long-tail projection
+  // (Epic 1.16) as the central estimate. The long-tail dominates over multi-month
+  // horizons — a creator who only sees launch-week revenue here would understate the
+  // win-case ROI by more than 1× for the conservative-decay model.
   const bountyOffset = input.outcome === "wins" ? bountyMidpoint : 0;
-  const netUsd = slotCostUsd + stakeForfeit - creatorFeesUsd - bountyOffset;
+  const longTailOffset = postSettlementLongTailUsd ?? 0;
+  const netUsd = slotCostUsd + stakeForfeit - creatorFeesUsd - bountyOffset - longTailOffset;
 
   // POL backing — only meaningful when the creator wins. 10% of the
   // estimated losers pot becomes permanent LP backing the winner's token.
@@ -196,6 +236,7 @@ export function calculateOutcomes(input: CalcInputs): CalcOutputs {
     bountyRangeUsd: input.outcome === "wins" ? {low: bountyLow, high: bountyHigh} : null,
     polBackingEth: polEthMid,
     breakevenVolumeUsd,
+    postSettlementLongTailUsd,
   };
 }
 
@@ -234,7 +275,8 @@ export const PRESETS: ReadonlyArray<Preset> = [
   {
     id: "viral",
     label: "Viral winner",
-    blurb: "The dream — your token wins the week.",
+    /// Epic 1.16: copy gates on the perpetual long-tail being the dominant ROI term.
+    blurb: "Your token wins — and you keep earning 0.20% of every trade forever.",
     peakMcUsd: 5_000_000,
     weeklyVolumeUsd: 10_000_000,
     outcome: "wins",

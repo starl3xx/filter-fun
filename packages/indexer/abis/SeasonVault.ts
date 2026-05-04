@@ -19,11 +19,6 @@ export const SeasonVaultAbi = [
         "internalType": "address"
       },
       {
-        "name": "oracle_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "treasury_",
         "type": "address",
         "internalType": "address"
@@ -397,19 +392,6 @@ export const SeasonVaultAbi = [
   },
   {
     "type": "function",
-    "name": "oracle",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "phase",
     "inputs": [],
     "outputs": [
@@ -728,6 +710,19 @@ export const SeasonVaultAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "winnerSettledAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"

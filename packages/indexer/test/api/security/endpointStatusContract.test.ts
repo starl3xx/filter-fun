@@ -25,6 +25,8 @@ function emptyQueries(): ApiQueries {
     tokensInSeason: async () => [],
     tokenByAddress: async () => null,
     bagLocksForTokens: async () => [],
+    // Epic 1.16 — empty fixture: no creator-earnings rollup yet for any token.
+    creatorEarningsForToken: async () => null,
   };
 }
 

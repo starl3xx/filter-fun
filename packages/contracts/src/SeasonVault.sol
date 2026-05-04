@@ -30,12 +30,24 @@ interface ILauncherView {
     function oracle() external view returns (address);
 }
 
-interface ICreatorFeeDistributor {
-    function markFiltered(address token) external;
-}
+/// @notice Retained as an empty interface for backwards-compatible imports + Deploy script
+///         wiring. Per spec §10.3 (locked 2026-05-02) the distributor no longer exposes a
+///         `markFiltered` hook — creator-fee accrual is perpetual and pool lifecycle (LP
+///         unwind) implicitly stops it. The SeasonVault no longer calls into the distributor
+///         on filter events.
+interface ICreatorFeeDistributor {}
 
 interface ICreatorRegistry {
     function creatorOf(address token) external view returns (address);
+}
+
+/// @notice Per-token winner-settlement marker. Spec §9.4 (locked 2026-05-02): the WETH-leg
+///         95-bps slice that fed the prize pool while the season was active routes to POL
+///         once `winnerSettledAt > 0`. SeasonVault flips this on the WINNER's locker only at
+///         `submitWinner` time. Non-winner pools never reach the call (their LP is unwound
+///         and they never accrue post-settlement fees anyway).
+interface IFilterLpLockerSettle {
+    function markWinnerSettled() external;
 }
 
 interface ITournamentRegistry {
@@ -141,6 +153,12 @@ contract SeasonVault is ReentrancyGuard {
 
     // Winner / claim state, populated at submitWinner.
     address public winner;
+    /// @notice Block timestamp at which the winner was committed via `submitWinner`. Zero while
+    ///         the season is still active. Mirrors the per-locker `winnerSettledAt` flag the
+    ///         vault sets on the winner's locker (spec §9.4) so indexer + UI consumers can
+    ///         resolve "is post-settlement routing in effect?" in a single read against the
+    ///         vault without dereferencing the locker.
+    uint256 public winnerSettledAt;
     bytes32 public rolloverRoot;
     uint256 public totalRolloverShares;
     uint256 public rolloverWinnerTokens;
@@ -263,9 +281,10 @@ contract SeasonVault is ReentrancyGuard {
             liquidated[t] = true;
             _losers.push(t);
 
-            // Halt creator-fee accrual for this token immediately; any subsequent swap fees on
-            // its (now-empty) pool would be redirected to treasury by the distributor.
-            creatorFeeDistributor.markFiltered(t);
+            // Per spec §10.3 (Epic 1.16): creator-fee accrual is perpetual; we no longer notify
+            // the distributor on filter events. The pool's LP is about to be unwound below, so
+            // there are no more swaps and no more fees — accrual stops naturally without any
+            // explicit hook.
             // Stamp the token's tournament status as FILTERED so it's permanently ineligible
             // for quarterly/annual qualification. The registry is no-op-safe if the status is
             // already non-ACTIVE (defensive against re-entry of an already-titled token).
@@ -349,6 +368,7 @@ contract SeasonVault is ReentrancyGuard {
         if (totalRolloverShares_ == 0) revert ZeroShares();
 
         winner = winner_;
+        winnerSettledAt = block.timestamp;
         rolloverRoot = rolloverRoot_;
         totalRolloverShares = totalRolloverShares_;
         emit WinnerSubmitted(winner_, rolloverRoot_, totalRolloverShares_);
@@ -359,6 +379,11 @@ contract SeasonVault is ReentrancyGuard {
         tournamentRegistry.recordWeeklyWinner(seasonId, winner_);
 
         address winnerLocker = ILauncherView(launcher).lockerOf(seasonId, winner_);
+        // Spec §9.4: flip the winner's locker into post-settlement fee routing. From the next
+        // swap forward, the WETH-leg slice that fed the prize pool routes to POL Vault instead
+        // (compounds winner backing per §11.7). Idempotent on the locker side; vault calls
+        // exactly once and the locker reverts on re-call.
+        IFilterLpLockerSettle(winnerLocker).markWinnerSettled();
 
         // 0. Champion bounty → winner's creator. Reroute to treasury if (somehow) no creator
         //    is registered for the winner; the launcher path always registers, so this branch

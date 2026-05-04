@@ -64,6 +64,19 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
+    "name": "SPEC_LOCK_MAX_LAUNCHES_PER_WALLET",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "acceptOwnership",
     "inputs": [],
     "outputs": [],
@@ -1000,6 +1013,19 @@ export const FilterLauncherAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FactorySet",
+    "inputs": [
+      {
+        "name": "factory",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false

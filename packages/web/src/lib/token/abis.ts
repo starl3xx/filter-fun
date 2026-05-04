@@ -130,6 +130,10 @@ export const CreatorCommitmentsAbi = [
 ] as const;
 
 // ============================================================ CreatorFeeDistributor
+// Epic 1.16 (spec §10.3 + §10.6, locked 2026-05-02): creator-fee accrual is perpetual.
+// `eligible(token)` was removed — the time + filter cap it expressed no longer exists.
+// `isDisabled(token)` is its replacement: true only after the multisig has invoked the
+// emergency-disable path (sanctioned/compromised recipient).
 
 export const CreatorFeeDistributorAbi = [
   {
@@ -141,7 +145,7 @@ export const CreatorFeeDistributorAbi = [
   },
   {
     type: "function",
-    name: "eligible",
+    name: "isDisabled",
     stateMutability: "view",
     inputs: [{name: "token", type: "address"}],
     outputs: [{type: "bool"}],

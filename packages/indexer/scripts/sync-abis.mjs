@@ -22,6 +22,7 @@ const targets = [
   "BonusDistributor",
   "TournamentRegistry",
   "CreatorCommitments",
+  "CreatorFeeDistributor",
 ];
 
 for (const name of targets) {
