@@ -177,8 +177,10 @@ contract TickerValidationTest is Test {
     }
 
     function test_MultisigCanAddBlocklistEntry() public {
-        bytes32 newHash = keccak256("BAITCOIN");
-        // Owner can add.
+        // Audit: bugbot M PR #88. The caller MUST canonicalise off-chain — the contract
+        // accepts the raw bytes32 to fit the EIP-170 budget. The runbook references the
+        // 1.15b/c TS port of `TickerLib.normalize` for off-chain canonicalisation.
+        bytes32 newHash = keccak256(bytes("BAITCOIN"));
         launcher.addTickerToBlocklist(newHash);
         assertTrue(launcher.tickerBlocklist(newHash));
 
@@ -187,6 +189,24 @@ contract TickerValidationTest is Test {
         vm.prank(aliceCreator);
         vm.expectRevert(FilterLauncher.TickerBlocklisted.selector);
         launcher.reserve{value: _slotCost(0)}("BAITCOIN", "ipfs://a");
+    }
+
+    /// @notice Audit: bugbot M PR #88. Pin the failure mode: a non-canonical hash slips
+    ///         through unchanged, demonstrating the documented invariant that ops must
+    ///         canonicalise off-chain. The intended block of "BAITCOIN" via the wrong
+    ///         (non-canonical) hash `keccak256(bytes("baitcoin"))` is silently stored
+    ///         under the wrong key, so `reserve("baitcoin")` (which normalises to
+    ///         `BAITCOIN`) is NOT blocked. This test exists to make the failure mode
+    ///         visible to a maintainer who tries to `addTickerToBlocklist(keccak256("baitcoin"))`
+    ///         in a future PR.
+    function test_NonCanonicalHashSilentlyStoresWrongSlot() public {
+        bytes32 wrongHash = keccak256(bytes("baitcoin")); // lowercase
+        launcher.addTickerToBlocklist(wrongHash);
+        assertTrue(launcher.tickerBlocklist(wrongHash), "wrong hash IS stored");
+        bytes32 canonicalHash = keccak256(bytes("BAITCOIN"));
+        assertFalse(launcher.tickerBlocklist(canonicalHash), "canonical hash NOT stored");
+
+        // Operator-side enforcement: the multisig must derive via TickerLib semantics.
     }
 
     function test_NonMultisigBlocklistAddReverts() public {

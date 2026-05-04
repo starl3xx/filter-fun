@@ -379,6 +379,16 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
 
     /// @notice Append a ticker hash to the protocol blocklist. One-way — there is no
     ///         corresponding remove, by design (spec §4.6.1).
+    /// @dev    CALLER CANONICALITY REQUIREMENT (audit: bugbot M PR #88). The multisig
+    ///         caller MUST compute `tickerHash = keccak256(bytes(TickerLib.normalize(s)))`
+    ///         off-chain (or via the reference TS port shipped in 1.15b/c). Passing a
+    ///         raw, non-canonical hash silently stores an unreachable slot — the
+    ///         `reserve` path always normalises before hashing, so a non-canonical
+    ///         entry never fires `TickerBlocklisted`. The constructor's `_seedBlocklist`
+    ///         is the authoritative pattern (`keccak256(bytes("FILTER"))` etc.). On-chain
+    ///         normalisation here was tried but adds ~140 runtime bytes (string param +
+    ///         TickerLib delegatecall) and overflows the EIP-170 budget; the operator
+    ///         runbook + multisig review process is the substitute control.
     function addTickerToBlocklist(bytes32 tickerHash) external onlyMultisig {
         tickerBlocklist[tickerHash] = true;
         emit TickerBlocked(tickerHash);
@@ -795,6 +805,14 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
         return stakeAdmin.launchInfoOf(seasonId, token);
     }
 
+    /// @notice Audit: bugbot L PR #88. The pending queue is NOT cleared on `abortSeason`
+    ///         (both the storage-side `delete _pending[sid]` and the view-side filter
+    ///         overflow the EIP-170 budget — 30+ bytes each over the 24,576 ceiling).
+    ///         CONSUMER CONTRACT: indexers and UIs MUST gate this view on
+    ///         `aborted[seasonId]` first; if true, treat the queue as empty regardless
+    ///         of length. Spec §46 + the pre-deploy invariant guarantee that an aborted
+    ///         season can never transition out of Phase.Launch (see `advancePhase`
+    ///         guard, audit bugbot H PR #88), so the entries here are inert.
     function pendingReservations(uint256 seasonId) external view returns (PendingReservation[] memory) {
         return _pending[seasonId];
     }
