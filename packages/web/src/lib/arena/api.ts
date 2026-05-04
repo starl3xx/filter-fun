@@ -487,6 +487,17 @@ export type ProfileCreatedToken = {
   launchedAt: string;
 };
 
+/// Epic 1.24 — userProfile block. Attached by `/profile/:identifier` (the
+/// identifier-aware extension of `/profile/:address`). For pre-Epic-1.24
+/// callers hitting `/profile/:address`, this field is absent — the helper
+/// below normalizes that into a hasUsername=false block.
+export type UserProfileBlock = {
+  address: `0x${string}`;
+  username: string | null;
+  usernameDisplay: string | null;
+  hasUsername: boolean;
+};
+
 export type ProfileResponse = {
   address: `0x${string}`;
   createdTokens: ProfileCreatedToken[];
@@ -500,19 +511,121 @@ export type ProfileResponse = {
   };
   badges: string[];
   computedAt: string;
+  /// Epic 1.24 — present on responses from `/profile/:identifier`. Older
+  /// indexer versions omit it; consumers should fall back to a default block.
+  userProfile?: UserProfileBlock;
 };
 
 /// `?role=creator` returns ONLY the creator-keyed surface — `createdTokens` +
 /// `wins` + `CHAMPION_CREATOR` badge if applicable. Trader-side stats are
 /// zeroed so the consumer can rely on the response to reflect the role.
 export async function fetchProfile(
-  wallet: `0x${string}` | string,
+  identifier: `0x${string}` | string,
   opts: FetchOpts & {role?: "creator"} = {},
 ): Promise<ProfileResponse> {
   const url = opts.role
-    ? `${INDEXER_URL}/profile/${wallet}?role=${opts.role}`
-    : `${INDEXER_URL}/profile/${wallet}`;
+    ? `${INDEXER_URL}/profile/${identifier}?role=${opts.role}`
+    : `${INDEXER_URL}/profile/${identifier}`;
   return fetchJson<ProfileResponse>(url, {signal: opts.signal});
+}
+
+// ============================================================ Username surface (Epic 1.24)
+
+/// Live availability check. The POST endpoint re-validates at write time, so
+/// this is strictly informational — a slow user can hold an "available"
+/// verdict that's stale by the time they submit. Cheap enough that the form
+/// can call it on every keystroke (debounced).
+export type UsernameAvailability =
+  | {available: true}
+  | {
+      available: false;
+      reason: "taken" | "blocklisted" | "invalid-format";
+      formatDetail?:
+        | "too-short"
+        | "too-long"
+        | "invalid-chars"
+        | "empty";
+    };
+
+export async function fetchUsernameAvailability(
+  username: string,
+  opts: FetchOpts = {},
+): Promise<UsernameAvailability> {
+  const url = `${INDEXER_URL}/profile/username/${encodeURIComponent(username)}/available`;
+  return fetchJson<UsernameAvailability>(url, {signal: opts.signal});
+}
+
+/// `POST /profile/:address/username`. The wallet client signs
+/// `filter.fun:set-username:<address>:<username>:<nonce>` with `personal_sign`.
+/// The server recovers the signing address; if it doesn't equal `address`,
+/// the request is rejected as `signature mismatch` (401).
+export type SetUsernameError =
+  | {error: "invalid request body" | "invalid address" | "invalid username format" | "blocklisted username" | "invalid JSON body"; detail?: string; status: 400}
+  | {error: "signature mismatch"; status: 401}
+  | {error: "taken"; status: 409}
+  | {error: "cooldown-active"; nextEligibleAt?: string; status: 409}
+  | {error: "identity layer unavailable"; status: 503}
+  | {error: "internal error"; status: 500};
+
+export async function submitUsername(args: {
+  address: `0x${string}`;
+  username: string;
+  signature: `0x${string}`;
+  nonce: string;
+  signal?: AbortSignal;
+}): Promise<
+  | {ok: true; profile: UserProfileBlock}
+  | {ok: false; error: SetUsernameError}
+> {
+  const url = `${INDEXER_URL}/profile/${args.address}/username`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      username: args.username,
+      signature: args.signature,
+      nonce: args.nonce,
+    }),
+    signal: args.signal,
+  });
+  // Read body once, regardless of status, so the caller has a structured
+  // error envelope. Empty bodies (extremely rare — server always JSONs)
+  // collapse to a status-only error.
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (res.ok) {
+    const profile = (body as {profile?: UserProfileBlock} | null)?.profile;
+    if (profile) return {ok: true, profile};
+    return {ok: false, error: {error: "internal error", status: 500}};
+  }
+  const errBody = (body ?? {}) as Record<string, unknown>;
+  return {
+    ok: false,
+    error: {
+      error: (errBody.error ?? "internal error") as SetUsernameError["error"],
+      status: res.status as 400 | 401 | 409 | 500 | 503,
+      ...(typeof errBody.detail === "string" ? {detail: errBody.detail} : {}),
+      ...(typeof errBody.nextEligibleAt === "string"
+        ? {nextEligibleAt: errBody.nextEligibleAt}
+        : {}),
+    } as SetUsernameError,
+  };
+}
+
+/// Compose the canonical signed-message body. The server constructs the
+/// same string in `userProfileHandler.ts`; the wallet client signs this
+/// exact body via `personal_sign`. Lowercases address + username so the
+/// signing client can be sloppy about casing.
+export function buildSetUsernameMessage(
+  address: `0x${string}`,
+  username: string,
+  nonce: string,
+): string {
+  return `filter.fun:set-username:${address.toLowerCase()}:${username.toLowerCase()}:${nonce}`;
 }
 
 // ============================================================ Trade deep link

@@ -391,24 +391,31 @@ describe("/profile — tournament-tier badges (issue #35)", () => {
     expect(badges).not.toContain("ANNUAL_FINALIST");
   });
 
-  it("ANNUAL_* badges ship in the surface even though §33.8 leaves them dormant", async () => {
-    // Spec §33.8 decision: do not trigger annual settlement. The indexer + handler
-    // still surface annual badges so the day annual gets activated, the surface "just
-    // works" with no API change. Today this path returns false flags in practice.
+  it("ANNUAL_* badges are stripped at the indexer (Epic 1.24, spec §33.8 defense-in-depth)", async () => {
+    // Spec §33.8 (revisited 2026-05-04 with Epic 1.24): annual settlement is
+    // deferred indefinitely. ANNUAL_* badges therefore MUST NOT ship on the
+    // wire — even if the underlying tournament-flag query somehow returns
+    // them (partial registry write, operator experiment), the badge derivation
+    // strips them. Web layer filters too; this is the server half of belt-
+    // and-suspenders. If/when annual gets re-activated, drop the strip and
+    // remove this test's negative assertions.
     const r = await getProfileHandler(
       fixtureQueries({
         tourney: {
           quarterlyFinalist: true,
           quarterlyChampion: true,
           annualFinalist: true, // hypothetical — would only flip if oracle activates
-          annualChampion: false,
+          annualChampion: true,
         },
       }),
       addr(0xe),
       fixedNow,
     );
     const badges = (r.body as ProfileResponse).badges;
-    expect(badges).toContain("ANNUAL_FINALIST");
+    expect(badges).toContain("QUARTERLY_FINALIST");
+    expect(badges).toContain("QUARTERLY_CHAMPION");
+    expect(badges).not.toContain("ANNUAL_FINALIST");
+    expect(badges).not.toContain("ANNUAL_CHAMPION");
   });
 });
 

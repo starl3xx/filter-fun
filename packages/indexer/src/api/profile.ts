@@ -46,6 +46,16 @@ export type ProfileBadge =
   | "ANNUAL_FINALIST"
   | "ANNUAL_CHAMPION";
 
+/// Spec §33.8 (axed 2026-05-04): annual settlement is deferred indefinitely.
+/// Surface ANNUAL_* badges on the wire would mislead the UI — the web layer
+/// also filters them defense-in-depth, but stripping at the indexer is the
+/// belt half of belt-and-suspenders. If/when annual gets re-activated this
+/// constant flips and both layers light up together.
+const ANNUAL_BADGES: ReadonlySet<ProfileBadge> = new Set([
+  "ANNUAL_FINALIST",
+  "ANNUAL_CHAMPION",
+]);
+
 export interface ProfileResponse {
   address: `0x${string}`;
   createdTokens: Array<{
@@ -302,7 +312,13 @@ function deriveBadges(
   if (holder.filterSurvivor) badges.add("FILTER_SURVIVOR");
   if (tourney.quarterlyFinalist) badges.add("QUARTERLY_FINALIST");
   if (tourney.quarterlyChampion) badges.add("QUARTERLY_CHAMPION");
-  if (tourney.annualFinalist) badges.add("ANNUAL_FINALIST");
-  if (tourney.annualChampion) badges.add("ANNUAL_CHAMPION");
-  return [...badges];
+  // Epic 1.24 (2026-05-04): ANNUAL_* are NEVER surfaced on the wire — spec
+  // §33.8 deferred annual settlement indefinitely. The flags from the
+  // tournament registry are read (so the query path stays warm against the
+  // schema) but stripped before serialization. Web layer filters too as
+  // defense-in-depth. If/when annual is re-activated, drop the filter at the
+  // bottom and add `ANNUAL_FINALIST` / `ANNUAL_CHAMPION` to the set.
+  void tourney.annualFinalist;
+  void tourney.annualChampion;
+  return [...badges].filter((b) => !ANNUAL_BADGES.has(b));
 }
