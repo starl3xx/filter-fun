@@ -13,7 +13,7 @@
 ///   GET  /operator/alerts/stream        — SSE push stream of alert events
 ///   GET  /operator/actions              — `OperatorActionLog` rows (filterable)
 ///
-/// `applyGetRateLimit` is reused — operators are rate-limited just like public clients.
+/// `applyHttpRateLimit` is reused — operators are rate-limited just like public clients.
 /// They have their own bucket (per IP, same as everyone else) but the cap is generous
 /// enough that an operator-console session never bumps it.
 
@@ -24,7 +24,7 @@ import {streamSSE} from "hono/streaming";
 
 import {feeAccrual, launchEscrowSummary, operatorActionLog, phaseChange, season, token} from "../../ponder.schema";
 
-import {applyGetRateLimit, type MwContext, clientIpFromContext} from "./middleware.js";
+import {applyHttpRateLimit, type MwContext, clientIpFromContext} from "./middleware.js";
 import {toMwContext} from "./mwContext.js";
 import {
   evaluateSettlementProvenance,
@@ -41,7 +41,7 @@ import {applyOperatorAuth} from "./operatorAuth.js";
 /// for the up-to-the-block view; this endpoint surfaces the indexed flow data).
 ponder.get("/operator/financial-overview", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const auth = await applyOperatorAuth(mw);
   if (auth.response) return auth.response;
@@ -113,7 +113,7 @@ ponder.get("/operator/financial-overview", async (c) => {
 /// Optional `?limit=N` (default 10, max 50). Optional `?seasonId=N` returns just one.
 ponder.get("/operator/settlement-history", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const auth = await applyOperatorAuth(mw);
   if (auth.response) return auth.response;
@@ -199,7 +199,7 @@ ponder.get("/operator/settlement-history", async (c) => {
 /// Default sort: most recent first. `?limit=` capped at 200.
 ponder.get("/operator/actions", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const auth = await applyOperatorAuth(mw);
   if (auth.response) return auth.response;
@@ -275,7 +275,7 @@ ponder.get("/operator/actions", async (c) => {
 ///   - reservation_stuck — pending refund unfulfilled > 1 hour
 ponder.get("/operator/alerts", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const auth = await applyOperatorAuth(mw);
   if (auth.response) return auth.response;

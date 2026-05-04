@@ -85,7 +85,7 @@ import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js"
 import {buildScoringWeightsResponse} from "./scoringWeights.js";
 import {getTokenHistoryHandler, type HistoryQueries, type HpSnapshotRow} from "./history.js";
 import {
-  applyGetRateLimit,
+  applyHttpRateLimit,
   historyCacheKey,
   historyResponseCache,
   holdingsCacheKey,
@@ -229,7 +229,7 @@ async function getUserProfileStore(): Promise<UserProfileStore> {
 
 ponder.get("/season", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const bypass = shouldBypassCache(mw);
   const r = await cached(
@@ -245,7 +245,7 @@ ponder.get("/season", async (c) => {
 
 ponder.get("/tokens", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const bypass = shouldBypassCache(mw);
   const r = await cached(
@@ -263,7 +263,7 @@ ponder.get("/tokens", async (c) => {
 
 ponder.get("/token/:address", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const result = await getTokenDetailHandler(buildQueries(c.db), c.req.param("address") ?? "");
   return c.json(result.body, result.status as 200 | 400 | 404);
@@ -275,7 +275,7 @@ ponder.get("/token/:address", async (c) => {
 /// UI's still-earning badge can render against any token without special-casing absence.
 ponder.get("/tokens/:address/creator-earnings", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const result = await getCreatorEarningsHandler(buildQueries(c.db), c.req.param("address") ?? "");
   return c.json(result.body, result.status as 200 | 400 | 404);
@@ -283,7 +283,7 @@ ponder.get("/tokens/:address/creator-earnings", async (c) => {
 
 ponder.get("/tokens/:address/history", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
   const normalized = raw.toLowerCase();
@@ -356,7 +356,7 @@ ponder.get("/readiness", async (c) => {
 /// middleware (PR #61).
 ponder.get("/scoring/weights", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   return c.json(buildScoringWeightsResponse(process.env), 200);
 });
@@ -387,7 +387,7 @@ ponder.get("/scoring/weights", async (c) => {
 /// branches on the body's `ok` enum. 400 is reserved for malformed REQUESTS.
 ponder.get("/season/:id/tickers/check", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
 
   const seasonIdRaw = c.req.param("id") ?? "";
@@ -498,7 +498,7 @@ ponder.get("/season/:id/tickers/check", async (c) => {
 ///   been started, or the indexer hasn't ingested the SeasonStarted yet).
 ponder.get("/season/:id/launch-status", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
 
   const seasonIdRaw = c.req.param("id") ?? "";
@@ -559,7 +559,7 @@ ponder.get("/season/:id/launch-status", async (c) => {
 /// seasons piled up).
 ponder.get("/wallet/:address/pending-refunds", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
 
   const raw = c.req.param("address") ?? "";
@@ -594,7 +594,7 @@ ponder.get("/wallet/:address/pending-refunds", async (c) => {
 /// of indexed lookups).
 ponder.get("/profile/username/:username/available", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("username") ?? "";
   let store: UserProfileStore;
@@ -621,7 +621,7 @@ ponder.get("/profile/username/:username/available", async (c) => {
 /// the old format until upgraded.
 ponder.post("/profile/:address/username", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   let store: UserProfileStore;
   try {
@@ -670,7 +670,7 @@ ponder.post("/profile/:address/username", async (c) => {
 /// (Epic 1.24). Existing callers that ignore unknown fields continue to work.
 ponder.get("/profile/:identifier", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("identifier") ?? "";
 
@@ -759,7 +759,7 @@ ponder.get("/profile/:identifier", async (c) => {
 /// See `componentDeltas.ts` for the threshold + windowing rules.
 ponder.get("/tokens/:address/component-deltas", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
   const normalized = raw.toLowerCase();
@@ -787,7 +787,7 @@ ponder.get("/tokens/:address/component-deltas", async (c) => {
 /// `holdings.ts` for the projection math + null-result semantics.
 ponder.get("/wallets/:address/holdings", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
   const normalized = raw.toLowerCase();

@@ -277,6 +277,38 @@ describe("setUsernameHandler", () => {
     expect(persisted?.usernameUpdatedAt?.toISOString()).toBe(fifteenDaysAgo.toISOString());
   });
 
+  it("idempotent re-set is REJECTED if operator blocklisted the handle post-claim (PR #102 pass-6)", async () => {
+    // The user owned `starbreaker`, then an operator added it to the
+    // blocklist. A re-confirm POST must NOT short-circuit to 200 — that
+    // would let incumbents permanently retain a freshly-banned handle. The
+    // indexer should treat the row as if the handle were freshly invalid
+    // and force them through a rename via `evaluateSetUsername`.
+    const store = createInMemoryUserProfileStore({
+      operatorBlockedSet: new Set(["starbreaker"]),
+    });
+    const fifteenDaysAgo = new Date(NOW.getTime() - 15 * 24 * 60 * 60 * 1000);
+    store._seed({
+      address: ADDR_A,
+      username: "starbreaker",
+      usernameDisplay: "StarBreaker",
+      createdAt: fifteenDaysAgo,
+      updatedAt: fifteenDaysAgo,
+      usernameUpdatedAt: fifteenDaysAgo,
+    });
+    const r = await setUsernameHandler({
+      store,
+      recover: makeRecoverFor(ADDR_A),
+      rawAddress: ADDR_A,
+      body: {username: "starbreaker", signature: ZERO_SIG, nonce: "n2"},
+      now: fixedNow,
+    });
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({error: "blocklisted username"});
+    // Existing row must remain untouched (no mutation on rejection).
+    const persisted = await store.getByAddress(ADDR_A);
+    expect(persisted?.usernameUpdatedAt?.toISOString()).toBe(fifteenDaysAgo.toISOString());
+  });
+
   it("post-cooldown: new handle replaces the old", async () => {
     const store = createInMemoryUserProfileStore();
     const thirtyOneDaysAgo = new Date(NOW.getTime() - 31 * 24 * 60 * 60 * 1000);

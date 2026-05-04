@@ -196,7 +196,20 @@ export async function setUsernameHandler(args: {
   // insensitive), short-circuit with 200. We do NOT advance the cooldown
   // (no row mutation), so a wallet can confirm-set without burning their
   // 30-day window.
-  if (existing && existing.username === formatResult.canonical) {
+  //
+  // Bugbot M PR #102 pass-6: do NOT short-circuit when the operator has
+  // since added the handle to the blocklist. Otherwise a holder of an
+  // already-claimed name could re-confirm post-blocklist and the
+  // blocklist becomes effectively unenforceable for incumbents (they
+  // never need to claim again to keep the row alive). Pre-existing reads
+  // of `operatorBlocked` cover this branch — surface the same 400 the
+  // non-idempotent path returns so the client UI walks them through a
+  // forced rename.
+  if (
+    existing &&
+    existing.username === formatResult.canonical &&
+    !operatorBlocked
+  ) {
     return {
       status: 200,
       body: {profile: userProfileBlockFromRow(address, existing)},
