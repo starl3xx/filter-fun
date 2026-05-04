@@ -117,26 +117,83 @@ function OperatorConsole({
   const loadAll = useCallback(async () => {
     setErr(null);
     try {
-      // Fetch the public scoring/weights endpoint without operator auth (it's
-      // a public transparency surface — Epic 1.17a). Saves a wallet prompt for
-      // a card that doesn't need one.
-      const sw = await fetch(`${INDEXER_URL}/scoring/weights`).then((r) => r.json());
-      setScoringWeights({
-        version: sw.version,
-        weights: sw.weights,
-        flags: sw.flags,
-      });
-      const [fin, hist, acts, alertsResp] = await Promise.all([
+      // Bugbot PR #95 round 8 (Medium): the operator console must STILL
+      // load the critical surfaces (alerts, settlement history, financial
+      // overview, audit log) even if the public `/scoring/weights` endpoint
+      // is transiently unavailable. Pre-fix the scoring fetch was awaited
+      // sequentially before the operator fetches; a network blip there
+      // would `throw` into the outer catch and leave every operator state
+      // null + `loaded=false`, also preventing alert polling from starting.
+      // An incident is exactly when this console is most needed.
+      //
+      // Fix: bundle the scoring fetch into a `Promise.allSettled` with the
+      // operator fetches so each surface fails independently. Operator
+      // fetches that reject still surface as the page-level error (they're
+      // the critical path); the scoring card just stays null with a quiet
+      // dashboard-side message and the rest of the console renders.
+      //
+      // The scoring/weights endpoint is a public transparency surface
+      // (Epic 1.17a) — it deliberately doesn't carry operator auth, so it
+      // doesn't need a wallet prompt.
+      const [swResult, finResult, histResult, actsResult, alertsResult] = await Promise.allSettled([
+        fetch(`${INDEXER_URL}/scoring/weights`).then((r) => {
+          if (!r.ok) throw new Error(`/scoring/weights ${r.status}`);
+          return r.json();
+        }),
         fetchFinancialOverview({signer}),
         fetchSettlementHistory({signer, limit: 10}),
         fetchOperatorActions({signer, limit: 50}),
         fetchAlerts({signer}),
       ]);
-      setFinancial(fin);
-      setHistory(hist.history);
-      setActions(acts.actions);
-      setAlerts(alertsResp.alerts);
+
+      // Critical surfaces — if any reject, surface the first error. We
+      // still apply the fulfilled ones so the operator gets partial signal.
+      const criticalErrors: string[] = [];
+      if (finResult.status === "fulfilled") {
+        setFinancial(finResult.value);
+      } else {
+        criticalErrors.push(`financial: ${finResult.reason}`);
+      }
+      if (histResult.status === "fulfilled") {
+        setHistory(histResult.value.history);
+      } else {
+        criticalErrors.push(`settlement: ${histResult.reason}`);
+      }
+      if (actsResult.status === "fulfilled") {
+        setActions(actsResult.value.actions);
+      } else {
+        criticalErrors.push(`actions: ${actsResult.reason}`);
+      }
+      if (alertsResult.status === "fulfilled") {
+        setAlerts(alertsResult.value.alerts);
+      } else {
+        criticalErrors.push(`alerts: ${alertsResult.reason}`);
+      }
+
+      // Non-critical: scoring weights. Failure stays scoped to that card.
+      if (swResult.status === "fulfilled") {
+        const sw = swResult.value;
+        setScoringWeights({
+          version: sw.version,
+          weights: sw.weights,
+          flags: sw.flags,
+        });
+      } else {
+        // Leave scoringWeights null — the card renders a "weights unavailable"
+        // hint without dragging down the rest of the dashboard.
+        setScoringWeights(null);
+      }
+
+      // Always mark loaded once the fan-out completes, even if some surfaces
+      // failed — each card renders its own null state, and stranding the
+      // operator on the "Sign + load" gate over a partial outage is exactly
+      // the failure mode this fix is supposed to prevent. A degraded
+      // critical surface still surfaces via `setErr` so the page-level
+      // banner shows what's wrong.
       setLoaded(true);
+      if (criticalErrors.length > 0) {
+        setErr(criticalErrors.join(" · "));
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
