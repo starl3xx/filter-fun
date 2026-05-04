@@ -5,7 +5,9 @@ import {privateKeyToAccount} from "viem/accounts";
 import {verifyMessage} from "viem";
 
 import {
+  __resetOperatorSignatureCacheForTests,
   encodeMessageForHeader,
+  getCachedOperatorRequest,
   makeOperatorMessage,
   operatorAuthHeaders,
   signOperatorRequest,
@@ -114,5 +116,84 @@ describe("operatorAuthHeaders", () => {
       Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0)),
     );
     expect(decoded).toBe(original);
+  });
+});
+
+describe("getCachedOperatorRequest", () => {
+  // Bugbot PR #95 round 10 (High Severity): pre-fix every operator-console
+  // fetch invoked `signMessage`, prompting a wallet popup on every request.
+  // The 30s alert-poll loop made the console literally unusable. This cache
+  // reuses the same signed body for 4 minutes per (address, action) pair so
+  // polling stays prompt-free.
+
+  function counterSigner(): OperatorSigner & {readonly calls: () => number} {
+    const account = privateKeyToAccount(PK);
+    let n = 0;
+    return {
+      address: account.address,
+      signMessage: async ({message}) => {
+        n++;
+        return account.signMessage({message});
+      },
+      calls: () => n,
+    };
+  }
+
+  it("reuses the cached signature for the same (address, action) within the TTL window", async () => {
+    __resetOperatorSignatureCacheForTests();
+    const signer = counterSigner();
+    const t0 = Date.UTC(2026, 4, 4, 12, 0, 0);
+    const a = await getCachedOperatorRequest(signer, "GET /operator/alerts", t0);
+    const b = await getCachedOperatorRequest(signer, "GET /operator/alerts", t0 + 60_000);
+    const c = await getCachedOperatorRequest(signer, "GET /operator/alerts", t0 + 3 * 60_000);
+    expect(signer.calls()).toBe(1);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
+  it("re-signs once the cached entry expires (past 4 minutes)", async () => {
+    __resetOperatorSignatureCacheForTests();
+    const signer = counterSigner();
+    const t0 = Date.UTC(2026, 4, 4, 12, 0, 0);
+    await getCachedOperatorRequest(signer, "GET /operator/alerts", t0);
+    // Just past the 4-minute TTL — cache should miss.
+    await getCachedOperatorRequest(signer, "GET /operator/alerts", t0 + 4 * 60_000 + 1);
+    expect(signer.calls()).toBe(2);
+  });
+
+  it("caches per action — distinct endpoints sign distinct messages", async () => {
+    __resetOperatorSignatureCacheForTests();
+    const signer = counterSigner();
+    const t0 = Date.UTC(2026, 4, 4, 12, 0, 0);
+    const a = await getCachedOperatorRequest(signer, "GET /operator/alerts", t0);
+    const b = await getCachedOperatorRequest(signer, "GET /operator/actions", t0);
+    expect(signer.calls()).toBe(2);
+    expect(a.message).toContain("GET /operator/alerts");
+    expect(b.message).toContain("GET /operator/actions");
+    // Both still reused on a second call with the same action.
+    await getCachedOperatorRequest(signer, "GET /operator/alerts", t0 + 30_000);
+    await getCachedOperatorRequest(signer, "GET /operator/actions", t0 + 30_000);
+    expect(signer.calls()).toBe(2);
+  });
+
+  it("caches per address — different signers don't collide", async () => {
+    __resetOperatorSignatureCacheForTests();
+    const signerA = counterSigner();
+    // Different account, identical action.
+    const otherPk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
+    const otherAccount = privateKeyToAccount(otherPk);
+    let otherCalls = 0;
+    const signerB: OperatorSigner = {
+      address: otherAccount.address,
+      signMessage: async ({message}) => {
+        otherCalls++;
+        return otherAccount.signMessage({message});
+      },
+    };
+    const t0 = Date.UTC(2026, 4, 4, 12, 0, 0);
+    await getCachedOperatorRequest(signerA, "GET /operator/alerts", t0);
+    await getCachedOperatorRequest(signerB, "GET /operator/alerts", t0);
+    expect(signerA.calls()).toBe(1);
+    expect(otherCalls).toBe(1);
   });
 });

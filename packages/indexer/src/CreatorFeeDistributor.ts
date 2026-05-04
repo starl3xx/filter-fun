@@ -127,9 +127,14 @@ ponder.on("CreatorFeeDistributor:CreatorFeeDisabled", async ({event, context}) =
 });
 
 ponder.on("CreatorFeeDistributor:OperatorActionEmitted", async ({event, context}) => {
+  // Bugbot PR #95 round 10 (Medium): normalize `actor` to lowercase at write
+  // time so the `/operator/actions?actor=...` filter (which lowercases the
+  // query input before `eq()`) matches stored rows. Pre-fix the column held
+  // checksummed addresses but the query lowercased its input, so the filter
+  // never matched.
   await context.db.insert(operatorActionLog).values({
     id: `${event.transaction.hash}:${event.log.logIndex}`,
-    actor: event.args.actor,
+    actor: event.args.actor.toLowerCase() as `0x${string}`,
     action: event.args.action,
     // The `bytes` param arrives as a 0x-prefixed hex string from viem; store as-is.
     // The operator console ABI-decodes per `action` (e.g. for "disableCreatorFee" the

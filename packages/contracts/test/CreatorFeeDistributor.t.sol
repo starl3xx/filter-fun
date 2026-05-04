@@ -397,10 +397,19 @@ contract CreatorFeeDistributorTest is Test {
     // `reason` is required to keep the audit trail meaningful and is logged via
     // `OperatorActionEmitted` for the indexer's OperatorActionLog table.
 
-    function test_DisableCreatorFee_RejectsNonOperator() public {
-        _registerToken(tokenA, creatorA);
-        vm.prank(attacker);
-        vm.expectRevert(CreatorFeeDistributor.NotMultisig.selector);
+    // Note: the auth-revert path is covered by `test_DisableCreatorFee_OnlyMultisig`
+    // in the Multisig-disable section above; not duplicated here. (Bugbot PR #95
+    // round 10 Low — pre-fix this section had `_RejectsNonOperator` which was
+    // identical to `_OnlyMultisig`, plus a deleted `_RejectsUnknownToken` that
+    // we've now restored below.)
+
+    function test_DisableCreatorFee_RejectsUnknownToken() public {
+        // Coverage of the `UnknownToken` revert in `disableCreatorFee` — the
+        // call must fail before the auth-passing path can mutate state for an
+        // unregistered token. Restored after the merge resolution dropped this
+        // test (bugbot PR #95 round 10 Low).
+        vm.prank(multisig);
+        vm.expectRevert(CreatorFeeDistributor.UnknownToken.selector);
         distributor.disableCreatorFee(tokenA, "compromised");
     }
 

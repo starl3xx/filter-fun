@@ -301,9 +301,12 @@ ponder.on("FilterLauncher:TickerBlocked", async ({event, context}) => {
     [{type: "bytes32"}],
     [event.args.tickerHash],
   );
+  // Bugbot PR #95 round 10 (Medium): see CreatorFeeDistributor.ts —
+  // `actor` MUST be lowercased at write time so the `/operator/actions?actor=`
+  // query (which lowercases its input) matches stored rows.
   await context.db.insert(operatorActionLog).values({
     id: `${event.transaction.hash}:${event.log.logIndex}`,
-    actor: event.transaction.from,
+    actor: event.transaction.from.toLowerCase() as `0x${string}`,
     action: "addTickerToBlocklist",
     params: encodedParams,
     txHash: event.transaction.hash,

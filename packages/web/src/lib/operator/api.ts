@@ -2,7 +2,7 @@
 
 import {INDEXER_URL} from "@/lib/arena/api";
 
-import {operatorAuthHeaders, signOperatorRequest, type OperatorSigner} from "./auth";
+import {getCachedOperatorRequest, operatorAuthHeaders, type OperatorSigner} from "./auth";
 
 export interface OperatorFetchOptions {
   signer: OperatorSigner;
@@ -24,7 +24,12 @@ async function operatorFetch<T>(
   const queryStart = path.indexOf("?");
   const pathWithoutQuery = queryStart === -1 ? path : path.slice(0, queryStart);
   const action = `${method} /operator${pathWithoutQuery}`;
-  const req = await signOperatorRequest(opts.signer, action);
+  // Bugbot PR #95 round 10 (High): use the cached variant so polling cadences
+  // don't trigger a wallet popup per request. Cache reuses the same signed
+  // body for 4 minutes (1-min buffer before the server's 5-min staleness),
+  // making `/alerts` polling at 30s cost 1 wallet prompt per 4min instead of
+  // 1 per request.
+  const req = await getCachedOperatorRequest(opts.signer, action);
   const res = await fetch(`${INDEXER_URL}/operator${path}`, {
     method,
     headers: operatorAuthHeaders(req),
