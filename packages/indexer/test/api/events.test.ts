@@ -902,6 +902,7 @@ describe("TickEngine", () => {
       isFinalist?: boolean;
       liquidated?: boolean;
       liquidationProceeds?: bigint | null;
+      createdAt?: bigint;
     }>;
     recent?: FeeAccrualRow[];
     baseline?: Map<`0x${string}`, bigint>;
@@ -923,6 +924,9 @@ describe("TickEngine", () => {
           isFinalist: t.isFinalist ?? false,
           liquidated: t.liquidated ?? false,
           liquidationProceeds: t.liquidationProceeds ?? null,
+          // Epic 1.18 — fixture cohort: 0n is fine since these tests don't
+          // exercise the tie-break (HPs are degenerate-uniform anyway).
+          createdAt: t.createdAt ?? 0n,
         })),
       tokenAddressByLocker: async () => new Map(),
       recentFees: async () => opts.recent ?? [],
@@ -974,7 +978,7 @@ describe("TickEngine", () => {
         tokensCalls++;
         if (tokensCalls === 1) await tokensGate; // hold the first call open
         return [
-          {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null},
+          {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null, createdAt: 0n},
         ];
       },
       tokenAddressByLocker: async () => new Map(),
@@ -1003,7 +1007,7 @@ describe("TickEngine", () => {
         takenAtSec: BigInt(Math.floor(Date.now() / 1000)),
       }),
       tokensForSnapshot: async () => [
-        {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null},
+        {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null, createdAt: 0n},
       ],
       tokenAddressByLocker: async () => new Map(),
       recentFees: async () => [],
@@ -1037,7 +1041,7 @@ describe("TickEngine", () => {
         takenAtSec: 1_700_000_000n,
       }),
       tokensForSnapshot: async () => [
-        {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null},
+        {address: a, symbol: "EDGE", isFinalist: false, liquidated: false, liquidationProceeds: null, createdAt: 0n},
       ],
       tokenAddressByLocker: async () => {
         lockerCalls++;

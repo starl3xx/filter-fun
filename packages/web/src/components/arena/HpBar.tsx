@@ -14,7 +14,7 @@
 /// length. The HP-bucket colorForHp() helper is retained as a fallback for callers
 /// that don't (yet) have a status on hand.
 import type {TokenStatus} from "@/lib/arena/api";
-import {HP_MAX} from "@/lib/arena/hp";
+import {HP_BUCKETS, HP_MAX} from "@/lib/arena/hp";
 import {C, F} from "@/lib/tokens";
 
 export type ArenaHpBarProps = {
@@ -104,11 +104,13 @@ export function ArenaHpBar({hp, status, width = 100, showValue = true, dim}: Are
 
 /// HP-bucket fallback for callers that don't pass `status`. Buckets are
 /// expressed against the integer `[0, HP_MAX]` scale (Epic 1.18) — same
-/// fractions as the prior 0-100 buckets (75/50/30 → 7500/5000/3000).
+/// fractions as the prior 0-100 buckets. Thresholds live in `HP_BUCKETS`
+/// in `lib/arena/hp.ts` so a future tuning pass changes one place, not
+/// two (bugbot finding Low on PR #89).
 export function colorForHp(hp: number): string {
-  if (hp >= 7500) return C.cyan;
-  if (hp >= 5000) return C.green;
-  if (hp >= 3000) return "#ffa940";
+  if (hp >= HP_BUCKETS.cyanFloor) return C.cyan;
+  if (hp >= HP_BUCKETS.greenFloor) return C.green;
+  if (hp >= HP_BUCKETS.amberFloor) return "#ffa940";
   return C.red;
 }
 

@@ -15,6 +15,7 @@ import {memo, useMemo} from "react";
 import {Triangle} from "@/components/Triangle";
 import type {TokenResponse} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
+import {HP_BUCKETS} from "@/lib/arena/hp";
 import {fmtPrice} from "@/lib/format";
 import {sparkPath} from "@/lib/sparkline";
 import {C, F, stripDollar, tickerColor} from "@/lib/tokens";
@@ -534,8 +535,9 @@ function colorForChange(change: number, hp: number): string {
   if (change > 0) return C.green;
   if (change < 0) return C.red;
   // Epic 1.18: HP scale flipped from 0-100 to 0-10000. The mid-range threshold
-  // moved from 50 → 5000 (same fraction).
-  if (hp >= 5000) return C.dim;
+  // moved from 50 → 5000 — sourced from HP_BUCKETS so a future tuning pass
+  // doesn't need to touch this file.
+  if (hp >= HP_BUCKETS.greenFloor) return C.dim;
   return C.faint;
 }
 

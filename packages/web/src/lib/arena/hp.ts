@@ -12,7 +12,10 @@ export const HP_MAX = 10000 as const;
 
 /// Bucket thresholds used by `colorForHp` and friends — fractions of the full
 /// range, expressed in the integer scale. Pre-1.18 these were 75/50/30 on the
-/// 0-100 scale; multiply by 100 for the int10k equivalent.
+/// 0-100 scale; multiply by 100 for the int10k equivalent. `colorForHp` in
+/// `HpBar.tsx` reads these (rather than re-typing the literals) so the
+/// canonical thresholds live in one place — matters when a future tuning
+/// pass nudges the boundaries.
 export const HP_BUCKETS = {
   cyanFloor: 7500,
   greenFloor: 5000,

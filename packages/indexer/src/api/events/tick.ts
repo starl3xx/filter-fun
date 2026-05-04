@@ -31,6 +31,10 @@ export interface EventsQueries {
     takenAtSec: bigint;
   } | null>;
   /// Tokens for `seasonId`, with the columns needed for HP composition + status.
+  /// `createdAt` is required since Epic 1.18 — drives scoring's `(hp DESC,
+  /// launchedAt ASC)` tie-break key. Without it the SSE tick path produces a
+  /// different ordering than the REST API + DB snapshots when two tokens share
+  /// the same integer HP (bugbot finding High on PR #89).
   tokensForSnapshot: (seasonId: bigint) => Promise<
     Array<{
       address: `0x${string}`;
@@ -38,6 +42,7 @@ export interface EventsQueries {
       isFinalist: boolean;
       liquidated: boolean;
       liquidationProceeds: bigint | null;
+      createdAt: bigint;
     }>
   >;
   /// Per-tick locker→token resolution map. The fee-accrual schema stores LOCKER
@@ -116,7 +121,14 @@ export class TickEngine {
 
       const apiPhase = toApiPhase(seasonRow.phase);
       const scored = scoreCohort(
-        tokens.map((t) => ({id: t.address, liquidationProceeds: t.liquidationProceeds})),
+        // Epic 1.18: plumb `createdAt` through so scoring's tie-break key
+        // (`launchedAt`) is populated on this code path too — otherwise the
+        // SSE-driven snapshot diverges from the REST API + DB on tied HPs.
+        tokens.map((t) => ({
+          id: t.address,
+          liquidationProceeds: t.liquidationProceeds,
+          createdAt: t.createdAt,
+        })),
         apiPhase,
         seasonRow.takenAtSec,
       );
