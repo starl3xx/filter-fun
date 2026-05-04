@@ -205,15 +205,40 @@ export async function setUsernameHandler(args: {
   // of `operatorBlocked` cover this branch — surface the same 400 the
   // non-idempotent path returns so the client UI walks them through a
   // forced rename.
+  //
+  // Bugbot M PR #102 pass-11: split the re-set path by display casing.
+  // If the canonical matches AND the display matches → truly idempotent
+  // (no mutation, no cooldown bump). If the canonical matches but the
+  // display differs (e.g. user fixing `starbreaker` → `StarBreaker`),
+  // call into `store.updateDisplayCase` which only touches the display
+  // column and `updated_at`. Without this, a casing-fix request was
+  // silently dropped — the user had to change their handle to something
+  // else and back, burning two 30-day cooldowns for a cosmetic fix.
   if (
     existing &&
     existing.username === formatResult.canonical &&
     !operatorBlocked
   ) {
-    return {
-      status: 200,
-      body: {profile: userProfileBlockFromRow(address, existing)},
-    };
+    if (existing.usernameDisplay === formatResult.display) {
+      return {
+        status: 200,
+        body: {profile: userProfileBlockFromRow(address, existing)},
+      };
+    }
+    const updated = await store.updateDisplayCase({
+      address,
+      display: formatResult.display,
+      now: now(),
+    });
+    if (updated !== null) {
+      return {
+        status: 200,
+        body: {profile: userProfileBlockFromRow(address, updated)},
+      };
+    }
+    // Defensive: row vanished between getByAddress and the display
+    // update (admin truncation, manual deletion). Fall through to the
+    // upsert path which treats this as a fresh claim.
   }
 
   const takenByOther = await store.isUsernameTakenByOther(formatResult.canonical, address);

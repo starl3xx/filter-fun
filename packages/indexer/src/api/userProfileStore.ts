@@ -95,6 +95,21 @@ export interface UserProfileStore {
     now: Date;
     cooldownMs: number;
   }): Promise<{ok: true; row: UserProfileRow} | {ok: false; error: UpsertUsernameError}>;
+
+  /// Display-casing update for an existing row that already owns the
+  /// matching canonical handle. The caller is responsible for confirming
+  /// `existing.username === canonical(input.display)` before invoking;
+  /// this method only touches `username_display` + `updated_at` and does
+  /// NOT advance `username_updated_at`, so re-styling a handle does not
+  /// burn a cooldown window.
+  ///
+  /// (Bugbot M PR #102 pass-11.) Returns the updated row, or null if no
+  /// row exists for `address` or it has no canonical handle yet.
+  updateDisplayCase(input: {
+    address: `0x${string}`;
+    display: string;
+    now: Date;
+  }): Promise<UserProfileRow | null>;
 }
 
 // ============================================================ Postgres impl
@@ -259,6 +274,17 @@ export function createPgUserProfileStore(pool: Pool): UserProfileStore {
         throw err;
       }
     },
+    async updateDisplayCase({address, display, now}) {
+      const r = await pool.query<PgUserProfileRow>(
+        `UPDATE user_profile
+           SET username_display = $2, updated_at = $3
+         WHERE address = $1 AND username IS NOT NULL
+         RETURNING address, username, username_display, created_at, updated_at, username_updated_at`,
+        [address.toLowerCase(), display, now],
+      );
+      const row = r.rows[0];
+      return row ? rowFromPg(row) : null;
+    },
   };
 }
 
@@ -360,6 +386,20 @@ export function createInMemoryUserProfileStore(opts: {
       };
       byAddress.set(lowerAddress, next);
       return {ok: true, row: next};
+    },
+    async updateDisplayCase({address, display, now}) {
+      const lowerAddress = address.toLowerCase() as `0x${string}`;
+      const existing = byAddress.get(lowerAddress);
+      if (!existing || existing.username === null) return null;
+      const next: UserProfileRow = {
+        ...existing,
+        usernameDisplay: display,
+        updatedAt: now,
+        // Note: usernameUpdatedAt is INTENTIONALLY left untouched — a
+        // casing fix must not rev the 30-day cooldown.
+      };
+      byAddress.set(lowerAddress, next);
+      return next;
     },
     _seed(row) {
       byAddress.set(row.address.toLowerCase(), row);

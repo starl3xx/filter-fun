@@ -253,6 +253,42 @@ describe("setUsernameHandler", () => {
     }
   });
 
+  it("display-casing fix: same canonical, different display, updates display without revving cooldown (PR #102 pass-11)", async () => {
+    // Bugbot M PR #102 pass-11: a user who owns `starbreaker` and
+    // re-submits as `StarBreaker` (display-casing fix) was getting a
+    // silent 200 with the OLD casing preserved. The handler short-
+    // circuited on canonical match alone. Fix: when display differs,
+    // route through `updateDisplayCase` which touches only display +
+    // updated_at and intentionally leaves `usernameUpdatedAt` alone so
+    // the cooldown doesn't reset.
+    const store = createInMemoryUserProfileStore();
+    const fifteenDaysAgo = new Date(NOW.getTime() - 15 * 24 * 60 * 60 * 1000);
+    store._seed({
+      address: ADDR_A,
+      username: "starbreaker",
+      usernameDisplay: "starbreaker",
+      createdAt: fifteenDaysAgo,
+      updatedAt: fifteenDaysAgo,
+      usernameUpdatedAt: fifteenDaysAgo,
+    });
+    const r = await setUsernameHandler({
+      store,
+      recover: makeRecoverFor(ADDR_A),
+      rawAddress: ADDR_A,
+      body: {username: "StarBreaker", signature: ZERO_SIG, nonce: "n-fix-case"},
+      now: fixedNow,
+    });
+    expect(r.status).toBe(200);
+    const persisted = await store.getByAddress(ADDR_A);
+    // Display picks up the new casing.
+    expect(persisted?.usernameDisplay).toBe("StarBreaker");
+    // Canonical handle is unchanged.
+    expect(persisted?.username).toBe("starbreaker");
+    // Cooldown timestamp must NOT have moved — the whole point of this
+    // path is to let users fix casing without burning a 30-day window.
+    expect(persisted?.usernameUpdatedAt?.toISOString()).toBe(fifteenDaysAgo.toISOString());
+  });
+
   it("idempotent re-set: repeating own handle returns 200 without revving cooldown", async () => {
     const store = createInMemoryUserProfileStore();
     const fifteenDaysAgo = new Date(NOW.getTime() - 15 * 24 * 60 * 60 * 1000);
