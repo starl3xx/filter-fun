@@ -1,0 +1,25 @@
+{
+  "name": "03-sybil-swarm-dust",
+  "description": "10 wallets each buying 0.0005 WETH — under per-wallet cap, summed → very low normalized velocity",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "velocity",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "buys": [
+      {"wallet": "0x0000000000000000000000000000000000000001", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x0000000000000000000000000000000000000002", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x0000000000000000000000000000000000000003", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x0000000000000000000000000000000000000004", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x0000000000000000000000000000000000000005", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x0000000000000000000000000000000000000006", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x0000000000000000000000000000000000000007", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x0000000000000000000000000000000000000008", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x0000000000000000000000000000000000000009", "tsSec": 1699999900, "amountWeth": 0.0005},
+      {"wallet": "0x000000000000000000000000000000000000000a", "tsSec": 1699999900, "amountWeth": 0.0005}
+    ]
+  },
+  "expected": 0.00000448,
+  "tolerance": 0.000001
+}

@@ -1,0 +1,20 @@
+{
+  "name": "05-churn-window",
+  "description": "buy 1 WETH then sell 0.5 WETH within VELOCITY_CHURN_WINDOW_SEC=1h — sell weight × VELOCITY_CHURN_PENALTY_FACTOR=2 cancels the net contribution",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "velocity",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "volumeByWallet": {"0x0000000000000000000000000000000000000001": "1000000000000000000"},
+    "buys": [
+      {"wallet": "0x0000000000000000000000000000000000000001", "tsSec": 1699998500, "amountWeth": 1.0}
+    ],
+    "sells": [
+      {"wallet": "0x0000000000000000000000000000000000000001", "tsSec": 1699999500, "amountWeth": 0.5}
+    ]
+  },
+  "expected": 0,
+  "tolerance": 0.00001
+}

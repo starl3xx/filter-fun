@@ -1,0 +1,19 @@
+{
+  "name": "04-decay-recent-vs-old",
+  "description": "lpEvents path: -10 WETH at age 1h + -10 WETH at age 23h on depth=30. Penalty = 10×exp(-1/6) + 10×exp(-23/6) ≈ 8.46 + 0.21 = 8.67. raw = 30 - 8.67 = 21.33. norm ≈ 0.317.",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "stickyLiquidity",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699827200,
+    "liquidityDepthWeth": 30,
+    "avgLiquidityDepthWeth": 30,
+    "lpEvents": [
+      {"tsSec": 1699917200, "amountWethSigned": -10},
+      {"tsSec": 1699996400, "amountWethSigned": -10}
+    ]
+  },
+  "expected": 0.317,
+  "tolerance": 0.01
+}

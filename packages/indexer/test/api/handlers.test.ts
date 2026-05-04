@@ -387,7 +387,7 @@ describe("HP component shape", () => {
     expect(first.components.holderConcentration.weight).toBeCloseTo(0.10);
     expect(first.components.velocity.score).toBeGreaterThanOrEqual(0);
     expect(first.components.velocity.score).toBeLessThanOrEqual(1);
-    expect(first.weightsVersion).toBe("2026-05-05-v4-locked-int10k");
+    expect(first.weightsVersion).toBe("2026-05-04-v4-locked-int10k-formulas");
     expect(first.flagsActive).toEqual({momentum: false, concentration: true});
     // Integer HP in [0, 10000].
     expect(Number.isInteger(first.hp)).toBe(true);
@@ -600,7 +600,7 @@ describe("/tokens/:address/creator-earnings (Epic 1.16, spec §10.3 + §10.6)", 
         redirectedToTreasury: 0n,
         lastClaimAt: lastClaimSec,
         disabled: false,
-        weightsVersion: "2026-05-05-v4-locked-int10k",
+        weightsVersion: "2026-05-04-v4-locked-int10k-formulas",
       }),
     };
     const r = await getCreatorEarningsHandler(queries, tokenAddr);
@@ -611,7 +611,7 @@ describe("/tokens/:address/creator-earnings (Epic 1.16, spec §10.3 + §10.6)", 
       claimable: "10.82", // 14.82 - 4
       lastClaimAt: Number(lastClaimSec),
       disabled: false,
-      weightsVersion: "2026-05-05-v4-locked-int10k",
+      weightsVersion: "2026-05-04-v4-locked-int10k-formulas",
     });
   });
 
@@ -627,7 +627,7 @@ describe("/tokens/:address/creator-earnings (Epic 1.16, spec §10.3 + §10.6)", 
         redirectedToTreasury: 2_500_000_000_000_000_000n, // 2.5 ETH redirected
         lastClaimAt: null,
         disabled: true,
-        weightsVersion: "2026-05-05-v4-locked-int10k",
+        weightsVersion: "2026-05-04-v4-locked-int10k-formulas",
       }),
     };
     const r = await getCreatorEarningsHandler(queries, tokenAddr);
@@ -661,7 +661,7 @@ describe("/tokens/:address/creator-earnings (Epic 1.16, spec §10.3 + §10.6)", 
         redirectedToTreasury: 1_400_000_000_000_000_000n,
         lastClaimAt: null,
         disabled: true,
-        weightsVersion: "2026-05-05-v4-locked-int10k",
+        weightsVersion: "2026-05-04-v4-locked-int10k-formulas",
       }),
     };
     const r = await getCreatorEarningsHandler(queries, tokenAddr);

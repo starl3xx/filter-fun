@@ -1,0 +1,21 @@
+{
+  "name": "04-cold-start-half-hour",
+  "description": "30-min-old token with full holder retention → ratio = 1.0 but ageFactor = 0.5 → score = 0.5",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "retention",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699998200,
+    "currentHolders": [
+      "0x0000000000000000000000000000000000000001",
+      "0x0000000000000000000000000000000000000002"
+    ],
+    "holdersAtRetentionAnchor": [
+      "0x0000000000000000000000000000000000000001",
+      "0x0000000000000000000000000000000000000002"
+    ]
+  },
+  "expected": 0.5,
+  "tolerance": 0
+}

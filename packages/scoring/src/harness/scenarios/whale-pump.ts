@@ -55,15 +55,20 @@ export const whalePumpScenario: ScenarioDefinition = {
           };
         },
         ({timeseries}) => {
-          // Whale's effective-buyers component sits at cohort min (0) —
-          // sqrt(100 WETH) is large in absolute terms but a single wallet
-          // can't beat 30 wallets' summed sqrt under min-max.
-          const last = lastForToken(timeseries, TEST_TOKEN);
-          const eb = last?.components.effectiveBuyers;
+          // Per Epic 1.22 §6.7 fixed-reference normalization the cohort min
+          // is no longer 0; it's `raw / EFFECTIVE_BUYERS_REFERENCE`. The
+          // whale's eb_raw = sqrt(3) ≈ 1.73; the control's eb_raw =
+          // 30 × sqrt(1) = 30. Both are positive but the whale's is far
+          // smaller. Assert the WHALE row is strictly below the CONTROL
+          // row instead of pinning to 0.
+          const lastTest = lastForToken(timeseries, TEST_TOKEN);
+          const lastCtrl = lastForToken(timeseries, CONTROL_TOKEN);
+          const ebTest = lastTest?.components.effectiveBuyers ?? -1;
+          const ebCtrl = lastCtrl?.components.effectiveBuyers ?? -1;
           return {
-            description: "whale effective-buyers component is at cohort min (0)",
-            passed: eb === 0,
-            detail: `effectiveBuyers=${eb}`,
+            description: "whale effective-buyers strictly below control's",
+            passed: ebTest >= 0 && ebCtrl > ebTest,
+            detail: `whale=${ebTest} control=${ebCtrl}`,
           };
         },
         ({finalHP}) => {

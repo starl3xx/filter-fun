@@ -136,6 +136,26 @@ export interface HpSnapshotRowInsert {
   weightsVersion: string;
   flagsActive: string; // JSON
   trigger: HpRecomputeTrigger;
+  /// Reorg-safety status (Epic 1.22 / spec §6.12). See ponder.schema for the
+  /// state machine. Per-token triggers (SWAP / HOLDER_SNAPSHOT / BLOCK_TICK)
+  /// land as `tip`; CUT / FINALIZE rows MUST land as `final` (the writer
+  /// queues them until ≥12 blocks past the wall-clock boundary, so by the
+  /// time we insert they are final by construction).
+  finality: HpFinality;
+}
+
+/// Closed set of finality tags. Strings (not enum) so they round-trip cleanly
+/// through Ponder's text columns.
+export type HpFinality = "tip" | "soft" | "final";
+
+/// Resolves the initial `finality` for a fresh hpSnapshot row given its
+/// trigger. Settlement-tagged rows arrive only after the writer has waited
+/// ≥12 blocks past the wall-clock boundary, so they land as `final` by
+/// construction; everything else lands as `tip` (the periodic advancer will
+/// promote them to `soft` and `final`).
+export function initialFinalityForTrigger(t: HpRecomputeTrigger): HpFinality {
+  if (t === "CUT" || t === "FINALIZE") return "final";
+  return "tip";
 }
 
 /// Builds an `HpSnapshotRowInsert` from a scored cohort entry + the
@@ -170,5 +190,6 @@ export function buildHpSnapshotInsert(args: {
     weightsVersion: scored.weightsVersion,
     flagsActive: JSON.stringify(scored.flagsActive),
     trigger,
+    finality: initialFinalityForTrigger(trigger),
   };
 }

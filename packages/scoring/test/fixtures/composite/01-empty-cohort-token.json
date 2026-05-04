@@ -1,0 +1,18 @@
+{
+  "name": "01-empty-cohort-token",
+  "description": "single token with no inputs at all → all components 0 → HP = 0",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "nowSec": 1700000000,
+  "cohort": [
+    {
+      "token": "0x000000000000000000000000000000000000000a",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000a",
+        "launchedAtSec": 1699913600
+      }
+    }
+  ],
+  "expected": [
+    {"token": "0x000000000000000000000000000000000000000a", "hp": 0, "rank": 1}
+  ]
+}

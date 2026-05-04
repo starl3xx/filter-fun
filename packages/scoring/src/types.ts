@@ -43,6 +43,30 @@ export interface TokenStats {
   /// scores 0 (a token with no holder data can't claim distribution credit).
   /// Order is irrelevant; only the magnitude distribution matters.
   holderBalances?: ReadonlyArray<bigint>;
+  /// Per-anchor-holder balance (token wei). Used by retention to apply the
+  /// `RETENTION_DUST_SUPPLY_FRAC` floor. When omitted, the dust filter is
+  /// skipped (legacy behavior — every anchor holder counts regardless of
+  /// balance). Indexer projection (Epic 1.22b / PR 2) populates this.
+  holderBalancesAtRetentionAnchor?: ReadonlyMap<Address, bigint>;
+  /// Per-anchor-holder first-seen timestamp (unix-seconds). Used by retention
+  /// to compute the per-holder ageFactor. When omitted, ageFactor falls back
+  /// to a flat 1.0 (no fairness adjustment) and retention reduces to the
+  /// pre-lock retentionRatio. Indexer projection (Epic 1.22b / PR 2) populates
+  /// this.
+  holderFirstSeenAt?: ReadonlyMap<Address, bigint>;
+  /// Total token supply (wei) — denominator for `RETENTION_DUST_SUPPLY_FRAC`.
+  /// When omitted, dust filter falls back to the largest anchor balance × frac
+  /// (defensive — avoids divide-by-zero, but less precise than true supply).
+  totalSupply?: bigint;
+  /// Per-event LP timeline. Each entry is one V4 ModifyLiquidity event,
+  /// expressed as a signed delta on the WETH leg: `+amount` for an add,
+  /// `-amount` for a remove. Drives the locked sticky-liquidity penalty
+  /// (`exp(-Δt / LP_PENALTY_TAU_SEC)` decay over `LP_PENALTY_WINDOW_SEC`)
+  /// + amount-weighted age. When omitted, sticky-liquidity falls back to the
+  /// pre-lock aggregate path (`liquidityDepthWeth` / `avgLiquidityDepthWeth`
+  /// — `recentLiquidityRemovedWeth`). Indexer projection (Epic 1.22b / PR 2)
+  /// populates this.
+  lpEvents?: ReadonlyArray<{ts: bigint; amountWethSigned: bigint}>;
 
   // ── Momentum ────────────────────────────────────────────
   /// Last tick's pre-momentum composite (0..1). Producer-managed state — the
@@ -109,21 +133,31 @@ export const LOCKED_WEIGHTS: ScoringWeights = {
 } as const;
 
 /// Active version stamped on every HP snapshot the indexer writes. Bump only
-/// in lockstep with `LOCKED_WEIGHTS` *or* the composite scale (§6.5) so a
-/// row tagged with this version can always be recomputed by reading the
-/// corresponding spec entry.
+/// in lockstep with `LOCKED_WEIGHTS` *or* the composite scale (§6.5) *or*
+/// any of the formula constants in `constants.ts` (Epic 1.22 — §6.4.x +
+/// §6.7–§6.13 lock).
 ///
-/// **Epic 1.18 (2026-05-05).** Bumped from `2026-05-03-v4-locked` to
-/// `-int10k` to mark the float [0,1] → integer [0, 10000] composite scale
-/// flip. Underlying weight values are unchanged — same Track E v4 lock —
-/// only the storage scale + tie-break rule changed. Historical rows
-/// (Sepolia testnet) were dropped; mainnet ships clean from this version.
-export const HP_WEIGHTS_VERSION = "2026-05-05-v4-locked-int10k" as const;
+/// **Epic 1.22 (2026-05-04).** Bumped from `2026-05-05-v4-locked-int10k` to
+/// `-formulas` to mark the per-component formula lock: hard 96h lookbacks,
+/// fixed-reference normalization (§6.7), absolute per-wallet velocity cap
+/// (§6.4.1), retention ageFactor + dust threshold (§6.4.4), sticky-liquidity
+/// per-event LP timeline with `exp(-Δt / 6h)` decay (§6.4.3), slot-fairness
+/// `max(1, token_age_hours)` denominator (§6.9), and three-tier tie-break
+/// (§6.10). Underlying weight values are unchanged — same Track E v4 lock —
+/// only the formula bodies + named constants moved.
+///
+/// Pre-1.22 (`-int10k`) used min-max cohort normalization + magic numbers in
+/// formula bodies; the locked version replaces both. The version-string date
+/// (2026-05-04) is the spec-amendment date; activation date may differ and
+/// is recorded separately in `HP_WEIGHTS_ACTIVATED_AT`.
+export const HP_WEIGHTS_VERSION = "2026-05-04-v4-locked-int10k-formulas" as const;
 
 /// Wall-clock timestamp at which `HP_WEIGHTS_VERSION` activated. Surfaced via
 /// the public `/scoring/weights` endpoint so external auditors can verify
-/// "what was live when" without reading commit history.
-export const HP_WEIGHTS_ACTIVATED_AT = "2026-05-05T00:00:00Z" as const;
+/// "what was live when" without reading commit history. Activation is gated
+/// on the §6.5 ≥7-day public-notice procedure documented in
+/// `docs/scoring-weights.md` §5.
+export const HP_WEIGHTS_ACTIVATED_AT = "2026-05-11T00:00:00Z" as const;
 
 /// Composite-HP scale constants (Epic 1.18 / spec §6.5).
 ///
@@ -145,10 +179,12 @@ export const HP_COMPOSITE_SCALE = {
   type: "integer",
 } as const;
 
-/// Spec anchor for the active weights. Surfaced on `/scoring/weights` and
-/// referenced from operator runbooks.
+/// Spec anchor for the active weights + locked formulas. Surfaced on
+/// `/scoring/weights` and referenced from operator runbooks. Updated for
+/// Epic 1.22: anchors §6.4.x (formula lock) + §6.5 (weight lock) + §6.7
+/// (fixed-reference normalization) + §6.13 (test fixture coverage).
 export const HP_WEIGHTS_SPEC_REF =
-  "https://github.com/starl3xx/filter-fun/blob/main/filter_fun_comprehensive_spec.md#65-hp-component-weights-locked-2026-05-03-per-track-e-v4" as const;
+  "https://github.com/starl3xx/filter-fun/blob/main/filter_fun_comprehensive_spec.md#64-hp-component-formulas-locked-2026-05-04" as const;
 
 /// Backwards-compat aliases. Under v4 every phase resolves to `LOCKED_WEIGHTS`.
 /// `weightsForPhase` (below) consolidates the lookup so callers don't depend
@@ -242,25 +278,40 @@ export interface ScoringConfig {
   /// production must consume the locked set).
   weights?: ScoringWeights;
   phase: Phase;
-  /// Half-life (seconds) for buy-volume time decay. 24h default.
+  /// **Deprecated (Epic 1.22 lock).** Half-life (seconds) for buy-volume time
+  /// decay. Engine now reads `VELOCITY_DECAY_HALFLIFE_SEC` from
+  /// `constants.ts`; this field is preserved for ScoringConfig type stability
+  /// across pre-1.22 callers but no longer affects the velocity formula.
   velocityHalfLifeSec: number;
-  /// WETH threshold below which the per-wallet sybil log-cap doesn't kick in.
+  /// **Deprecated (Epic 1.22 lock).** Replaced by absolute per-wallet cap
+  /// `VELOCITY_PER_WALLET_CAP_WETH` (§6.4.1). The pre-lock engine used a
+  /// log-flattening cap with this floor; the locked formula uses an absolute
+  /// cap and ignores the floor.
   walletCapFloorWeth: bigint;
-  /// Window (seconds) within which a same-wallet sell after a buy counts as
-  /// churn (doubly discounted in net velocity).
+  /// **Deprecated (Epic 1.22 lock).** Engine reads `VELOCITY_CHURN_WINDOW_SEC`
+  /// from `constants.ts`. Field preserved for type stability.
   churnWindowSec: number;
-  /// Effective-buyers dust floor: wallets with cumulative buy volume below
-  /// this contribute exactly zero to the effective-buyers count. Filters out
-  /// 1-wei sybils without needing cluster detection.
+  /// **Deprecated (Epic 1.22 lock).** Engine reads `EFFECTIVE_BUYERS_DUST_WETH`
+  /// from `constants.ts` (locked at 0.001 WETH per spec §6.4.2). Field
+  /// preserved for type stability; default value updated to mirror the
+  /// locked constant so legacy probes that read this field still produce
+  /// spec-correct above/below comparisons.
   buyerDustFloorWeth: bigint;
-  /// Dampening function applied to per-wallet buy volume in the
-  /// effective-buyers component. Spec §6.4.2 default: `"sqrt"`.
+  /// **Deprecated (Epic 1.22 lock).** Spec §6.4.2 locks the dampening
+  /// function to `sqrt`. The legacy `log` toggle is no longer honored;
+  /// passing `"log"` has no effect.
   effectiveBuyersFunc: EffectiveBuyersFunc;
   /// Retention split between the long and short anchors. Both must be ≥ 0.
+  /// **Active** under the lock — the per-anchor weighted blend is a behavior
+  /// knob, not a formula constant.
   retentionLongWeight: number;
   retentionShortWeight: number;
-  /// α — multiplier on `recentLiquidityRemoved / avgDepth` for the sticky-liq
-  /// penalty. Spec §6.4.3 default: 1.0.
+  /// **Deprecated (Epic 1.22 lock).** Sticky-liquidity penalty now reads
+  /// `LP_PENALTY_TAU_SEC` / `LP_PENALTY_WINDOW_SEC` from `constants.ts` per
+  /// spec §6.4.3. Pre-lock callers can still pass this value as a fallback
+  /// multiplier on the aggregate `recentLiquidityRemovedWeth` path (when
+  /// `lpEvents` is omitted on `TokenStats`); pre-1.22 default `1.0` is
+  /// preserved.
   recentWithdrawalPenalty: number;
   /// Scale: a base-composite delta of `momentumScale` produces the maximum
   /// momentum component score (1.0). Smaller values make momentum more
@@ -281,7 +332,7 @@ export const DEFAULT_CONFIG: ScoringConfig = {
   velocityHalfLifeSec: 24 * 3600,
   walletCapFloorWeth: 1_000_000_000_000_000n, // 0.001 WETH
   churnWindowSec: 60 * 60,                    // 1 hour
-  buyerDustFloorWeth: 5_000_000_000_000_000n, // 0.005 WETH
+  buyerDustFloorWeth: 1_000_000_000_000_000n, // 0.001 WETH (Epic 1.22 lock; mirrors EFFECTIVE_BUYERS_DUST_WETH)
   effectiveBuyersFunc: "sqrt",
   retentionLongWeight: 0.6,
   retentionShortWeight: 0.4,
@@ -292,7 +343,7 @@ export const DEFAULT_CONFIG: ScoringConfig = {
 } as const;
 
 /// Resolves the active weights for a phase. Under `HP_WEIGHTS_VERSION =
-/// "2026-05-03-v4-locked"` every phase returns the same `LOCKED_WEIGHTS` —
+/// "2026-05-04-v4-locked-int10k-formulas"` every phase returns the same `LOCKED_WEIGHTS` —
 /// per-phase differentiation collapsed in v4. Kept as a thin wrapper so a
 /// future v5 can revive per-phase weights without forcing a public-API
 /// refactor across indexer / oracle / scheduler / web.

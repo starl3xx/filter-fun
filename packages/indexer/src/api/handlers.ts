@@ -256,7 +256,7 @@ export async function getCreatorEarningsHandler(
       redirectedToTreasury: "0",
       lastClaimAt: null,
       disabled: false,
-      weightsVersion: "2026-05-05-v4-locked-int10k",
+      weightsVersion: "2026-05-04-v4-locked-int10k-formulas",
     });
   }
   return ok({

@@ -1,0 +1,18 @@
+{
+  "name": "05-window-cutoff",
+  "description": "lpEvent at age 25h (over LP_PENALTY_WINDOW_SEC=24h) is dropped → no penalty → raw = 30 → norm = 0.446",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "stickyLiquidity",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699827200,
+    "liquidityDepthWeth": 30,
+    "avgLiquidityDepthWeth": 30,
+    "lpEvents": [
+      {"tsSec": 1699910000, "amountWethSigned": -10}
+    ]
+  },
+  "expected": 0.446,
+  "tolerance": 0.005
+}

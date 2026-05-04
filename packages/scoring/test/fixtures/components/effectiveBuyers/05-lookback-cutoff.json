@@ -1,0 +1,17 @@
+{
+  "name": "05-lookback-cutoff",
+  "description": "buy at age 100h is dropped (over EFFECTIVE_BUYERS_LOOKBACK_SEC=96h); only the in-window buy contributes",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "effectiveBuyers",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699553600,
+    "buys": [
+      {"wallet": "0x0000000000000000000000000000000000000001", "tsSec": 1699640000, "amountWeth": 100},
+      {"wallet": "0x0000000000000000000000000000000000000002", "tsSec": 1699999000, "amountWeth": 9}
+    ]
+  },
+  "expected": 0.0157,
+  "tolerance": 0.001
+}

@@ -12,7 +12,7 @@
 --   1. `psql -f migrate-int10k.sql` against the indexer Postgres
 --   2. Restart the indexer (it will repopulate hp_snapshot from genesis
 --      blocks via the BLOCK_TICK / SWAP / HOLDER_SNAPSHOT handlers)
---   3. Verify `select count(*) from hp_snapshot where weights_version != '2026-05-05-v4-locked-int10k'` == 0
+--   3. Verify `select count(*) from hp_snapshot where weights_version != '2026-05-04-v4-locked-int10k-formulas'` == 0
 --
 -- Rollback: there is no clean rollback for the value-range change. To
 -- revert, restore from the pre-migration backup the operator runbook

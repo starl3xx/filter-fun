@@ -1,0 +1,18 @@
+{
+  "name": "02-mixed-sizes",
+  "description": "three wallets at 0.001 / 1 / 100 WETH — sqrt-summed: sqrt(0.001) + sqrt(1) + sqrt(100) ≈ 0.0316 + 1 + 10 = 11.03",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "effectiveBuyers",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "buys": [
+      {"wallet": "0x0000000000000000000000000000000000000001", "tsSec": 1699999000, "amountWeth": 0.001},
+      {"wallet": "0x0000000000000000000000000000000000000002", "tsSec": 1699999000, "amountWeth": 1},
+      {"wallet": "0x0000000000000000000000000000000000000003", "tsSec": 1699999000, "amountWeth": 100}
+    ]
+  },
+  "expected": 0.05776,
+  "tolerance": 0.001
+}

@@ -1,0 +1,20 @@
+{
+  "name": "05-cold-start-half-hour",
+  "description": "30-min-old token with full holder retention — ageFactor halves retention to 0.5 → HP = 0.15 × 0.5 × 10000 = 750",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "nowSec": 1700000000,
+  "cohort": [
+    {
+      "token": "0x000000000000000000000000000000000000000a",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000a",
+        "launchedAtSec": 1699998200,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    }
+  ],
+  "expected": [
+    {"token": "0x000000000000000000000000000000000000000a", "hp": 750, "rank": 1}
+  ]
+}

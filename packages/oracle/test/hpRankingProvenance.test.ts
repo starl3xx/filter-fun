@@ -21,9 +21,10 @@ import {
   type SettlementProvenance,
 } from "../src/index.js";
 
-// Epic 1.18: HP composite scale flipped float[0,1] → integer[0,10000];
-// version constant bumped accordingly. Test inputs use the integer scale.
-const VERSION = "2026-05-05-v4-locked-int10k";
+// Epic 1.22 (2026-05-04): per-component formula lock — version bumped to
+// `*-formulas` to mark the §6.4.x + §6.7 amendment. Test inputs use the
+// integer composite scale (Epic 1.18, unchanged).
+const VERSION = "2026-05-04-v4-locked-int10k-formulas";
 const SEASON_ID = 1n;
 
 const tokenA = "0x000000000000000000000000000000000000000a" as const;

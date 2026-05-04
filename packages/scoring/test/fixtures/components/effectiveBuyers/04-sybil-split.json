@@ -1,0 +1,19 @@
+{
+  "name": "04-sybil-split",
+  "description": "1 wallet × 10 WETH gives sqrt(10)≈3.16; same wallet split into 4 × 2.5 gives 4×sqrt(2.5)≈6.32 — sqrt favors split (the documented sybil residual)",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "effectiveBuyers",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "buys": [
+      {"wallet": "0x0000000000000000000000000000000000000001", "tsSec": 1699999000, "amountWeth": 2.5},
+      {"wallet": "0x0000000000000000000000000000000000000002", "tsSec": 1699999000, "amountWeth": 2.5},
+      {"wallet": "0x0000000000000000000000000000000000000003", "tsSec": 1699999000, "amountWeth": 2.5},
+      {"wallet": "0x0000000000000000000000000000000000000004", "tsSec": 1699999000, "amountWeth": 2.5}
+    ]
+  },
+  "expected": 0.0331,
+  "tolerance": 0.001
+}

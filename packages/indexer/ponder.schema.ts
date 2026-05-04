@@ -47,7 +47,7 @@ export const creatorEarning = onchainTable("creator_earning", (t) => ({
   /// `HP_WEIGHTS_VERSION` snapshot at row creation. Surfaced on the response so consumers
   /// can correlate earnings against the active scoring regime — useful for the cost/ROI
   /// calculator (Epic 2.10).
-  weightsVersion: t.text().notNull().default("2026-05-05-v4-locked-int10k"),
+  weightsVersion: t.text().notNull().default("2026-05-04-v4-locked-int10k-formulas"),
 }));
 
 /// One row per launched token (including $FILTER).
@@ -197,7 +197,7 @@ export const swap = onchainTable("swap", (t) => ({
 /// **Epic 1.18 (2026-05-05) migration.** The HP composite scale flipped from
 /// float [0, 100] to integer [0, 10000]. Existing testnet (Sepolia) rows
 /// were dropped — see `scripts/migrate-int10k.sql` — so every row from the
-/// cutover forward carries `weightsVersion = "2026-05-05-v4-locked-int10k"`.
+/// cutover forward carries `weightsVersion = "2026-05-04-v4-locked-int10k-formulas"`.
 /// The column type was already `integer()`; only the value range and the
 /// version stamp moved. Mainnet ships clean from this version.
 ///
@@ -232,7 +232,7 @@ export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
   /// alarm if writes start landing under an unexpected version. Default
   /// reflects the int10k cutover (Epic 1.18) — historical Sepolia rows were
   /// dropped, so any new write lands under the active version.
-  weightsVersion: t.text().notNull().default("2026-05-05-v4-locked-int10k"),
+  weightsVersion: t.text().notNull().default("2026-05-04-v4-locked-int10k-formulas"),
   /// JSON: `{"momentum":bool,"concentration":bool}`. Stored as text (not jsonb)
   /// so it round-trips cleanly through Ponder's onchainTable shapes; consumers
   /// JSON.parse on read.
@@ -252,6 +252,28 @@ export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
   /// "which scoring snapshot drove this settlement" without joining txs.
   /// Pre-Epic-1.17b rows backfill to `BLOCK_TICK` (the only writer that existed).
   trigger: t.text().notNull().default("BLOCK_TICK"),
+  /// Reorg-safety status (Epic 1.22 / spec §6.12). One of:
+  ///   - `tip`   — written at the head of the chain, may still reorg
+  ///   - `soft`  — ≥6 blocks past write, statistically safe but not guaranteed
+  ///   - `final` — ≥12 blocks past write, considered final under Base finality
+  ///
+  /// **Settlement contract.** Rows tagged `CUT` or `FINALIZE` MUST be `final`
+  /// before the oracle's Merkle publish reads them. The publication path
+  /// asserts `finality = 'final'` and refuses to post otherwise; a reorg
+  /// inside the settlement window forces a re-compute.
+  ///
+  /// Indexer writer logic (Epic 1.22b — PR 2 will add the periodic advancer):
+  ///   - SWAP / HOLDER_SNAPSHOT / BLOCK_TICK rows write as `tip`; a
+  ///     periodic job advances them to `soft` at +6 blocks and `final` at +12.
+  ///   - CUT / FINALIZE rows are queued and only inserted once the source
+  ///     block is ≥12 confirmations past the wall-clock boundary (a row
+  ///     written for a CUT trigger MUST therefore land as `final` by
+  ///     construction).
+  ///
+  /// Pre-Epic-1.22 rows have no finality concept; default = `tip` so the
+  /// schema migration is non-destructive but the legacy rows aren't usable
+  /// for settlement attestation.
+  finality: t.text().notNull().default("tip"),
 }));
 
 /// Running per-(token, holder) balance. Updated on every FilterToken Transfer.

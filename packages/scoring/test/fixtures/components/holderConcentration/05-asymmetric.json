@@ -1,0 +1,13 @@
+{
+  "name": "05-asymmetric",
+  "description": "asymmetric distribution [50, 25, 15, 10] → shares 0.5/0.25/0.15/0.10 → HHI = 10000 × (0.25 + 0.0625 + 0.0225 + 0.01) = 3450 → score = 1 - log10(3450)/log10(10000) ≈ 0.114",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "holderConcentration",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "holderBalances": ["50", "25", "15", "10"]
+  },
+  "expected": 0.114,
+  "tolerance": 0.005
+}

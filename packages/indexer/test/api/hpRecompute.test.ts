@@ -15,6 +15,7 @@ import {
 import {
   buildHpSnapshotInsert,
   buildHpUpdatedEvent,
+  initialFinalityForTrigger,
   isCohortWideTrigger,
   type HpRecomputeTrigger,
   type HpUpdatedData,
@@ -166,5 +167,53 @@ describe("isCohortWideTrigger", () => {
   it("SWAP / HOLDER_SNAPSHOT are per-token", () => {
     expect(isCohortWideTrigger("SWAP")).toBe(false);
     expect(isCohortWideTrigger("HOLDER_SNAPSHOT")).toBe(false);
+  });
+});
+
+describe("inv_hp_settlement_finality — initialFinalityForTrigger semantics (Epic 1.22 / spec §6.12)", () => {
+  // The settlement contract: every CUT/FINALIZE-tagged hpSnapshot row MUST
+  // have `finality = "final"` before the oracle Merkle publish reads it.
+  // The writer enforces this by waiting ≥12 blocks past the wall-clock
+  // boundary BEFORE inserting the row, so by construction CUT/FINALIZE
+  // rows land as `final`. This test pins the boundary helper that resolves
+  // the initial value.
+  //
+  // The full reorg/finality state machine (tip → soft → final advancement
+  // for non-settlement rows) is the indexer projection's responsibility
+  // — Epic 1.22b / PR 2 will land that periodic advancer.
+
+  it("CUT-tagged rows initialize as final", () => {
+    expect(initialFinalityForTrigger("CUT")).toBe("final");
+  });
+
+  it("FINALIZE-tagged rows initialize as final", () => {
+    expect(initialFinalityForTrigger("FINALIZE")).toBe("final");
+  });
+
+  it("SWAP / HOLDER_SNAPSHOT / BLOCK_TICK / PHASE_BOUNDARY initialize as tip", () => {
+    expect(initialFinalityForTrigger("SWAP")).toBe("tip");
+    expect(initialFinalityForTrigger("HOLDER_SNAPSHOT")).toBe("tip");
+    expect(initialFinalityForTrigger("BLOCK_TICK")).toBe("tip");
+    expect(initialFinalityForTrigger("PHASE_BOUNDARY")).toBe("tip");
+  });
+
+  it("buildHpSnapshotInsert stamps the correct finality based on trigger", () => {
+    const cutRow = buildHpSnapshotInsert({
+      scored: fakeScoredToken(),
+      trigger: "CUT",
+      apiPhase: "finals",
+      blockNumber: 1n,
+      blockTimestamp: 1_700_000_000n,
+    });
+    expect(cutRow.finality).toBe("final");
+
+    const swapRow = buildHpSnapshotInsert({
+      scored: fakeScoredToken(),
+      trigger: "SWAP",
+      apiPhase: "competition",
+      blockNumber: 1n,
+      blockTimestamp: 1_700_000_000n,
+    });
+    expect(swapRow.finality).toBe("tip");
   });
 });
