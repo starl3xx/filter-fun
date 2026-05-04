@@ -197,13 +197,21 @@ function compareRank(a: TokenResponse, b: TokenResponse): number {
 
 /// Convenience hook: wraps `sortTokensForTile` in a `useMemo` so consumers
 /// don't re-sort on every render when only unrelated state changes.
+///
+/// **`enabled` short-circuit** — bugbot finding (PR #91, commit 10c2dd2):
+/// when the home page is in list mode (or mobile force-list, or filter-
+/// moment firing/recap), the tile grid isn't rendered and the sort is
+/// pure waste. Pass `enabled: false` from the page to skip the sort
+/// (returns the input array unchanged). Rules of Hooks prevent us from
+/// CALLING the hook conditionally, so the gate lives inside the memo.
 export function useSortedTileTokens(
   tokens: ReadonlyArray<TokenResponse>,
   mode: ArenaSortMode,
   hpUpdateMeta?: ReadonlyMap<string, {computedAt: number; prevHp: number}>,
+  enabled: boolean = true,
 ): TokenResponse[] {
   return useMemo(
-    () => sortTokensForTile(tokens, mode, hpUpdateMeta),
-    [tokens, mode, hpUpdateMeta],
+    () => (enabled ? sortTokensForTile(tokens, mode, hpUpdateMeta) : (tokens as TokenResponse[])),
+    [tokens, mode, hpUpdateMeta, enabled],
   );
 }

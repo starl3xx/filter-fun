@@ -22,10 +22,18 @@ const repoRoot = path.resolve(__dirname, "../..");
 const pageSrc = readFileSync(path.join(repoRoot, "src/app/page.tsx"), "utf-8");
 
 describe("Epic 1.19 — sort dropdown gates on firingMode", () => {
-  it("dropdown renders only when effectiveViewMode==='tile' AND !firingMode", () => {
+  it("`tileGridActive` is defined as `effectiveViewMode === 'tile' && !firingMode`", () => {
+    // The dropdown's render gate (and the sort-hook enabled flag, per
+    // bugbot fix #5) both share this single source of truth. Pin the
+    // definition so a refactor that drops the `!firingMode` clause
+    // surfaces here.
     expect(pageSrc).toMatch(
-      /effectiveViewMode\s*===\s*"tile"\s*&&\s*!firingMode\s*&&\s*\(\s*<ArenaSortDropdown/,
+      /tileGridActive\s*=\s*effectiveViewMode\s*===\s*"tile"\s*&&\s*!firingMode/,
     );
+  });
+
+  it("dropdown renders only when `tileGridActive`", () => {
+    expect(pageSrc).toMatch(/\{\s*tileGridActive\s*&&\s*\(\s*<ArenaSortDropdown/);
   });
 
   it("the leaderboard branch shape that prompted the fix is preserved (`firingMode → row layout`)", () => {

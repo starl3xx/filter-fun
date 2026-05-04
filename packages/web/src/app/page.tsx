@@ -92,12 +92,16 @@ export default function HomePage() {
   // mobile via CSS, but a user who saved "tile" then resized down would
   // still trigger the tile path — `isNarrow` below force-falls back to
   // list at <700px so the small-screen layout is always coherent.
+  //
+  // `tileSortMeta` + `tileSorted` are gated on `tileGridActive` (computed
+  // alongside `firingMode` further down) so list/mobile/firing-mode users
+  // don't pay the per-cohort iteration + ref-tracking cost. Bugbot Low
+  // (PR #91, commit 10c2dd2). Hooks themselves still call every render
+  // (Rules of Hooks); the gate short-circuits the body.
   const [viewMode, setViewMode] = useArenaViewMode();
   const [sortMode, setSortMode] = useArenaSortMode();
   const isNarrow = useIsNarrow();
   const effectiveViewMode = isNarrow ? "list" : viewMode;
-  const tileSortMeta = useTileSortMeta(cohort, hpByAddress);
-  const tileSorted = useSortedTileTokens(cohort, sortMode, tileSortMeta);
 
   const [selected, setSelected] = useState<`0x${string}` | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -261,6 +265,13 @@ export default function HomePage() {
   const urgentCutline = filterMoment.stage === "countdown";
   const firingMode = filterMoment.stage === "firing" || filterMoment.stage === "recap";
 
+  // Tile grid active iff the page will actually render it — same condition
+  // the JSX below uses. Drives both the sort-hook gate (Bugbot Low) and
+  // the dropdown gate.
+  const tileGridActive = effectiveViewMode === "tile" && !firingMode;
+  const tileSortMeta = useTileSortMeta(cohort, hpByAddress, tileGridActive);
+  const tileSorted = useSortedTileTokens(cohort, sortMode, tileSortMeta, tileGridActive);
+
   return (
     <div style={{position: "relative", minHeight: "100vh", overflow: "hidden"}}>
       <Stars />
@@ -297,7 +308,7 @@ export default function HomePage() {
                 preference; without the firingMode exclusion here the
                 user briefly saw a stranded sort dropdown above a list
                 view it can't sort. */}
-            {effectiveViewMode === "tile" && !firingMode && (
+            {tileGridActive && (
               <ArenaSortDropdown value={sortMode} onChange={setSortMode} />
             )}
             <ViewToggle value={viewMode} onChange={setViewMode} />
@@ -413,12 +424,22 @@ function useIsNarrow(): boolean {
 /// address in a ref across renders so the next render's delta-comparator
 /// can compute |hp - prev|. Updates the ref AFTER deriving the map, so a
 /// fresh poll's HP becomes the next render's "previous".
+///
+/// **`enabled` short-circuit** — bugbot finding (PR #91, commit 10c2dd2):
+/// when the tile grid isn't rendered (list mode, mobile force-list, or
+/// firing/recap stage), we skip both the per-cohort iteration AND the
+/// post-commit ref-write effect. Rules of Hooks force us to KEEP calling
+/// the hook every render, but the body short-circuits with an empty map
+/// + skipped effect when the consumer isn't going to read the result.
+const EMPTY_TILE_SORT_META: ReadonlyMap<string, {computedAt: number; prevHp: number}> = new Map();
 function useTileSortMeta(
   cohort: ReadonlyArray<TokenResponse>,
   hpByAddress: ReadonlyMap<string, HpUpdate>,
+  enabled: boolean = true,
 ): ReadonlyMap<string, {computedAt: number; prevHp: number}> {
   const prevRef = useRef<Map<string, number>>(new Map());
   const meta = useMemo(() => {
+    if (!enabled) return EMPTY_TILE_SORT_META;
     const m = new Map<string, {computedAt: number; prevHp: number}>();
     for (const t of cohort) {
       const key = t.token.toLowerCase();
@@ -433,12 +454,15 @@ function useTileSortMeta(
     // We DON'T include prevRef.current in the deps — refs aren't reactive
     // by design, and including them would either re-fire every render or
     // produce stale closures.
-  }, [cohort, hpByAddress]);
+  }, [cohort, hpByAddress, enabled]);
 
   // Commit current HP into the ref so next render's `prevHp` reflects it.
+  // Skip when disabled — there's no consumer reading the meta, so spending
+  // O(N) per cohort change to track a value nobody reads is wasted work.
   useEffect(() => {
+    if (!enabled) return;
     for (const t of cohort) prevRef.current.set(t.token.toLowerCase(), t.hp);
-  }, [cohort]);
+  }, [cohort, enabled]);
 
   return meta;
 }

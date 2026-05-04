@@ -139,6 +139,53 @@ describe("Epic 1.19 — stickyLiquidity soft-rug pulse on >10pp drop", () => {
     expect(pulsedBar).not.toBeNull();
   });
 
+  // Bugbot Medium (PR #91, commit 10c2dd2): the pre-fix shape keyed a
+  // bare <span> on the seq; bugbot worried that React might short-circuit
+  // the remount and the CSS keyframe wouldn't replay on successive drops.
+  // The fix wraps the bar in a small `RugBarSlot` component so component-
+  // identity (not span-identity) drives reconciliation. This test pins
+  // the contract by asserting the DOM node *reference* changes when the
+  // seq advances — not just the className. A regression that drops the
+  // wrapper or breaks the key plumbing would yield an identical node
+  // reference and surface here.
+  it("rug-pulse remount: DOM node reference changes across a fresh > 10pp drop", () => {
+    const live1 = liveHpFor(0.9, 1000);
+    const hpByAddress1 = new Map([[TOKEN.token.toLowerCase(), live1]]);
+    const fresh = new Map([[TOKEN.token.toLowerCase(), 1000]]);
+
+    const {container, rerender} = render(
+      <ArenaTileGrid
+        tokens={[TOKEN]}
+        hpByAddress={hpByAddress1}
+        freshHpUpdateSeqByAddress={fresh}
+        selectedAddress={null}
+        onSelect={() => {}}
+        chain="base"
+      />,
+    );
+    const beforeNode = container.querySelector('[data-component-bar="stickyLiquidity"]');
+    expect(beforeNode).not.toBeNull();
+
+    const live2 = liveHpFor(0.7, 1500);
+    const hpByAddress2 = new Map([[TOKEN.token.toLowerCase(), live2]]);
+    const fresh2 = new Map([[TOKEN.token.toLowerCase(), 1500]]);
+    rerender(
+      <ArenaTileGrid
+        tokens={[TOKEN]}
+        hpByAddress={hpByAddress2}
+        freshHpUpdateSeqByAddress={fresh2}
+        selectedAddress={null}
+        onSelect={() => {}}
+        chain="base"
+      />,
+    );
+    const afterNode = container.querySelector('[data-component-bar="stickyLiquidity"]');
+    expect(afterNode).not.toBeNull();
+    // Identity check — different DOM node = the remount actually happened.
+    expect(afterNode).not.toBe(beforeNode);
+    expect(afterNode!.classList.contains("ff-arena-tile-rug-pulse")).toBe(true);
+  });
+
   it("does NOT fire the pulse on a sub-threshold drop (5pp)", () => {
     const live1 = liveHpFor(0.9, 1000);
     const hpByAddress1 = new Map([[TOKEN.token.toLowerCase(), live1]]);

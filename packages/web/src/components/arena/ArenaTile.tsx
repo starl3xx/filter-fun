@@ -292,18 +292,31 @@ function HpBlock({
           HP {hp.toLocaleString("en-US")}
         </span>
         {hpUpdateSeq != null && hpDelta != null && hpDelta !== 0 && (
-          <span
-            // Mounting-key on the seq replays the float animation on each
-            // successive HP_UPDATED — see FloatingHpDelta module docstring.
-            key={`delta-${hpUpdateSeq}`}
-            style={{position: "absolute", right: 0, top: 0}}
-          >
-            <FloatingHpDelta delta={hpDelta} />
-          </span>
+          // Component-identity remount per bugbot Medium (PR #91, commit
+          // 10c2dd2) — keying the wrapper component (not a bare span)
+          // makes the unmount/mount on each successive HP_UPDATED frame
+          // explicit at the React reconciler boundary. See `FloatingHpDelta`
+          // module docstring for the animation lifecycle.
+          <HpDeltaSlot key={`delta-${hpUpdateSeq}`} delta={hpDelta} />
         )}
       </div>
       <FullWidthHpBar hp={hp} status={status} />
     </div>
+  );
+}
+
+/// Component-identity wrapper for the floating delta. Same pattern as
+/// `RugBarSlot` — the parent keys this slot on the HP_UPDATED seq so a
+/// fresh frame re-mounts the underlying `FloatingHpDelta` and its
+/// CSS animation runs from t=0.
+function HpDeltaSlot({delta}: {delta: number}) {
+  return (
+    <span
+      data-hp-delta-slot="true"
+      style={{position: "absolute", right: 0, top: 0}}
+    >
+      <FloatingHpDelta delta={delta} />
+    </span>
   );
 }
 
@@ -425,38 +438,26 @@ function MiniBarRow({
         >
           {label}
         </span>
-        <span
-          // The pulse seq remounts the bar so the soft-rug animation replays
-          // on each successive >10pp drop. Without the key, a second drop
-          // within the same render commit would not retrigger the single-
-          // shot keyframe.
+        <RugBarSlot
+          // Bugbot Medium (PR #91, commit 10c2dd2): keying a single inline
+          // <span> raised concerns about whether React would reliably
+          // unmount + remount it across versions. Routing the keyed
+          // identity through a dedicated COMPONENT (not a raw element)
+          // makes the reconcile contract explicit — when the key changes,
+          // React unmounts the old `RugBarSlot` instance and mounts a
+          // fresh one, which forces the entire DOM subtree to remount and
+          // the CSS keyframe to replay from start. The component is
+          // still the only piece of UI that owns the rug-pulse class +
+          // the bar geometry, so this isn't a new abstraction layer —
+          // just an explicit identity boundary for the key.
           key={emphasized && softRugPulseSeq != null ? `rug-${softRugPulseSeq}` : "rug-static"}
-          data-component-bar={tileKey}
-          data-component-emphasized={emphasized || undefined}
-          className={emphasized && softRugPulseSeq != null ? "ff-arena-tile-rug-pulse" : undefined}
-          style={{
-            display: "block",
-            position: "relative",
-            height: barHeight,
-            borderRadius: 99,
-            background: "rgba(255,255,255,0.06)",
-            overflow: "hidden",
-          }}
-        >
-          <span
-            style={{
-              display: "block",
-              position: "absolute",
-              top: 0,
-              left: 0,
-              bottom: 0,
-              width: `${pct}%`,
-              background: `linear-gradient(90deg, ${color}, ${color}aa)`,
-              boxShadow: emphasized ? `0 0 6px ${color}55` : "none",
-              transition: "width 320ms ease",
-            }}
-          />
-        </span>
+          tileKey={tileKey}
+          emphasized={emphasized}
+          pulsing={emphasized && softRugPulseSeq != null}
+          height={barHeight}
+          color={color}
+          fillPct={pct}
+        />
       </div>
       <span
         style={{
@@ -471,6 +472,60 @@ function MiniBarRow({
         {pct}%
       </span>
     </div>
+  );
+}
+
+/// Component-identity wrapper for the mini-bar. The parent `MiniBarRow`
+/// keys this component on the rug-pulse seq so a fresh > 10pp drop
+/// re-mounts the entire subtree — the soft-rug CSS keyframe runs once
+/// per mount, and component-identity is the cleanest reconcile signal
+/// React offers (unlike keying a bare span, which bugbot called out
+/// as fragile in PR #91, commit 10c2dd2). The bar's geometry +
+/// fill-percentage transition still happen here; only the alarm
+/// animation depends on the remount.
+function RugBarSlot({
+  tileKey,
+  emphasized,
+  pulsing,
+  height,
+  color,
+  fillPct,
+}: {
+  tileKey: HpTileKey;
+  emphasized: boolean;
+  pulsing: boolean;
+  height: number;
+  color: string;
+  fillPct: number;
+}) {
+  return (
+    <span
+      data-component-bar={tileKey}
+      data-component-emphasized={emphasized || undefined}
+      className={pulsing ? "ff-arena-tile-rug-pulse" : undefined}
+      style={{
+        display: "block",
+        position: "relative",
+        height,
+        borderRadius: 99,
+        background: "rgba(255,255,255,0.06)",
+        overflow: "hidden",
+      }}
+    >
+      <span
+        style={{
+          display: "block",
+          position: "absolute",
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: `${fillPct}%`,
+          background: `linear-gradient(90deg, ${color}, ${color}aa)`,
+          boxShadow: emphasized ? `0 0 6px ${color}55` : "none",
+          transition: "width 320ms ease",
+        }}
+      />
+    </span>
   );
 }
 
