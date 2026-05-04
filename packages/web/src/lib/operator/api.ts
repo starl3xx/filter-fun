@@ -58,6 +58,14 @@ export interface FinancialOverview {
     toMechanicsWei: string;
     toCreatorWei: string;
   };
+  /// Window the `flowsTotal` aggregate covers, in seconds (server bounds the
+  /// fee scan to a trailing 30-day window — bugbot PR #95 round 3, Low).
+  /// The dashboard renders this so "0.014 WETH to vault" reads as
+  /// "0.014 WETH over the last 30 days" rather than being misread as
+  /// all-time. Bugbot PR #95 round 13 (Low): pre-fix the field was returned
+  /// by the server but missing from this client type, hiding the window
+  /// scale from the dashboard card.
+  flowsWindowSec: number;
   filterFundBySeason: Array<{
     seasonId: string;
     totalPotWei: string;

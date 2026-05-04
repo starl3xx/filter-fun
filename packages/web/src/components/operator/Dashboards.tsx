@@ -104,12 +104,32 @@ export function InfraHealthCard({
 
 /// Spec §47.3.3 — financial overview. Aggregated fee flows + per-season Filter Fund.
 export function FinancialOverviewCard({data}: {data: FinancialOverview | null}) {
+  // Bugbot PR #95 round 13 (Low): surface the flowsWindowSec scale so
+  // "0.014 WETH to vault" reads as "over the last 30 days" rather than
+  // being misread as all-time totals.
+  const windowLabel = data
+    ? data.flowsWindowSec >= 86400
+      ? `last ${Math.round(data.flowsWindowSec / 86400)}d`
+      : `last ${Math.round(data.flowsWindowSec / 3600)}h`
+    : null;
   return (
-    <OperatorCard label="Financial overview" sublabel="snapshot">
+    <OperatorCard label="Financial overview" sublabel={windowLabel ?? "snapshot"}>
       {!data ? (
         <Pending />
       ) : (
         <>
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11,
+              color: C.faint,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              marginBottom: 8,
+            }}
+          >
+            Fee flows — {windowLabel}
+          </div>
           <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12}}>
             <KV k="To vault" v={`${formatEtherTrim(data.flowsTotal.toVaultWei)} WETH`} />
             <KV k="To treasury" v={`${formatEtherTrim(data.flowsTotal.toTreasuryWei)} WETH`} />
