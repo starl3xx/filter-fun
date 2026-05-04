@@ -106,5 +106,13 @@ ponder.on("CreatorFeeDistributor:CreatorFeeDisabled", async ({event, context}) =
     });
     return;
   }
-  await context.db.update(creatorEarning, {token: tokenAddr}).set({disabled: true});
+  // Mirror the on-chain sweep (`info.claimed = info.accrued`) so the API's
+  // `claimable = lifetimeAccrued - claimed` matches the contract's `pendingClaim`
+  // (zero) for disabled tokens. The accompanying `CreatorFeeRedirected` event in
+  // the same tx still bumps `redirectedToTreasury` for accounting; we only fast-
+  // forward `claimed` here.
+  await context.db.update(creatorEarning, {token: tokenAddr}).set({
+    disabled: true,
+    claimed: existing.lifetimeAccrued,
+  });
 });

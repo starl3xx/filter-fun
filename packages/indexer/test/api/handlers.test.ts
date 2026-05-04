@@ -638,4 +638,40 @@ describe("/tokens/:address/creator-earnings (Epic 1.16, spec §10.3 + §10.6)", 
       claimable: "0",
     });
   });
+
+  /// Regression: bugbot caught that the on-chain `disableCreatorFee` sweep
+  /// (`info.claimed = info.accrued`) wasn't mirrored in the indexer, so the API
+  /// would have returned a stale positive `claimable` for a disabled token whose
+  /// pending was already swept to treasury. Post-fix, the handler bumps
+  /// `claimed` to match `lifetimeAccrued` on `CreatorFeeDisabled`, and the API
+  /// reports `claimable: "0"` even when there was prior accrual.
+  it("post-sweep: disabled token with prior accrual reports claimable = 0", async () => {
+    const queries: ApiQueries = {
+      ...fixtureQueries({season: null}),
+      tokenByAddress: async () => tokenDetailFixture(),
+      creatorEarningsForToken: async () => ({
+        token: tokenAddr,
+        creator: creatorAddr,
+        // Both bumped to 1.4 ETH — the indexer fast-forwards `claimed` to match
+        // `lifetimeAccrued` on disable so the contract's `pendingClaim() == 0` is
+        // mirrored in the API.
+        lifetimeAccrued: 1_400_000_000_000_000_000n,
+        claimed: 1_400_000_000_000_000_000n,
+        // The 1.4 ETH that was swept becomes a treasury redirect.
+        redirectedToTreasury: 1_400_000_000_000_000_000n,
+        lastClaimAt: null,
+        disabled: true,
+        weightsVersion: "2026-05-05-v4-locked-int10k",
+      }),
+    };
+    const r = await getCreatorEarningsHandler(queries, tokenAddr);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      disabled: true,
+      lifetimeAccrued: "1.4",
+      claimed: "1.4",
+      claimable: "0",
+      redirectedToTreasury: "1.4",
+    });
+  });
 });
