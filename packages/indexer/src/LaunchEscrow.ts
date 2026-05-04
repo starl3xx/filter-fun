@@ -30,11 +30,18 @@ import {
 } from "../ponder.schema";
 
 ponder.on("LaunchEscrow:SlotReserved", async ({event, context}) => {
-  const id = `${event.args.seasonId.toString()}:${event.args.creator.toLowerCase()}`;
+  // Audit: bugbot H PR #92. Lowercase the creator at write time so the column
+  // value matches the lowercased query path used by `/wallet/:address/...`
+  // (which always normalises the URL param via `.toLowerCase()`). Storing the
+  // checksummed form silently broke the pending-refund query: an `eq` on a
+  // mixed-case Postgres TEXT column never matched. Apply uniformly across
+  // every creator-bearing write so a future API call doesn't hit the same trap.
+  const creator = event.args.creator.toLowerCase() as `0x${string}`;
+  const id = `${event.args.seasonId.toString()}:${creator}`;
   await context.db.insert(reservation).values({
     id,
     seasonId: event.args.seasonId,
-    creator: event.args.creator,
+    creator,
     slotIndex: event.args.slotIndex,
     tickerHash: event.args.tickerHash,
     metadataHash: event.args.metadataHash,
@@ -47,7 +54,7 @@ ponder.on("LaunchEscrow:SlotReserved", async ({event, context}) => {
     id: `${event.args.seasonId.toString()}:${event.args.tickerHash}`,
     seasonId: event.args.seasonId,
     tickerHash: event.args.tickerHash,
-    creator: event.args.creator,
+    creator,
     reservedAt: event.block.timestamp,
   });
   // Increment summary counters. Bootstrapped by FilterLauncher:SeasonStarted; the
@@ -77,7 +84,7 @@ ponder.on("LaunchEscrow:SlotReserved", async ({event, context}) => {
   broadcastReservationEvent({
     type: "SLOT_RESERVED",
     seasonId: event.args.seasonId,
-    creator: event.args.creator,
+    creator,
     amountWei: event.args.escrowAmount,
     slotIndex: event.args.slotIndex,
     tickerHash: event.args.tickerHash,
@@ -94,7 +101,7 @@ ponder.on("LaunchEscrow:ReservationReleased", async ({event, context}) => {
   broadcastReservationEvent({
     type: "SLOT_RELEASED",
     seasonId: event.args.seasonId,
-    creator: event.args.creator,
+    creator: event.args.creator.toLowerCase() as `0x${string}`,
     amountWei: event.args.amount,
   });
 });
@@ -102,7 +109,8 @@ ponder.on("LaunchEscrow:ReservationReleased", async ({event, context}) => {
 /// Refund push succeeded. The eth is back in the creator's wallet; status flips
 /// to REFUNDED. Counters: increment `totalRefunded`.
 ponder.on("LaunchEscrow:ReservationRefunded", async ({event, context}) => {
-  const id = `${event.args.seasonId.toString()}:${event.args.creator.toLowerCase()}`;
+  const creator = event.args.creator.toLowerCase() as `0x${string}`;
+  const id = `${event.args.seasonId.toString()}:${creator}`;
   const existing = await context.db.find(reservation, {id});
   if (existing) {
     await context.db
@@ -118,7 +126,7 @@ ponder.on("LaunchEscrow:ReservationRefunded", async ({event, context}) => {
   broadcastReservationEvent({
     type: "SLOT_REFUNDED",
     seasonId: event.args.seasonId,
-    creator: event.args.creator,
+    creator,
     amountWei: event.args.amount,
   });
 });
@@ -127,7 +135,8 @@ ponder.on("LaunchEscrow:ReservationRefunded", async ({event, context}) => {
 /// — the creator must call `claimPendingRefund` to drain the slot. Status flips to
 /// REFUND_PENDING; a `pendingRefund` row is created.
 ponder.on("LaunchEscrow:RefundFailed", async ({event, context}) => {
-  const id = `${event.args.seasonId.toString()}:${event.args.creator.toLowerCase()}`;
+  const creator = event.args.creator.toLowerCase() as `0x${string}`;
+  const id = `${event.args.seasonId.toString()}:${creator}`;
   const existing = await context.db.find(reservation, {id});
   if (existing) {
     await context.db
@@ -137,7 +146,7 @@ ponder.on("LaunchEscrow:RefundFailed", async ({event, context}) => {
   await context.db.insert(pendingRefund).values({
     id,
     seasonId: event.args.seasonId,
-    creator: event.args.creator,
+    creator,
     amount: event.args.amount,
     failedAt: event.block.timestamp,
     claimed: false,
@@ -151,7 +160,7 @@ ponder.on("LaunchEscrow:RefundFailed", async ({event, context}) => {
   broadcastReservationEvent({
     type: "SLOT_REFUND_PENDING",
     seasonId: event.args.seasonId,
-    creator: event.args.creator,
+    creator,
     amountWei: event.args.amount,
   });
 });
@@ -160,7 +169,8 @@ ponder.on("LaunchEscrow:RefundFailed", async ({event, context}) => {
 /// REFUND_CLAIMED on the reservation; the `pendingRefund` row is marked claimed
 /// (kept for audit history).
 ponder.on("LaunchEscrow:PendingRefundClaimed", async ({event, context}) => {
-  const id = `${event.args.seasonId.toString()}:${event.args.creator.toLowerCase()}`;
+  const creator = event.args.creator.toLowerCase() as `0x${string}`;
+  const id = `${event.args.seasonId.toString()}:${creator}`;
   const existing = await context.db.find(reservation, {id});
   if (existing) {
     await context.db
@@ -191,7 +201,7 @@ ponder.on("LaunchEscrow:PendingRefundClaimed", async ({event, context}) => {
   broadcastReservationEvent({
     type: "SLOT_REFUND_CLAIMED",
     seasonId: event.args.seasonId,
-    creator: event.args.creator,
+    creator,
     amountWei: event.args.amount,
   });
 });

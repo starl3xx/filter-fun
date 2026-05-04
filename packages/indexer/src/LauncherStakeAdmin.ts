@@ -18,7 +18,8 @@ import {launchEscrowSummary, reservation, token} from "../ponder.schema";
 ponder.on("LauncherStakeAdmin:StakeRefunded", async ({event, context}) => {
   const tokenRow = await context.db.find(token, {id: event.args.token});
   if (!tokenRow) return;
-  const id = `${event.args.seasonId.toString()}:${tokenRow.creator.toLowerCase()}`;
+  const creator = tokenRow.creator.toLowerCase() as `0x${string}`;
+  const id = `${event.args.seasonId.toString()}:${creator}`;
   const existing = await context.db.find(reservation, {id});
   if (!existing) return;
   await context.db
@@ -36,7 +37,7 @@ ponder.on("LauncherStakeAdmin:StakeRefunded", async ({event, context}) => {
   broadcastReservationEvent({
     type: "SLOT_REFUNDED",
     seasonId: event.args.seasonId,
-    creator: tokenRow.creator,
+    creator,
     amountWei: event.args.amount,
     token: event.args.token,
   });
@@ -48,7 +49,8 @@ ponder.on("LauncherStakeAdmin:StakeRefunded", async ({event, context}) => {
 ponder.on("LauncherStakeAdmin:StakeForfeited", async ({event, context}) => {
   const tokenRow = await context.db.find(token, {id: event.args.token});
   if (!tokenRow) return;
-  const id = `${event.args.seasonId.toString()}:${tokenRow.creator.toLowerCase()}`;
+  const creator = tokenRow.creator.toLowerCase() as `0x${string}`;
+  const id = `${event.args.seasonId.toString()}:${creator}`;
   const existing = await context.db.find(reservation, {id});
   if (!existing) return;
   await context.db
@@ -63,7 +65,7 @@ ponder.on("LauncherStakeAdmin:StakeForfeited", async ({event, context}) => {
   broadcastReservationEvent({
     type: "SLOT_FORFEITED",
     seasonId: event.args.seasonId,
-    creator: tokenRow.creator,
+    creator,
     amountWei: event.args.amount,
     token: event.args.token,
   });
