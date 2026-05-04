@@ -129,7 +129,7 @@ contract EightStepValidationTest is Test {
         _openSeason();
         bytes32 h = keccak256("FILTER");
         vm.prank(creator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerBlocklisted.selector, h));
+        vm.expectRevert(FilterLauncher.TickerBlocklisted.selector);
         launcher.reserve{value: _slotCost(0)}("FILTER", "ipfs://a");
     }
 
@@ -143,7 +143,7 @@ contract EightStepValidationTest is Test {
         launcher.setWinnerTicker(sid, h, address(0xBEEF));
 
         vm.prank(creator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerWinnerReserved.selector, h));
+        vm.expectRevert(FilterLauncher.TickerWinnerReserved.selector);
         launcher.reserve{value: _slotCost(0)}("CHAMP", "ipfs://a");
     }
 
@@ -158,7 +158,7 @@ contract EightStepValidationTest is Test {
 
         bytes32 h = keccak256("SHARED");
         vm.prank(creator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerTaken.selector, uint256(1), h));
+        vm.expectRevert(FilterLauncher.TickerTaken.selector);
         launcher.reserve{value: _slotCost(1)}("SHARED", "ipfs://b");
     }
 
@@ -181,7 +181,7 @@ contract EightStepValidationTest is Test {
         _openSeason();
         bytes32 h = keccak256("FILTER");
         vm.prank(creator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerBlocklisted.selector, h));
+        vm.expectRevert(FilterLauncher.TickerBlocklisted.selector);
         launcher.reserve{value: 0}("FILTER", "ipfs://a");
     }
 }

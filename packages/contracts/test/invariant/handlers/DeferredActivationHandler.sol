@@ -132,7 +132,7 @@ contract DeferredActivationHandler is Test {
         // call succeeds it crosses the threshold and triggers _activate. We snapshot launcher
         // state right before so a post-state inconsistency is detectable.
         bool isActivationCall =
-            launcher.reservationCount(SEASON_ID) == 3 && !launcher.activated(SEASON_ID);
+            launcher.lens().reservationCount(SEASON_ID) == 3 && !launcher.activated(SEASON_ID);
 
         if (isActivationCall) {
             ghostActivationStarted = true;

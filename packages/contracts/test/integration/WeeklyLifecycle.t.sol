@@ -9,6 +9,8 @@ import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "../../src/TournamentVault.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
 import {MockFilterFactory} from "../mocks/MockFilterFactory.sol";
@@ -51,6 +53,19 @@ contract WeeklyLifecycleTest is Test {
         launcher.setPolManager(IPOLManager(address(polManager)));
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
+        // Tournament contracts are externalised post-§46 (EIP-3860 budget). Wire here so
+        // SeasonVault.processFilterEvent / submitWinner have a real registry to call into.
+        TournamentRegistry tr = new TournamentRegistry(address(launcher));
+        TournamentVault tv = new TournamentVault(
+            address(launcher),
+            address(weth),
+            treasury,
+            mechanics,
+            ITournamentRegistryView(address(tr)),
+            ICreatorRegistryView(address(launcher.creatorRegistry())),
+            launcher.bonusUnlockDelay()
+        );
+        launcher.setTournament(tr, tv);
     }
 
     function test_FullWeek() public {
@@ -77,10 +92,10 @@ contract WeeklyLifecycleTest is Test {
         // Pre-compute slot costs into locals — `vm.prank` is consumed by the next external
         // call, including the `launchCost` staticcall. Resolving them outside the prank
         // sequence keeps each `vm.prank → reserve` pairing intact.
-        uint256 c0 = launcher.launchCost(0);
-        uint256 c1 = launcher.launchCost(1);
-        uint256 c2 = launcher.launchCost(2);
-        uint256 c3 = launcher.launchCost(3);
+        uint256 c0 = launcher.lens().launchCost(0);
+        uint256 c1 = launcher.lens().launchCost(1);
+        uint256 c2 = launcher.lens().launchCost(2);
+        uint256 c3 = launcher.lens().launchCost(3);
 
         vm.prank(creator1);
         launcher.reserve{value: c0}("PEPE", "");

@@ -124,12 +124,7 @@ contract AdminSetterZeroAddressChecksTest is Test {
         launcher.setPolManager(IPOLManager(address(0)));
     }
 
-    // ============================================================ setForfeitRecipient
-    //
-    // Already has the check pre-H-4 — pinned here to catch a regression that drops it.
-
-    function test_AuditH4_SetForfeitRecipientRevertsOnZero() public {
-        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        launcher.setForfeitRecipient(address(0));
-    }
+    // `setForfeitRecipient` was removed when `forfeitRecipient` became immutable (Epic 1.15a
+    // — EIP-170 size budget). The constructor sets it to `treasury_`; rotation is no longer
+    // supported in-contract.
 }

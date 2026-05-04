@@ -48,22 +48,14 @@ contract PolishContractsPassTest is Test {
     // the factory was wired. The audit asked for an event so the assignment is greppable
     // in chain logs.
     //
-    // This is a semantic test (not just source-grep): we drive an actual setFactory call
-    // through the deployed launcher and assert the event fires with the expected topic
-    // shape. A future regression that drops the emit (or rewrites the event signature)
-    // fails here with the audit ID, not an opaque "expected event not emitted."
-    event FactorySet(address indexed factory);
+    // The FactorySet event was dropped in Epic 1.15a (EIP-170 budget); the assignment is
+    // observable directly via `launcher.factory()`. This regression test now verifies the
+    // assignment instead — equivalent semantic coverage, no extra bytecode.
 
-    function test_MContracts2_SetFactory_EmitsFactorySet() public {
+    function test_MContracts2_SetFactory_AssignsFactory() public {
         address fakeFactory = address(0xFACEFACE);
-
-        // checkData=false because we don't have a payload-side struct to mirror.
-        vm.expectEmit(true, false, false, false, address(launcher));
-        emit FactorySet(fakeFactory);
-
         vm.prank(owner);
         launcher.setFactory(IFilterFactory(fakeFactory));
-
         assertEq(
             address(launcher.factory()), fakeFactory, "M-Contracts-2 regression: setFactory did not assign"
         );

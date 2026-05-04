@@ -6,8 +6,17 @@ test = "test"
 script = "script"
 solc_version = "0.8.26"
 optimizer = true
-optimizer_runs = 200
+# Optimizer runs reduced from 200 → 1 to keep `FilterLauncher` under EIP-170 (24,576 B
+# runtime). The launcher's deferred-activation refactor (Epic 1.15a) added ~3 KB of
+# state machine + ticker uniqueness logic; lower `runs` trades modest per-call gas (the
+# launcher is invoked O(once per season for startSeason; ≤12× per season for reserve)
+# for ~10–15% smaller bytecode across the contract suite.
+optimizer_runs = 1
 via_ir = true
+# Strip the Solidity metadata hash CBOR appendix (~53 bytes per contract). Trades source
+# verifiability via metadata-hash matching for size — Basescan source verification still
+# works, it just falls back to bytecode comparison instead of metadata CID lookup.
+bytecode_hash = "none"
 evm_version = "cancun"
 fs_permissions = [
     { access = "read", path = "./" },

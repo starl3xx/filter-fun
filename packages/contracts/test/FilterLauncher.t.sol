@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {LaunchEscrow} from "../src/LaunchEscrow.sol";
+import {LauncherStakeAdmin} from "../src/LauncherStakeAdmin.sol";
 import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 import {IBonusFunding, IPOLManager} from "../src/SeasonVault.sol";
@@ -89,7 +90,7 @@ contract FilterLauncherTest is Test {
         assertEq(launcher.launchEndTime(sid), block.timestamp + 48 hours);
         assertEq(launcher.activated(sid), false, "fresh season not activated");
         assertEq(launcher.aborted(sid), false, "fresh season not aborted");
-        assertEq(launcher.reservationCount(sid), 0, "no reservations yet");
+        assertEq(launcher.lens().reservationCount(sid), 0, "no reservations yet");
     }
 
     function test_FirstReservationEscrowsButDoesNotDeploy() public {
@@ -98,7 +99,7 @@ contract FilterLauncherTest is Test {
         vm.prank(aliceCreator);
         launcher.reserve{value: cost}("PEPE", "ipfs://pepe");
 
-        assertEq(launcher.reservationCount(1), 1);
+        assertEq(launcher.lens().reservationCount(1), 1);
         assertEq(launcher.launchCount(1), 0, "no token deployed pre-activation");
         assertEq(launcher.activated(1), false);
         // Escrow holds the cost.
@@ -133,12 +134,16 @@ contract FilterLauncherTest is Test {
         assertEq(launcher.activated(1), true, "activated");
         assertEq(launcher.activatedAt(1), uint64(block.timestamp), "activatedAt stamped");
         assertEq(launcher.launchCount(1), 4, "all 4 deployed atomically");
-        assertEq(launcher.reservationCount(1), 4);
+        assertEq(launcher.lens().reservationCount(1), 4);
         // Pending queue cleared.
         assertEq(launcher.pendingReservations(1).length, 0);
-        // Escrow balance: post-release the launcher holds the funds (refundableStakeEnabled=true).
+        // Escrow balance: post-release the stake admin holds the funds (refundableStakeEnabled=true).
         assertEq(address(launcher.launchEscrow()).balance, 0, "escrow drained");
-        assertEq(address(launcher).balance, _slotCost(0) + _slotCost(1) + _slotCost(2) + _slotCost(3));
+        assertEq(
+            address(launcher.stakeAdmin()).balance,
+            _slotCost(0) + _slotCost(1) + _slotCost(2) + _slotCost(3),
+            "stake admin holds stakes"
+        );
     }
 
     function test_PostActivationReservationDeploysImmediately() public {
@@ -156,7 +161,7 @@ contract FilterLauncherTest is Test {
         launcher.reserve{value: cost}("FIVE", "ipfs://5");
 
         assertEq(launcher.launchCount(1), 5);
-        assertEq(launcher.reservationCount(1), 5);
+        assertEq(launcher.lens().reservationCount(1), 5);
         // No pending entry should ever land post-activation.
         assertEq(launcher.pendingReservations(1).length, 0);
     }
@@ -167,7 +172,7 @@ contract FilterLauncherTest is Test {
             _reserve(_wallet(i), i);
         }
         assertEq(launcher.launchCount(1), 12);
-        assertEq(launcher.reservationCount(1), 12);
+        assertEq(launcher.lens().reservationCount(1), 12);
         // 13th reservation reverts SlotsExhausted.
         address thirteenth = makeAddr("thirteenth");
         vm.deal(thirteenth, 1 ether);
@@ -214,7 +219,7 @@ contract FilterLauncherTest is Test {
         _openSeason();
         bytes32 filterHash = keccak256("FILTER");
         vm.prank(aliceCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerBlocklisted.selector, filterHash));
+        vm.expectRevert(FilterLauncher.TickerBlocklisted.selector);
         launcher.reserve{value: _slotCost(0)}("FILTER", "ipfs://meta");
     }
 
@@ -224,7 +229,7 @@ contract FilterLauncherTest is Test {
         launcher.reserve{value: _slotCost(0)}("PEPE", "ipfs://meta");
         bytes32 pepeHash = keccak256("PEPE");
         vm.prank(bobCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerTaken.selector, uint256(1), pepeHash));
+        vm.expectRevert(FilterLauncher.TickerTaken.selector);
         launcher.reserve{value: _slotCost(1)}("$pepe", "ipfs://meta");
     }
 
@@ -333,7 +338,7 @@ contract FilterLauncherTest is Test {
         assertTrue(locker != address(0));
         // Protocol launch does NOT count toward reservationCount or launchCount.
         assertEq(launcher.launchCount(1), 0);
-        assertEq(launcher.reservationCount(1), 0);
+        assertEq(launcher.lens().reservationCount(1), 0);
     }
 
     function test_ProtocolLaunchAfterActivationStillWorks() public {
@@ -356,9 +361,9 @@ contract FilterLauncherTest is Test {
     // ============================================================ Pricing
 
     function test_DynamicPricingMonotonic() public view {
-        uint256 prev = launcher.launchCost(0);
+        uint256 prev = launcher.lens().launchCost(0);
         for (uint64 i = 1; i < 12; ++i) {
-            uint256 c = launcher.launchCost(i);
+            uint256 c = launcher.lens().launchCost(i);
             assertGt(c, prev, "cost must strictly increase per slot");
             prev = c;
         }
@@ -366,12 +371,12 @@ contract FilterLauncherTest is Test {
 
     function test_ExpectedSurvivorCount() public view {
         // Spec §46 cuts: bottom 50% rounded DOWN; top ⌈n/2⌉ survive.
-        assertEq(launcher.expectedSurvivorCount(4), 2);
-        assertEq(launcher.expectedSurvivorCount(5), 3);
-        assertEq(launcher.expectedSurvivorCount(7), 4);
-        assertEq(launcher.expectedSurvivorCount(8), 4);
-        assertEq(launcher.expectedSurvivorCount(11), 6);
-        assertEq(launcher.expectedSurvivorCount(12), 6);
+        assertEq(launcher.lens().expectedSurvivorCount(4), 2);
+        assertEq(launcher.lens().expectedSurvivorCount(5), 3);
+        assertEq(launcher.lens().expectedSurvivorCount(7), 4);
+        assertEq(launcher.lens().expectedSurvivorCount(8), 4);
+        assertEq(launcher.lens().expectedSurvivorCount(11), 6);
+        assertEq(launcher.lens().expectedSurvivorCount(12), 6);
     }
 
     // ============================================================ Phase transitions / pause
@@ -396,24 +401,24 @@ contract FilterLauncherTest is Test {
 
     function test_PauseBlocksReserve() public {
         _openSeason();
-        launcher.pause();
+        launcher.setPaused(true);
         vm.prank(aliceCreator);
         vm.expectRevert();
         launcher.reserve{value: _slotCost(0)}("PEPE", "ipfs://meta");
-        launcher.unpause();
+        launcher.setPaused(false);
         vm.prank(aliceCreator);
         launcher.reserve{value: _slotCost(0)}("PEPE", "ipfs://meta");
     }
 
     function test_CanReserveView() public {
-        assertEq(launcher.canReserve(), false, "no season open");
+        assertEq(launcher.lens().canReserve(), false, "no season open");
         _openSeason();
-        assertEq(launcher.canReserve(), true);
-        launcher.pause();
-        assertEq(launcher.canReserve(), false, "paused");
-        launcher.unpause();
+        assertEq(launcher.lens().canReserve(), true);
+        launcher.setPaused(true);
+        assertEq(launcher.lens().canReserve(), false, "paused");
+        launcher.setPaused(false);
         vm.warp(block.timestamp + 48 hours);
-        assertEq(launcher.canReserve(), false, "window expired");
+        assertEq(launcher.lens().canReserve(), false, "window expired");
     }
 
     // ============================================================ Soft-filter (post-activation)
@@ -435,8 +440,11 @@ contract FilterLauncherTest is Test {
         survivors[0] = tokens[0];
         address[] memory forfeited = new address[](0);
 
+        // Cache the stakeAdmin reference so `vm.prank` lands on `applySoftFilter`, not on
+        // the `launcher.stakeAdmin()` view call (vm.prank only persists for one external call).
+        LauncherStakeAdmin admin = launcher.stakeAdmin();
         vm.prank(oracle);
-        launcher.applySoftFilter(1, survivors, forfeited);
+        admin.applySoftFilter(1, survivors, forfeited);
 
         assertEq(creator0.balance, balBefore + _slotCost(0), "stake refunded");
         IFilterLauncher.LaunchInfo memory info = launcher.launchInfoOf(1, tokens[0]);

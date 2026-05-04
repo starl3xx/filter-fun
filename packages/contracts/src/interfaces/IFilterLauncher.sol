@@ -42,7 +42,6 @@ interface IFilterLauncher {
     function tokensInSeason(uint256 seasonId) external view returns (address[] memory);
     function entryOf(uint256 seasonId, address token) external view returns (TokenEntry memory);
     function launchInfoOf(uint256 seasonId, address token) external view returns (LaunchInfo memory);
-    function getLaunchStatus(uint256 seasonId) external view returns (LaunchStatus memory);
 
     /// @notice Spec §46 deferred-activation state. The vault's `submitWinner` reads these
     ///         indirectly via `setWinnerTicker`; the indexer reads them for the `/season`
@@ -50,6 +49,5 @@ interface IFilterLauncher {
     function activated(uint256 seasonId) external view returns (bool);
     function activatedAt(uint256 seasonId) external view returns (uint64);
     function aborted(uint256 seasonId) external view returns (bool);
-    function reservationCount(uint256 seasonId) external view returns (uint256);
     function setWinnerTicker(uint256 seasonId, bytes32 tickerHash, address winnerToken) external;
 }

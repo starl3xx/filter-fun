@@ -261,6 +261,13 @@ contract LaunchEscrow is ReentrancyGuard {
         return _reservers[seasonId].length;
     }
 
+    /// @notice Lightweight existence check used by the launcher's per-wallet cap. Reading just
+    ///         this scalar avoids decoding the full `Reservation` struct from `escrowOf`,
+    ///         which costs ~100 bytes of bytecode in the launcher's hot path.
+    function reservedAtOf(uint256 seasonId, address creator) external view returns (uint64) {
+        return _escrows[seasonId][creator].reservedAt;
+    }
+
     /// @notice Receive funds released by the launcher's deploy-path or any direct deposit.
     ///         The launcher pre-funds via `reserve{value: cost}` and pulls back via
     ///         `releaseToDeploy`; these are the only expected money-flows on this contract.

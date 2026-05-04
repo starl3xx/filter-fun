@@ -13,6 +13,8 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "../../src/TournamentVault.sol";
 import {FilterFactory} from "../../src/FilterFactory.sol";
 import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
@@ -83,6 +85,20 @@ contract V4MultiLoserSettlementTest is Test, Deployers {
         );
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));
+        // Tournament contracts are externalised (EIP-3860 budget); wire post-deploy.
+        {
+            TournamentRegistry tr = new TournamentRegistry(address(launcher));
+            TournamentVault tv = new TournamentVault(
+                address(launcher),
+                address(weth),
+                treasury,
+                mechanics,
+                ITournamentRegistryView(address(tr)),
+                ICreatorRegistryView(address(launcher.creatorRegistry())),
+                launcher.bonusUnlockDelay()
+            );
+            launcher.setTournament(tr, tv);
+        }
 
         vm.prank(oracle);
         launcher.startSeason();

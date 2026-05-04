@@ -297,7 +297,7 @@ contract DeployTest is Test, Deployers {
         // iteration and trip `AlreadyReserved` on the second pass.
         uint256[4] memory costs;
         for (uint64 i = 0; i < 4; ++i) {
-            costs[i] = launcher.launchCost(i);
+            costs[i] = launcher.lens().launchCost(i);
         }
         for (uint160 i = 1; i <= 4; ++i) {
             address creator = address(uint160(0xCAFE0000) + i);
@@ -560,7 +560,7 @@ contract DeployTest is Test, Deployers {
         FilterLauncher launcher = _deployAndStartSeason(true);
 
         vm.prank(deployerAddr);
-        launcher.setBaseLaunchCost(0);
+        launcher.setLaunchConfig(0, true);
 
         for (uint160 i = 1; i <= 4; ++i) {
             address creator = address(uint160(0xC0DE0000) + i);

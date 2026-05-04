@@ -81,7 +81,7 @@ contract DeferredActivationInvariantsTest is StdInvariant, Test {
         assertEq(handler.launcher().pendingReservations(sid).length, 0, "pending non-empty post-activate");
         // launchCount must agree with reservationCount once activation is done — they
         // re-converge at activation moment and march in lockstep thereafter.
-        assertEq(launchCount, handler.launcher().reservationCount(sid), "launchCount != reservationCount");
+        assertEq(launchCount, handler.launcher().lens().reservationCount(sid), "launchCount != reservationCount");
     }
 
     /// @notice Spec §4.6.1 invariant — `seasonTickers[seasonId]` is injective. The ghost

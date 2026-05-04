@@ -15,6 +15,8 @@ import {POLManager, IPOLVaultRecord} from "../src/POLManager.sol";
 import {IBonusFunding, IPOLManager} from "../src/SeasonVault.sol";
 import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {TournamentRegistry} from "../src/TournamentRegistry.sol";
+import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "../src/TournamentVault.sol";
 
 /// @notice Base Sepolia deploy. Deploys the full filter.fun contract suite against the
 ///         canonical Uniswap V4 PoolManager on chain 84532, then writes a manifest at
@@ -125,12 +127,31 @@ contract DeploySepolia is Script {
         console2.log("POLVault:            ", address(polVault));
 
         // 4. FilterLauncher — inline-deploys CreatorRegistry, CreatorFeeDistributor,
-        //    TournamentRegistry, TournamentVault. Their addresses are pulled below for the
-        //    manifest; we don't construct them separately.
+        //    CreatorCommitments, LaunchEscrow, LauncherLens, LauncherStakeAdmin. Their
+        //    addresses are pulled below for the manifest; we don't construct them
+        //    separately. TournamentRegistry + TournamentVault are deployed externally
+        //    (their init code pushes the launcher past EIP-3860 when inlined) and wired
+        //    via `setTournament` below.
         FilterLauncher launcher = new FilterLauncher(
             deployer, oracle, address(treasury), mechanics, IBonusFunding(address(bonus)), weth
         );
         console2.log("FilterLauncher:      ", address(launcher));
+
+        // 4b. Tournament contracts — externalised post-§46 to fit EIP-3860. Deployed with
+        //     the launcher's address as `launcher_`, then wired via `setTournament`.
+        TournamentRegistry tournamentRegistry = new TournamentRegistry(address(launcher));
+        TournamentVault tournamentVault = new TournamentVault(
+            address(launcher),
+            weth,
+            address(treasury),
+            mechanics,
+            ITournamentRegistryView(address(tournamentRegistry)),
+            ICreatorRegistryView(address(launcher.creatorRegistry())),
+            launcher.bonusUnlockDelay()
+        );
+        launcher.setTournament(tournamentRegistry, tournamentVault);
+        console2.log("TournamentRegistry:  ", address(tournamentRegistry));
+        console2.log("TournamentVault:     ", address(tournamentVault));
 
         // 5. POLManager — wants the launcher's address in its constructor, so we deploy it
         //    after the launcher and call `setPolManager` on both sides.
@@ -160,8 +181,9 @@ contract DeploySepolia is Script {
 
         // 7. Sepolia-specific config knobs. Per-wallet cap is no longer configurable —
         //    LaunchEscrow enforces 1 reservation per wallet per season structurally
-        //    (spec §46). Only the refundable-stake toggle remains operator-controlled.
-        launcher.setRefundableStakeEnabled(refundableStake);
+        //    (spec §46). Set the refundable-stake toggle (the base cost stays at the
+        //    launcher's default 0.05 ether).
+        launcher.setLaunchConfig(launcher.baseLaunchCost(), refundableStake);
 
         // 8. Hand POLVault ownership to the configured owner. Ownable2Step — owner must
         //    `acceptOwnership()` separately. Skipped when polVaultOwner == deployer (no-op).

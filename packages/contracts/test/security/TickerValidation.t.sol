@@ -69,7 +69,7 @@ contract TickerValidationTest is Test {
 
         bytes32 hash_ = keccak256("PEPE");
         vm.prank(bobCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerTaken.selector, uint256(1), hash_));
+        vm.expectRevert(FilterLauncher.TickerTaken.selector);
         launcher.reserve{value: _slotCost(1)}("PEPE", "ipfs://b");
     }
 
@@ -79,7 +79,7 @@ contract TickerValidationTest is Test {
         launcher.reserve{value: _slotCost(0)}("Pepe", "ipfs://a");
         bytes32 hash_ = keccak256("PEPE");
         vm.prank(bobCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerTaken.selector, uint256(1), hash_));
+        vm.expectRevert(FilterLauncher.TickerTaken.selector);
         launcher.reserve{value: _slotCost(1)}("PEPE", "ipfs://b");
     }
 
@@ -90,7 +90,7 @@ contract TickerValidationTest is Test {
         // `$pepe` normalises to "PEPE" — bob's "PEPE" must collide.
         bytes32 hash_ = keccak256("PEPE");
         vm.prank(bobCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerTaken.selector, uint256(1), hash_));
+        vm.expectRevert(FilterLauncher.TickerTaken.selector);
         launcher.reserve{value: _slotCost(1)}("PEPE", "ipfs://b");
     }
 
@@ -100,7 +100,7 @@ contract TickerValidationTest is Test {
         launcher.reserve{value: _slotCost(0)}("  pepe  ", "ipfs://a");
         bytes32 hash_ = keccak256("PEPE");
         vm.prank(bobCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerTaken.selector, uint256(1), hash_));
+        vm.expectRevert(FilterLauncher.TickerTaken.selector);
         launcher.reserve{value: _slotCost(1)}("PEPE", "ipfs://b");
     }
 
@@ -146,7 +146,7 @@ contract TickerValidationTest is Test {
         _openSeason();
         bytes32 h = keccak256("FILTER");
         vm.prank(aliceCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerBlocklisted.selector, h));
+        vm.expectRevert(FilterLauncher.TickerBlocklisted.selector);
         launcher.reserve{value: _slotCost(0)}("FILTER", "ipfs://a");
     }
 
@@ -154,7 +154,7 @@ contract TickerValidationTest is Test {
         _openSeason();
         bytes32 h = keccak256("WETH");
         vm.prank(aliceCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerBlocklisted.selector, h));
+        vm.expectRevert(FilterLauncher.TickerBlocklisted.selector);
         launcher.reserve{value: _slotCost(0)}("WETH", "ipfs://a");
     }
 
@@ -166,7 +166,7 @@ contract TickerValidationTest is Test {
             vm.deal(creator, 1 ether);
             bytes32 h = keccak256(bytes(tickers[i]));
             vm.prank(creator);
-            vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerBlocklisted.selector, h));
+            vm.expectRevert(FilterLauncher.TickerBlocklisted.selector);
             launcher.reserve{value: _slotCost(0)}(tickers[i], "ipfs://a");
         }
     }
@@ -180,7 +180,7 @@ contract TickerValidationTest is Test {
         // Subsequent reserve fails.
         _openSeason();
         vm.prank(aliceCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerBlocklisted.selector, newHash));
+        vm.expectRevert(FilterLauncher.TickerBlocklisted.selector);
         launcher.reserve{value: _slotCost(0)}("BAITCOIN", "ipfs://a");
     }
 
@@ -211,7 +211,7 @@ contract TickerValidationTest is Test {
         // verify the same-season reserve already trips the cross-season check on the SAME
         // mapping — same code path, only difference is the seasonTickers per-season key.
         vm.prank(aliceCreator);
-        vm.expectRevert(abi.encodeWithSelector(FilterLauncher.TickerWinnerReserved.selector, winnerHash));
+        vm.expectRevert(FilterLauncher.TickerWinnerReserved.selector);
         launcher.reserve{value: _slotCost(0)}("PEPEWIN", "ipfs://a");
     }
 

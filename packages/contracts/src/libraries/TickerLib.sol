@@ -30,7 +30,7 @@ library TickerLib {
     ///         strip/post-uppercase bytes, so homograph attacks like Cyrillic `Е` (0xD0 0x95
     ///         in UTF-8) are rejected here rather than slipping into uniqueness checks where
     ///         they could collide-but-not-collide with the ASCII `E`.
-    function normalize(string memory ticker) internal pure returns (string memory) {
+    function normalize(string memory ticker) external pure returns (string memory) {
         bytes memory raw = bytes(ticker);
         uint256 n = raw.length;
 
@@ -70,12 +70,6 @@ library TickerLib {
         }
 
         return string(out);
-    }
-
-    /// @notice keccak256 of the normalised ticker. Use this as the canonical key for ticker
-    ///         uniqueness, blocklist lookups, and the cross-season winner reservation.
-    function hashOf(string memory ticker) internal pure returns (bytes32) {
-        return keccak256(bytes(normalize(ticker)));
     }
 
     /// @dev ASCII whitespace per `^[ \t\r\n]$`. Deliberately not Unicode-aware; non-ASCII

@@ -158,7 +158,7 @@ contract DeferredActivationE2ETest is Test {
         uint256 sid = _openSeason();
         _reserveN(5);
         assertEq(launcher.launchCount(sid), 5);
-        assertEq(launcher.reservationCount(sid), 5);
+        assertEq(launcher.lens().reservationCount(sid), 5);
     }
 
     function test_NSeven_PartialMidCohort() public {
@@ -172,7 +172,7 @@ contract DeferredActivationE2ETest is Test {
         _reserveN(8);
         assertEq(launcher.launchCount(sid), 8);
         // Spec §46 cut math: 8 → ⌈8/2⌉ = 4 survivors.
-        assertEq(launcher.expectedSurvivorCount(8), 4);
+        assertEq(launcher.lens().expectedSurvivorCount(8), 4);
     }
 
     function test_NEleven_Almost() public {
@@ -192,7 +192,7 @@ contract DeferredActivationE2ETest is Test {
         uint256 sid = _openSeason();
         _reserveN(12);
         assertEq(launcher.launchCount(sid), 12);
-        assertEq(launcher.reservationCount(sid), 12);
+        assertEq(launcher.lens().reservationCount(sid), 12);
         // 13th would revert SlotsExhausted.
         address overflow = makeAddr("overflow");
         vm.deal(overflow, 1 ether);
