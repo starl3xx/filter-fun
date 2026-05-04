@@ -780,62 +780,6 @@ ponder.get("/wallets/:address/holdings", async (c) => {
   return c.json(r.value.body as HoldingsResponse | {error: string}, r.value.status as 200);
 });
 
-/// Epic 1.23 — per-token HP-component swap-impact drilldown. Powers the
-/// admin console v2 expandable section under each HP-component mini-bar.
-/// See `componentDeltas.ts` for the threshold + windowing rules.
-ponder.get("/tokens/:address/component-deltas", async (c) => {
-  const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
-  if (limited) return limited;
-  const raw = c.req.param("address") ?? "";
-  const normalized = raw.toLowerCase();
-  if (!isAddressLike(normalized)) {
-    return c.json({error: "invalid address"}, 400);
-  }
-  const url = new URL(mw.req.url);
-  const params = {
-    limit: url.searchParams.get("limit") ?? undefined,
-    threshold: url.searchParams.get("threshold") ?? undefined,
-  };
-  // Skip the cache layer entirely — the response is small, the underlying
-  // tables churn on every swap, and the admin console only opens this
-  // surface on demand. Adding a cache here would just add staleness without
-  // a meaningful read-rate benefit.
-  const r = await getComponentDeltasHandler(buildComponentDeltasQueries(c.db), normalized, params, {
-    nowSec: () => Math.floor(Date.now() / 1000),
-  });
-  return c.json(r.body, r.status as 200 | 400);
-});
-
-/// Epic 1.23 — per-wallet holdings + projected rollover entitlement. Powers the
-/// admin console v2 holdings panel + the filter-moment recap card. Open auth
-/// (per-wallet self-service derived from public on-chain state). See
-/// `holdings.ts` for the projection math + null-result semantics.
-ponder.get("/wallets/:address/holdings", async (c) => {
-  const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
-  if (limited) return limited;
-  const raw = c.req.param("address") ?? "";
-  const normalized = raw.toLowerCase();
-  if (!isAddressLike(normalized)) {
-    return c.json({error: "invalid address"}, 400);
-  }
-  const bypass = shouldBypassCache(mw);
-  const r = await cached(
-    holdingsResponseCache,
-    holdingsCacheKey(normalized as `0x${string}`),
-    async () =>
-      getHoldingsHandler(
-        buildHoldingsQueries(c.db),
-        normalized,
-        () => Math.floor(Date.now() / 1000),
-      ),
-    {bypass},
-  );
-  mw.header("X-Cache", r.status);
-  return c.json(r.value.body as HoldingsResponse | {error: string}, r.value.status as 200);
-});
-
 /// Adapts the Ponder `c.db` Drizzle handle into the database-agnostic `ApiQueries`
 /// interface that pure handlers consume.
 function buildQueries(db: ApiDb): ApiQueries {

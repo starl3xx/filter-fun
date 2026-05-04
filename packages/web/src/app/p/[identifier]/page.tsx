@@ -14,7 +14,7 @@
 ///   (b) they've explicitly set a username.
 /// Otherwise we render a 404 page even though the indexer returned 200.
 
-import {useCallback, useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {useParams} from "next/navigation";
 import Link from "next/link";
 import {useAccount} from "wagmi";
@@ -53,25 +53,6 @@ function Profile({identifier}: {identifier: string}) {
   const [showModal, setShowModal] = useState(false);
   const {address: connectedAddress} = useAccount();
 
-  // Initial fetch + manual refresh after username updates.
-  const refresh = useCallback(async () => {
-    setData({state: "loading"});
-    try {
-      const profile = await fetchProfile(identifier);
-      setData({state: "ready", profile});
-    } catch (err) {
-      const status = errorStatus(err);
-      if (status === 404) {
-        setData({state: "not-found"});
-        return;
-      }
-      setData({
-        state: "error",
-        message: err instanceof Error ? err.message : "Failed to load profile",
-      });
-    }
-  }, [identifier]);
-
   useEffect(() => {
     let cancelled = false;
     fetchProfile(identifier)
@@ -98,9 +79,13 @@ function Profile({identifier}: {identifier: string}) {
   const onSuccess = useCallback(
     (newProfile: UserProfileBlock) => {
       // Optimistically merge the new userProfile block into the existing
-      // ProfileResponse so the header rerenders without a full refetch. We
-      // also kick a background refresh to pick up any other server-side
-      // recalc — but the user sees the new handle immediately.
+      // ProfileResponse so the header rerenders without a full refetch. The
+      // user sees their new handle immediately. We then kick a SILENT
+      // background refresh — Bugbot M PR #102: the previous version called
+      // a `refresh` helper that set `state: "loading"` on entry, which
+      // immediately wiped the optimistic UI back to a loading spinner. The
+      // silent refetch below merges the fresh response on success and
+      // leaves the optimistic state visible the entire time.
       setData((prev) => {
         if (prev.state !== "ready") return prev;
         return {
@@ -109,12 +94,31 @@ function Profile({identifier}: {identifier: string}) {
         };
       });
       setShowModal(false);
-      // Defer the refresh so the optimistic UI render commits first.
-      setTimeout(() => {
-        void refresh();
-      }, 100);
+      void (async () => {
+        try {
+          const profile = await fetchProfile(identifier);
+          setData((prev) => {
+            // Only commit if we're still in `ready` AND the fetched response
+            // includes the userProfile change. Otherwise keep the optimistic
+            // merge — a stale read shouldn't roll the UI back to the old
+            // username (e.g. read replica lag, indexer cache mid-invalidate).
+            if (prev.state !== "ready") return prev;
+            const fetchedHandle = profile.userProfile?.username ?? null;
+            const optimisticHandle = prev.profile.userProfile?.username ?? null;
+            if (fetchedHandle !== optimisticHandle && optimisticHandle !== null) {
+              // Server hasn't caught up — keep optimistic state.
+              return prev;
+            }
+            return {state: "ready", profile};
+          });
+        } catch {
+          // Silent failure: the optimistic state is still on screen so the
+          // user sees their new handle. The next page navigation will
+          // re-fetch and reconcile.
+        }
+      })();
     },
-    [refresh],
+    [identifier],
   );
 
   if (data.state === "loading") {
