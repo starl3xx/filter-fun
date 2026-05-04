@@ -253,7 +253,16 @@ export function createPgUserProfileStore(pool: Pool): UserProfileStore {
                  SELECT 1 FROM username_operator_blocklist WHERE canonical = $6
                )
            RETURNING address, username, username_display, created_at, updated_at, username_updated_at`,
-          [lowerAddress, canonical, display, now, cooldownThreshold, lowerCanonical],
+          // Bugbot M PR #102 pass-13: store the lowered form in `username`,
+          // not the raw `canonical` param. By contract `UserProfileRow.username`
+          // is the lowercased canonical handle (the partial-unique index runs
+          // on `lower(username)` and consumers compare via `username ===
+          // canonical`). Today the only caller is the handler, which already
+          // lowercases via `validateUsernameFormat`, but the store can't
+          // assume that — defending the invariant here means a future caller
+          // can't accidentally bake mixed casing into the canonical column
+          // (which would conflate it with the display column).
+          [lowerAddress, lowerCanonical, display, now, cooldownThreshold, lowerCanonical],
         );
         if (r.rowCount === 0) {
           // 0 rows means EITHER the blocklist gate fired OR the cooldown
@@ -378,7 +387,10 @@ export function createInMemoryUserProfileStore(opts: {
       }
       const next: UserProfileRow = {
         address: lowerAddress,
-        username: canonical,
+        // Bugbot M PR #102 pass-13: mirror the pg fix — store the lowered
+        // form so `UserProfileRow.username` is canonical-by-construction
+        // regardless of what casing the caller passes.
+        username: lowerCanonical,
         usernameDisplay: display,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
