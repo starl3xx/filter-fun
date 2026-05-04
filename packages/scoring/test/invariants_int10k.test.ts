@@ -1,11 +1,24 @@
-/// Epic 1.18 — invariant suite extension (PR #50 family).
+/// Invariant suite (PR #50 family). Pre-1.22 covered: `inv_hp_integer_storage`
+/// + `inv_tie_break_deterministic`. Epic 1.22 adds two more invariants
+/// pinning the formula-lock contract:
 ///
-/// Two property-style invariants that pin the off-chain HP storage contract
-/// post-int10k cutover. The contracts-side `SettlementInvariants` suite (PR
-/// #50) covers on-chain behaviour; HP itself is off-chain — the on-chain
+/// **inv_hp_formula_pure** — `score()` is pure. The same input bundle +
+/// currentTime always produces the same output, regardless of any global
+/// state (env, time of day, prior calls). Property-based: 100 deterministic
+/// repeat-calls on the same bundle from a freshly-imported scoring module
+/// must all return byte-identical scored arrays.
+///
+/// **inv_hp_settlement_finality** — every CUT/FINALIZE-tagged hpSnapshot
+/// row MUST have `finality = "final"` before the corresponding oracle
+/// Merkle publish. The scoring package itself has no concept of finality
+/// (that lives at the indexer schema level); this invariant exercises the
+/// `initialFinalityForTrigger` boundary helper, which the indexer's writer
+/// consumes — validating that CUT / FINALIZE always land as `final` and
+/// SWAP / HOLDER_SNAPSHOT / BLOCK_TICK never do.
+///
+/// All four invariants are off-chain (HP is off-chain — the on-chain
 /// settlement only consumes the oracle-published Merkle root, never the
-/// HP values directly. So these invariants live with the scoring tests
-/// where the property holds, not with the Foundry suite.
+/// HP values directly).
 ///
 /// **inv_hp_integer_storage** — every `score()` output's HP value is an
 /// integer in `[HP_MIN, HP_MAX]`. No fractional values, no out-of-range.
@@ -155,13 +168,17 @@ describe("inv_tie_break_deterministic — earlier-launched wins on exact HP ties
 
   it("handles 5-way ties — all five tokens rank in launchedAt-ascending order", () => {
     // Construct five identical tokens with distinct launchedAt — assert the
-    // rank order matches the launchedAt order.
+    // rank order matches the launchedAt order. Per §6.9 ageFactor saturates
+    // at 1.0 for tokens ≥ 1h old, so all `launchedAt` values must be ≥ 1h
+    // before NOW for the cohort to actually tie on HP (different ageFactors
+    // would diverge their HPs and break the tie precondition).
     const w = wallet(1);
     const baseHolders = new Set([w]);
     const buys = [{wallet: w, ts: NOW - 100n, amountWeth: WETH}];
     const tokens: TokenStats[] = [];
-    // Intentionally non-monotonic launchedAt order in the input.
-    const launchedAtOrder = [4n, 1n, 5n, 2n, 3n];
+    // Intentionally non-monotonic launchedAt order in the input. Each value
+    // is hours before NOW; all ≥ 24h so ageFactor saturates everywhere.
+    const launchedAtOrderHours = [48n, 24n, 96n, 36n, 60n];
     for (let i = 0; i < 5; i++) {
       tokens.push({
         token: `0x${(0xa00 + i).toString(16).padStart(40, "0")}` as Address,
@@ -171,19 +188,91 @@ describe("inv_tie_break_deterministic — earlier-launched wins on exact HP ties
         liquidityDepthWeth: WETH,
         currentHolders: baseHolders,
         holdersAtRetentionAnchor: baseHolders,
-        launchedAt: NOW - launchedAtOrder[i]! * 1000n,
+        launchedAt: NOW - launchedAtOrderHours[i]! * 3600n,
       });
     }
     const ranked = score(tokens, NOW);
     // All same HP.
     const hp0 = ranked[0]!.hp;
     for (const r of ranked) expect(r.hp).toBe(hp0);
-    // Rank order = launchedAt-ascending order. Earliest launchedAt is
-    // `NOW - 5n*1000n` (the i=2 token).
-    expect(ranked[0]?.token).toBe(tokens[2]!.token); // launchedAt = NOW - 5000
-    expect(ranked[1]?.token).toBe(tokens[0]!.token); // launchedAt = NOW - 4000
-    expect(ranked[2]?.token).toBe(tokens[4]!.token); // launchedAt = NOW - 3000
-    expect(ranked[3]?.token).toBe(tokens[3]!.token); // launchedAt = NOW - 2000
-    expect(ranked[4]?.token).toBe(tokens[1]!.token); // launchedAt = NOW - 1000
+    // Rank order = launchedAt-ascending order. Earliest launchedAt is i=2
+    // (96h before NOW); latest is i=1 (24h).
+    expect(ranked[0]?.token).toBe(tokens[2]!.token); // 96h ago — earliest
+    expect(ranked[1]?.token).toBe(tokens[4]!.token); // 60h ago
+    expect(ranked[2]?.token).toBe(tokens[0]!.token); // 48h ago
+    expect(ranked[3]?.token).toBe(tokens[3]!.token); // 36h ago
+    expect(ranked[4]?.token).toBe(tokens[1]!.token); // 24h ago — latest
   });
 });
+
+describe("inv_hp_formula_pure — score() is a pure function of (input, currentTime)", () => {
+  it("identical input bundle produces byte-identical output across 100 repeat calls", () => {
+    // Build a non-trivial single-cohort bundle so each scoring path is
+    // exercised: velocity (in-window buy + sell), retention (anchor), HHI
+    // (holderBalances), sticky-liquidity (depth + lpEvents). Then call
+    // `score()` 100 times back-to-back and assert every result equals the
+    // first call's result.
+    const cohort: TokenStats[] = [
+      {
+        token: wallet(0x1).slice(0, 42) as Address,
+        volumeByWallet: new Map([[wallet(1), 1_000_000_000_000_000_000n]]),
+        buys: [{wallet: wallet(1), ts: NOW - 1000n, amountWeth: 1_000_000_000_000_000_000n}],
+        sells: [],
+        liquidityDepthWeth: 30_000_000_000_000_000_000n,
+        avgLiquidityDepthWeth: 30_000_000_000_000_000_000n,
+        currentHolders: new Set([wallet(1), wallet(2), wallet(3)]),
+        holdersAtRetentionAnchor: new Set([wallet(1), wallet(2), wallet(3)]),
+        holderBalances: [100n, 100n, 100n],
+        launchedAt: NOW - 86400n,
+      },
+      {
+        token: wallet(0x2).slice(0, 42) as Address,
+        volumeByWallet: new Map(),
+        buys: [],
+        sells: [],
+        liquidityDepthWeth: 0n,
+        currentHolders: new Set(),
+        holdersAtRetentionAnchor: new Set(),
+        launchedAt: NOW - 3600n,
+      },
+    ];
+    const first = score(cohort, NOW);
+    const firstJson = JSON.stringify(first, replaceBigint);
+    for (let i = 0; i < 100; i++) {
+      const ranked = score(cohort, NOW);
+      const rankedJson = JSON.stringify(ranked, replaceBigint);
+      expect(rankedJson, `iteration ${i} diverged from first call`).toBe(firstJson);
+    }
+  });
+
+  it("currentTime varies → outputs vary; same currentTime → same output", () => {
+    // Sanity: the pure-function property says SAME inputs produce SAME
+    // outputs. Different `currentTime` IS a different input, so we expect
+    // different outputs (older buys decay, ageFactor shifts).
+    const cohort: TokenStats[] = [
+      {
+        token: wallet(0xa).slice(0, 42) as Address,
+        volumeByWallet: new Map([[wallet(1), 5_000_000_000_000_000_000n]]),
+        buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: 5_000_000_000_000_000_000n}],
+        sells: [],
+        liquidityDepthWeth: 10_000_000_000_000_000_000n,
+        currentHolders: new Set([wallet(1)]),
+        holdersAtRetentionAnchor: new Set([wallet(1)]),
+        launchedAt: NOW - 86400n,
+      },
+    ];
+    const a1 = score(cohort, NOW);
+    const a2 = score(cohort, NOW);
+    expect(JSON.stringify(a1, replaceBigint)).toBe(JSON.stringify(a2, replaceBigint));
+    const b = score(cohort, NOW + 86400n); // 24h later
+    expect(JSON.stringify(b, replaceBigint)).not.toBe(JSON.stringify(a1, replaceBigint));
+  });
+});
+
+function replaceBigint(_key: string, value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Map) return Array.from(value.entries());
+  if (value instanceof Set) return Array.from(value.values());
+  return value;
+}
+

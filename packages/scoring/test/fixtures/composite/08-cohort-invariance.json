@@ -1,0 +1,46 @@
+{
+  "name": "08-cohort-invariance",
+  "description": "spec §6.7 fixed-reference: two tokens with the same scoring inputs produce the same HP. Token C with much stronger LP scores higher; its presence MUST NOT change A's or B's HP under fixed-reference (cohort-invariant).",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "nowSec": 1700000000,
+  "cohort": [
+    {
+      "token": "0x000000000000000000000000000000000000000a",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000a",
+        "launchedAtSec": 1699913600,
+        "liquidityDepthWeth": 30,
+        "avgLiquidityDepthWeth": 30,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    },
+    {
+      "token": "0x000000000000000000000000000000000000000b",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000b",
+        "launchedAtSec": 1699827200,
+        "liquidityDepthWeth": 30,
+        "avgLiquidityDepthWeth": 30,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    },
+    {
+      "token": "0x000000000000000000000000000000000000000c",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000c",
+        "launchedAtSec": 1699827200,
+        "liquidityDepthWeth": 1000,
+        "avgLiquidityDepthWeth": 1000,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    }
+  ],
+  "expected": [
+    {"token": "0x000000000000000000000000000000000000000c", "hp": 4500, "rank": 1, "hpTolerance": 5},
+    {"token": "0x000000000000000000000000000000000000000b", "hp": 2838, "rank": 2, "hpTolerance": 30},
+    {"token": "0x000000000000000000000000000000000000000a", "hp": 2838, "rank": 3, "hpTolerance": 30}
+  ]
+}

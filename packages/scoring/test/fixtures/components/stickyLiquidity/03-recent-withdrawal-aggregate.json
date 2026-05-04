@@ -1,0 +1,16 @@
+{
+  "name": "03-recent-withdrawal-aggregate",
+  "description": "backwards-compat aggregate path: depth=30, recentRemoved=15 → raw = 30 - 15 = 15 → norm = 15/67.275 ≈ 0.223",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "stickyLiquidity",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "liquidityDepthWeth": 30,
+    "avgLiquidityDepthWeth": 30,
+    "recentLiquidityRemovedWeth": 15
+  },
+  "expected": 0.223,
+  "tolerance": 0.005
+}

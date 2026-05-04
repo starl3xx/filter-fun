@@ -2,12 +2,16 @@
 
 filter.fun's HP score combines six on-chain signals into a single integer in `[0, 10000]`
 (Epic 1.18 / spec §6.5 — bumped from `[0, 1]` to integer-stored to align with the BPS
-convention used elsewhere in the protocol). This page documents **where the weights
-live, how to verify what's currently active, and the procedure for changing them**.
+convention used elsewhere in the protocol). Epic 1.22 (2026-05-04) locks the per-component
+formulas + their named parameter constants and switches normalization from cohort-relative
+percentile to fixed-reference per spec §6.7. This page documents **where the weights and
+formula constants live, how to verify what's currently active, and the procedure for
+changing either**.
 
-> **Spec refs**: §6.4 (per-component definitions), §6.5 (locked weights + composite
-> scale + tie-break), §6.4.5 (momentum gate), §41 (holder concentration), §42.2.6
-> (oracle authority invariant).
+> **Spec refs**: §6.4.x (per-component formula lock), §6.5 (locked weights + composite
+> scale + tie-break), §6.7 (fixed-reference normalization), §6.9 (slot-fairness),
+> §6.10 (cohort-edge tie-break), §6.12 (reorg/finality), §6.13 (test fixture coverage),
+> §6.4.5 (momentum gate), §41 (holder concentration), §42.2.6 (oracle authority invariant).
 
 > **Audience**: external auditors, traders verifying composite math, operators reviewing
 > a proposed weight update.
@@ -33,7 +37,13 @@ hash → block} commitments to detect drift.
 
 ---
 
-## 2. The active set (`HP_WEIGHTS_VERSION = "2026-05-05-v4-locked-int10k"`)
+## 2. The active set (`HP_WEIGHTS_VERSION = "2026-05-04-v4-locked-int10k-formulas"`)
+
+> **Epic 1.22 changes** (2026-05-04 amendment): per-component formulas locked into named
+> constants, normalization switched from cohort-percentile to fixed-reference (§6.7),
+> slot-fairness ageFactor added to retention + sticky-liquidity (§6.9), three-tier tie-break
+> (§6.10), `hpSnapshot.finality` column added (§6.12), parameterized fixture suite shipped
+> (§6.13). The §6.5 weight values themselves are **unchanged** under this lock.
 
 | Component | Coefficient | Plain English |
 |---|---:|---|
@@ -65,8 +75,8 @@ revive per-phase weights without an indexer/oracle/web refactor.)
 
 Provenance constants:
 
-- `HP_WEIGHTS_VERSION = "2026-05-05-v4-locked-int10k"` — stamped on every `hpSnapshot` row.
-- `HP_WEIGHTS_ACTIVATED_AT = "2026-05-05T00:00:00Z"` — wall-clock activation.
+- `HP_WEIGHTS_VERSION = "2026-05-04-v4-locked-int10k-formulas"` — stamped on every `hpSnapshot` row.
+- `HP_WEIGHTS_ACTIVATED_AT = "2026-05-11T00:00:00Z"` — wall-clock activation.
 - `HP_WEIGHTS_SPEC_REF` — anchor to the spec §6.5 entry that authored this set.
 - `HP_COMPOSITE_SCALE = {min: 0, max: 10000, type: "integer"}` — surfaced on
   `/scoring/weights` so clients gating on absolute thresholds can read the scale
@@ -78,27 +88,14 @@ Provenance constants:
 |---|---|---:|---:|---|
 | Track E v4 main corpus | stratified 50/50 (Clanker V4) | 100 | — (composite signal; L2 fit) | Authored the lock |
 | Track E v4 validation cohort | random-sample → FDV | 7 | +0.32 (p=0.48) | Inconclusive — too small |
-| **Track E v5 validation cohort** | **liquidity-first → FDV (top-50/platform)** | **43** | **+0.364 (p=0.016)** | **Validated at α=0.05** |
+| Track E v5 validation cohort (percentile) | liquidity-first → FDV (top-50/platform) | 43 | +0.364 (p=0.016) | Validated at α=0.05 |
+| **Track E v5 formula-lock refit (fixed-reference)** | **same cohort, Epic 1.22 lock** | **43** | **+0.421 (p=0.0049)** | **Validated; +0.057 above pre-lock baseline** |
 
-The pre-v4 spec defaults (momentum=10%) edge LOCKED by Δρ≈0.045 on
-the v5 cohort (ρ=+0.409, p=0.006 at n=43). LOCKED is
-**validated, with momentum's drop flagged as the most fragile call in
-§6.5** for post-mainnet refit. See `track-e/REPORT_v5_validation.md`
-for the full analysis and v6 follow-up list.
-
-### Validation status
-
-| Run | Cohort | n | LOCKED ρ vs FDV | Outcome |
-|---|---|---:|---:|---|
-| Track E v4 main corpus | stratified 50/50 (Clanker V4) | 100 | — (composite signal; L2 fit) | Authored the lock |
-| Track E v4 validation cohort | random-sample → FDV | 7 | +0.32 (p=0.48) | Inconclusive — too small |
-| **Track E v5 validation cohort** | **liquidity-first → FDV (top-50/platform)** | **43** | **+0.364 (p=0.016)** | **Validated at α=0.05** |
-
-The pre-v4 spec defaults (momentum=10%) edge LOCKED by Δρ≈0.045 on
-the v5 cohort (ρ=+0.409, p=0.006 at n=43). LOCKED is
-**validated, with momentum's drop flagged as the most fragile call in
-§6.5** for post-mainnet refit. See `track-e/REPORT_v5_validation.md`
-for the full analysis and v6 follow-up list.
+The fixed-reference refit (Epic 1.22) is documented in
+[`track-e/REPORT_v5_formula_lock.md`](../track-e/REPORT_v5_formula_lock.md).
+Per the dispatch's `+0.36 ± 0.10` tolerance band the refit passes
+comfortably; per-component contributions break down as
+velocity ρ=+0.40, effectiveBuyers ρ=+0.32, stickyLiquidity ρ=+0.25.
 
 ---
 
@@ -112,9 +109,9 @@ The endpoint returns:
 
 ```json
 {
-  "version": "2026-05-05-v4-locked-int10k",
+  "version": "2026-05-04-v4-locked-int10k-formulas",
   "specRef": "https://github.com/starl3xx/filter-fun/blob/main/filter_fun_comprehensive_spec.md#65-hp-component-weights-locked-2026-05-03-per-track-e-v4",
-  "activatedAt": "2026-05-05T00:00:00Z",
+  "activatedAt": "2026-05-11T00:00:00Z",
   "weights": {
     "velocity": 0.30,
     "effectiveBuyers": 0.15,
@@ -128,7 +125,22 @@ The endpoint returns:
     "HP_CONCENTRATION_ENABLED": true
   },
   "phaseDifferentiation": false,
-  "compositeScale": {"min": 0, "max": 10000, "type": "integer"}
+  "compositeScale": {"min": 0, "max": 10000, "type": "integer"},
+  "constants": {
+    "VELOCITY_LOOKBACK_SEC": 345600,
+    "VELOCITY_DECAY_HALFLIFE_SEC": 86400,
+    "VELOCITY_PER_WALLET_CAP_WETH": 10,
+    "VELOCITY_CHURN_WINDOW_SEC": 3600,
+    "VELOCITY_CHURN_PENALTY_FACTOR": 2,
+    "EFFECTIVE_BUYERS_LOOKBACK_SEC": 345600,
+    "EFFECTIVE_BUYERS_DUST_WETH": 0.001,
+    "LP_PENALTY_WINDOW_SEC": 86400,
+    "LP_PENALTY_TAU_SEC": 21600,
+    "RETENTION_DUST_SUPPLY_FRAC": 0.0001,
+    "VELOCITY_REFERENCE": 1115.451,
+    "EFFECTIVE_BUYERS_REFERENCE": 191.129,
+    "STICKY_LIQUIDITY_REFERENCE": 67.275
+  }
 }
 ```
 
@@ -142,6 +154,10 @@ The endpoint returns:
 3. `flags` reflects env-override state. The defaults (`momentum:false,
    concentration:true`) match v4; any deviation is itself a published change subject to
    the same notice procedure as a weight update.
+4. `constants` (Epic 1.22) — every parameter the locked formulas read. Cross-check against
+   `packages/scoring/src/constants.ts`. Any drift means the indexer is running stale code.
+   The `*_REFERENCE` values are calibrated from the v5 cohort 90th percentile per §6.7;
+   re-calibration follows the same procedure as a weight change (§5 below).
 
 **Cross-check against snapshot rows:**
 
@@ -207,6 +223,54 @@ component that's reliably gameable in a live cohort), the 7-day notice can colla
 
 ---
 
+## 5b. Formula-constant change procedure (Epic 1.22)
+
+The §6.4.x formulas reference named parameter constants (`VELOCITY_DECAY_HALFLIFE_SEC`,
+`VELOCITY_PER_WALLET_CAP_WETH`, `*_REFERENCE`, etc.). These constants are not weights,
+but they shape the same composite — a re-tune of `VELOCITY_REFERENCE` shifts every
+token's velocity score. **Constant changes follow the same procedure as weight changes
+(§5).** The only divergences:
+
+- **Empirical justification.** Re-run the Track E formula-lock refit
+  (`track-e/REPORT_v5_formula_lock.md`) under the proposed constants and report the
+  new Spearman ρ vs FDV. The dispatch tolerance band (`+0.36 ± 0.10`) applies; an
+  out-of-band result requires per-component investigation before the spec amendment.
+- **Spec amendment** updates §6.4.x or §6.7 (whichever section the constant appears in)
+  rather than §6.5. The `HP_WEIGHTS_VERSION` string still bumps — the indexer's
+  per-row stamp is what auditors use to bind a row to its constants set, and a
+  silent constant change without a version bump would break that contract.
+- **Code change** updates `packages/scoring/src/constants.ts` (single source of truth
+  for the formula bodies) plus the `HP_WEIGHTS_VERSION` in `types.ts`.
+
+The `/scoring/weights` endpoint exposes the active constants under `response.constants`
+so an external auditor can fetch the live engine's parameters without checking out the
+repo. Any drift between `response.constants` and the values cited in the spec amendment
+is a deploy bug, not a spec ambiguity.
+
+### Constants reference (locked at `2026-05-04-v4-locked-int10k-formulas`)
+
+| Constant | Value | Section | Effect |
+|---|---:|---|---|
+| `VELOCITY_LOOKBACK_SEC` | 345 600 (96h) | §6.4.1 | Hard window for velocity event filter |
+| `VELOCITY_DECAY_HALFLIFE_SEC` | 86 400 (24h) | §6.4.1 | Per-event time-decay half-life |
+| `VELOCITY_PER_WALLET_CAP_WETH` | 10 | §6.4.1 | Single-wallet contribution cap (whale guard) |
+| `VELOCITY_CHURN_PENALTY_FACTOR` | 2 | §6.4.1 | Net-buy clamp; gross-without-net penalty |
+| `VELOCITY_REFERENCE` | 1115.451 | §6.7 | Fixed-reference normalizer (90th p of v5) |
+| `EFFECTIVE_BUYERS_DUST_WETH` | 0.001 | §6.4.2 | Min spend to count as a real buyer |
+| `EFFECTIVE_BUYERS_REFERENCE` | 191.129 | §6.7 | Fixed-reference normalizer |
+| `LP_PENALTY_WINDOW_SEC` | 86 400 (24h) | §6.4.3 | Sticky-liquidity LP-removal penalty window |
+| `LP_PENALTY_TAU_SEC` | 21 600 (6h) | §6.4.3 | Penalty exponential half-life |
+| `STICKY_LIQUIDITY_REFERENCE` | 67.275 | §6.7 | Fixed-reference normalizer |
+| `RETENTION_DUST_SUPPLY_FRAC` | 0.0001 | §6.4.4 | Min holder share for retention denominator |
+| `SLOT_AGE_FACTOR_WINDOW_SEC` | 21 600 (6h) | §6.9 | Slot-fairness observed-vs-age window |
+| `SETTLEMENT_FINALITY_BLOCKS` | 12 | §6.12 | CUT/FINALIZE wait before snapshot insert |
+
+A future re-calibration of the `*_REFERENCE` constants requires re-running the refit
+and confirming ρ stays in the band; the constants are versioned with the engine, not
+inferred from each fresh cohort.
+
+---
+
 ## 6. Anatomy of an `hpSnapshot` row
 
 Every periodic snapshot the indexer writes carries enough provenance to be
@@ -233,9 +297,18 @@ re-derivable:
 
 - `packages/scoring/src/types.ts` — `LOCKED_WEIGHTS`, `HP_WEIGHTS_VERSION`,
   `DEFAULT_FLAGS`, `flagsFromEnv`, `weightsForPhase`.
-- `packages/scoring/src/score.ts` — `score()` entry point.
+- `packages/scoring/src/constants.ts` — formula-parameter constants (Epic 1.22);
+  `FORMULA_CONSTANTS` bundle exposed via `/scoring/weights`.
+- `packages/scoring/src/score.ts` — `score()` entry point; component raw helpers
+  (`computeVelocityRaw`, `computeEffectiveBuyersRaw`, `computeStickyLiquidityRaw`).
 - `packages/scoring/src/components.ts` — `computeHolderConcentration`,
   `computeMomentumComponent` (spy-able for gate tests).
-- `packages/indexer/src/api/scoringWeights.ts` — `/scoring/weights` handler.
+- `packages/scoring/test/fixtures/` — parameterized fixture suite (Epic 1.22 §6.13);
+  ≥5 per component + 10 composite, runner at `runFixtures.test.ts`.
+- `packages/indexer/src/api/scoringWeights.ts` — `/scoring/weights` handler;
+  populates `response.constants` from `FORMULA_CONSTANTS`.
 - `packages/scoring/test/v4_lock_smoke.test.ts` — reference tests pinning v4 behavior.
 - `track-e/REPORT.md` — Track E v4 final report; source of the locked coefficients.
+- `track-e/REPORT_v5_validation.md` — v5 cohort validation under percentile rank.
+- `track-e/REPORT_v5_formula_lock.md` — Epic 1.22 refit under fixed-reference
+  normalization (ρ = +0.4212, p=0.0049, n=43).

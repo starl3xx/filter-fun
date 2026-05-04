@@ -54,7 +54,7 @@ describe("Epic 1.18 — composite scale", () => {
   });
 
   it("HP_WEIGHTS_VERSION reflects the int10k bump", () => {
-    expect(HP_WEIGHTS_VERSION).toBe("2026-05-05-v4-locked-int10k");
+    expect(HP_WEIGHTS_VERSION).toBe("2026-05-04-v4-locked-int10k-formulas");
   });
 
   it("hpToInt rounds half-up at the boundary", () => {
@@ -146,6 +146,9 @@ describe("Epic 1.18 — launchedAt tie-break", () => {
 
   it("non-tied HP wins regardless of launchedAt order", () => {
     // Strong distributed cohort: HP A > HP B even though A launched LATER.
+    // Both tokens must be ≥ 1h old so the §6.9 slot-fairness ageFactor
+    // saturates to 1.0 — otherwise the older token's retention ageFactor
+    // can dominate even when the younger has stronger raw metrics.
     const wA = wallet(1);
     const wB = wallet(2);
     const strong = makeStats({
@@ -155,7 +158,7 @@ describe("Epic 1.18 — launchedAt tie-break", () => {
       liquidityDepthWeth: WETH * 10n,
       currentHolders: new Set([wA]),
       holdersAtRetentionAnchor: new Set([wA]),
-      launchedAt: NOW - 60n, // launched 60s ago — much later
+      launchedAt: NOW - 7200n, // launched 2h ago — later, but ageFactor saturates
     });
     const weak = makeStats({
       token: tokenB,
@@ -164,7 +167,7 @@ describe("Epic 1.18 — launchedAt tie-break", () => {
       liquidityDepthWeth: WETH / 10n,
       currentHolders: new Set([wB]),
       holdersAtRetentionAnchor: new Set([wB]),
-      launchedAt: NOW - 86400n, // launched 24h ago — much earlier
+      launchedAt: NOW - 86400n, // launched 24h ago — earlier, ageFactor saturated
     });
     const ranked = score([weak, strong], NOW);
     // HP wins; launchedAt is only consulted on ties.
@@ -226,9 +229,13 @@ describe("Epic 1.18 — launchedAt tie-break", () => {
 
   it("property-style: random component scores producing ties always rank earlier-launched first", () => {
     // Seeded LCG so failures are reproducible. We construct pairs of tokens
-    // whose normalized component scores end up identical (same wallet, same
-    // buys, same LP, same holders) but different launchedAt — every pair
-    // must satisfy the tie-break invariant.
+    // whose inputs are byte-identical (so under fixed-reference §6.7 their
+    // component scores are identical to within float precision) but with
+    // different launchedAt — every pair must satisfy the tie-break.
+    //
+    // Both `launchedAt` values must be ≥ 1h before NOW so the §6.9
+    // slot-fairness ageFactor saturates to 1.0 (otherwise the earlier and
+    // later tokens have different ageFactors and HP scores diverge).
     let seed = 0xdeadbeef;
     const rand = () => {
       seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -240,7 +247,7 @@ describe("Epic 1.18 — launchedAt tie-break", () => {
       const w = wallet(trial + 100);
       const baseHolders = new Set([w]);
       const buys = [{wallet: w, ts: NOW - BigInt(60 + Math.floor(rand() * 1000)), amountWeth: buyAmt}];
-      const earlierAt = NOW - BigInt(7200 + Math.floor(rand() * 86400));
+      const earlierAt = NOW - BigInt(86400 + Math.floor(rand() * 86400));
       const laterAt = earlierAt + BigInt(60 + Math.floor(rand() * 7200));
       const earlier = makeStats({
         token: tokenA,
@@ -268,64 +275,60 @@ describe("Epic 1.18 — launchedAt tie-break", () => {
   });
 });
 
-describe("Epic 1.18 — known-input → expected integer HP", () => {
+describe("Epic 1.22 — known-input → expected integer HP (fixed-reference)", () => {
   it("a single-token retention-only cohort produces a deterministic HP", () => {
-    // No prior history → momentum = 0 (default flags). Single-token cohort →
-    // velocity / effectiveBuyers / stickyLiq all min-max to 0 (only value in
-    // cohort). Retention = 1.0 from the holder set. holderConcentration = 0
-    // (no holderBalances supplied).
+    // Pure-retention input: no buys, no LP, no holderBalances. ageFactor
+    // saturates with launchedAt ≥ 1h before NOW. Under §6.7 fixed-reference
+    // velocity / effectiveBuyers / stickyLiquidity all return 0 (no inputs);
+    // retention sits at 1.0. v4 default flags → momentum 0, concentration on
+    // (returns 0 without holderBalances).
     //
-    // HP = w_retention × 1.0 = 0.15
-    // → integer HP = round(0.15 × 10000) = 1500
+    // HP = w_retention × 1.0 = 0.15 → integer HP = round(0.15 × 10000) = 1500.
     const w = wallet(1);
     const t = makeStats({
       token: tokenA,
-      volumeByWallet: new Map([[w, WETH]]),
-      buys: [{wallet: w, ts: NOW - 100n, amountWeth: WETH}],
-      liquidityDepthWeth: WETH,
       currentHolders: new Set([w]),
       holdersAtRetentionAnchor: new Set([w]),
-      launchedAt: NOW - 3600n,
+      launchedAt: NOW - 24n * 3600n,
     });
     const ranked = score([t], NOW);
     expect(ranked[0]?.hp).toBe(1500);
   });
 
-  it("a fully distributed cohort vs a baseline produces ~9370 (matches v4 reference)", () => {
-    // 30 wallets, deep LP, full retention, well-distributed holders.
-    const buys = Array.from({length: 30}, (_, i) => ({
+  it("a token whose raw values exceed every §6.7 reference saturates near 1.0", () => {
+    // Inputs scaled comfortably above each reference (`VELOCITY_REFERENCE`,
+    // `EFFECTIVE_BUYERS_REFERENCE`, `STICKY_LIQUIDITY_REFERENCE`) so all
+    // three normalized scores hit 1.0. Plus full retention and a well-
+    // distributed holder set (HHI → low → score → 1.0). Under v4 locked
+    // weights the composite saturates to ≈ 1.0 → ≈ 10000.
+    const buys = Array.from({length: 200}, (_, i) => ({
       wallet: wallet(i + 1),
-      ts: NOW - 100n,
-      amountWeth: WETH,
+      ts: NOW - 60n,
+      // 20 WETH per wallet — capped at VELOCITY_PER_WALLET_CAP_WETH = 10
+      // — but eb_raw = 200 × sqrt(20) ≈ 894 > REF=191, sl_raw = 1000 > REF=67.
+      amountWeth: 20n * WETH,
     }));
     const holders = new Set(buys.map((b) => b.wallet));
-    const distributed = makeStats({
+    const huge = makeStats({
       token: tokenA,
       volumeByWallet: new Map(buys.map((b) => [b.wallet, b.amountWeth])),
       buys,
-      liquidityDepthWeth: 50n * WETH,
-      avgLiquidityDepthWeth: 50n * WETH,
+      liquidityDepthWeth: 1000n * WETH,
+      avgLiquidityDepthWeth: 1000n * WETH,
       currentHolders: holders,
       holdersAtRetentionAnchor: holders,
-      holderBalances: Array.from({length: 30}, () => 100n),
-      launchedAt: NOW - 86400n,
+      holderBalances: Array.from({length: 200}, () => 100n),
+      launchedAt: NOW - 24n * 3600n,
     });
-    const baseline = makeStats({
-      token: tokenB,
-      volumeByWallet: new Map([[wallet(999), WETH / 100n]]),
-      buys: [{wallet: wallet(999), ts: NOW - 100n, amountWeth: WETH / 100n}],
-      liquidityDepthWeth: WETH,
-      avgLiquidityDepthWeth: WETH,
-      currentHolders: new Set([wallet(999)]),
-      holdersAtRetentionAnchor: new Set([wallet(999)]),
-      holderBalances: [1_000_000n],
-      launchedAt: NOW - 100n,
-    });
-    const ranked = score([distributed, baseline], NOW);
-    const r = ranked.find((s) => s.token === tokenA)!;
-    // Reference HP under v4 weights ≈ 0.937 → int10k ≈ 9370 ± rounding.
-    expect(r.hp).toBeGreaterThanOrEqual(9300);
-    expect(r.hp).toBeLessThanOrEqual(9450);
+    const ranked = score([huge], NOW);
+    const r = ranked[0]!;
+    // Velocity / effectiveBuyers / stickyLiquidity / retention all saturate
+    // at 1.0; holderConcentration with 200 equal balances yields hc ≈ 0.575
+    // (HHI = 50 per §41.5). HP ≈ 0.9575 → 9575. The ≥9500 floor confirms
+    // the four §6.7 components saturate; pushing hc to 1.0 needs ~6000+
+    // holders, which the broader fixture suite (Phase 3) covers.
+    expect(r.hp).toBeGreaterThanOrEqual(9500);
+    expect(r.hp).toBeLessThanOrEqual(10000);
     expect(Number.isInteger(r.hp)).toBe(true);
   });
 });

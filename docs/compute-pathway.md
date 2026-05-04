@@ -162,7 +162,7 @@ Every `hpSnapshot` row write fires one HP_UPDATED event onto the indexer's
       "momentum": 0,
       "holderConcentration": 0.4
     },
-    "weightsVersion": "2026-05-05-v4-locked-int10k",
+    "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
     "computedAt": 1714521600,
     "trigger": "SWAP"
   },

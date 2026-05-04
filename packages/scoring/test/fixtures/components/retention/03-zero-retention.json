@@ -1,0 +1,21 @@
+{
+  "name": "03-zero-retention",
+  "description": "no overlap between anchor and current → ratio = 0 → score = 0",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "retention",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "currentHolders": [
+      "0x0000000000000000000000000000000000000099"
+    ],
+    "holdersAtRetentionAnchor": [
+      "0x0000000000000000000000000000000000000001",
+      "0x0000000000000000000000000000000000000002",
+      "0x0000000000000000000000000000000000000003"
+    ]
+  },
+  "expected": 0,
+  "tolerance": 0
+}

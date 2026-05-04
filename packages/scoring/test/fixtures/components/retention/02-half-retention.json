@@ -1,0 +1,24 @@
+{
+  "name": "02-half-retention",
+  "description": "anchor has 4 wallets, only 2 still in current set → ratio = 0.5, ageFactor = 1.0 → score = 0.5",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "retention",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "currentHolders": [
+      "0x0000000000000000000000000000000000000001",
+      "0x0000000000000000000000000000000000000002",
+      "0x0000000000000000000000000000000000000099"
+    ],
+    "holdersAtRetentionAnchor": [
+      "0x0000000000000000000000000000000000000001",
+      "0x0000000000000000000000000000000000000002",
+      "0x0000000000000000000000000000000000000003",
+      "0x0000000000000000000000000000000000000004"
+    ]
+  },
+  "expected": 0.5,
+  "tolerance": 0
+}

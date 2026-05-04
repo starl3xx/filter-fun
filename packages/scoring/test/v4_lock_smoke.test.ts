@@ -50,12 +50,12 @@ function makeStats(
 }
 
 describe("v4 lock — version + activated-at provenance", () => {
-  it("HP_WEIGHTS_VERSION is the int10k-locked sentinel (Epic 1.18)", () => {
-    expect(HP_WEIGHTS_VERSION).toBe("2026-05-05-v4-locked-int10k");
+  it("HP_WEIGHTS_VERSION is the formula-lock sentinel (Epic 1.22)", () => {
+    expect(HP_WEIGHTS_VERSION).toBe("2026-05-04-v4-locked-int10k-formulas");
   });
 
   it("HP_WEIGHTS_ACTIVATED_AT pins activation timestamp", () => {
-    expect(HP_WEIGHTS_ACTIVATED_AT).toBe("2026-05-05T00:00:00Z");
+    expect(HP_WEIGHTS_ACTIVATED_AT).toBe("2026-05-11T00:00:00Z");
   });
 
   it("LOCKED_WEIGHTS values match Track E v4 final report (unchanged in 1.18)", () => {
@@ -89,7 +89,7 @@ describe("v4 lock — version + activated-at provenance", () => {
       holdersAtRetentionAnchor: new Set([wallet(1)]),
     });
     const ranked = score([t], NOW);
-    expect(ranked[0]?.weightsVersion).toBe("2026-05-05-v4-locked-int10k");
+    expect(ranked[0]?.weightsVersion).toBe("2026-05-04-v4-locked-int10k-formulas");
     expect(ranked[0]?.flagsActive).toEqual(DEFAULT_FLAGS);
   });
 });
@@ -319,26 +319,31 @@ describe("v4 lock — reference input → expected HP", () => {
   // (momentum=false, concentration=true). If LOCKED_WEIGHTS or the
   // component computations drift, these break.
 
-  it("perfectly distributed token under the locked weights produces a high HP", () => {
-    // 30 wallets each buying 1 WETH, deep LP, full retention, well-distributed.
-    const buys = Array.from({length: 30}, (_, i) => ({
+  it("a token whose raw values exceed every §6.7 reference saturates near 1.0", () => {
+    // Under fixed-reference (§6.7) the easiest way to drive component scores
+    // to 1.0 is to set raw values above each calibrated `*_REFERENCE`. Use a
+    // 200-wallet × 20-WETH cohort: velocity caps per-wallet at 10 WETH so
+    // total ≈ 2000 (REF=1115); eb_raw = 200 × √20 ≈ 894 (REF=191); sl_raw =
+    // 1000 (REF=67). Retention saturates with launchedAt ≥ 24h.
+    const buys = Array.from({length: 200}, (_, i) => ({
       wallet: wallet(i + 1),
-      ts: NOW - 100n,
-      amountWeth: WETH,
+      ts: NOW - 60n,
+      amountWeth: 20n * WETH,
     }));
     const holders = new Set(buys.map((b) => b.wallet));
-    const distributed = makeStats({
+    const huge = makeStats({
       token: tokenA,
       volumeByWallet: new Map(buys.map((b) => [b.wallet, b.amountWeth])),
       buys,
-      liquidityDepthWeth: 50n * WETH,
-      avgLiquidityDepthWeth: 50n * WETH,
+      liquidityDepthWeth: 1000n * WETH,
+      avgLiquidityDepthWeth: 1000n * WETH,
       currentHolders: holders,
       holdersAtRetentionAnchor: holders,
-      holderBalances: Array.from({length: 30}, () => 100n),
+      holderBalances: Array.from({length: 200}, () => 100n),
+      launchedAt: NOW - 24n * 3600n,
     });
-    // Comparison cohort needed for min-max normalization (single-token
-    // cohort would zero unbounded components).
+    // Tiny baseline cohort companion (no longer required for min-max under
+    // fixed-reference, but kept so the cohort has 2 rows like before).
     const baseline = makeStats({
       token: tokenB,
       volumeByWallet: new Map([[wallet(999), WETH / 100n]]),
@@ -348,15 +353,19 @@ describe("v4 lock — reference input → expected HP", () => {
       currentHolders: new Set([wallet(999)]),
       holdersAtRetentionAnchor: new Set([wallet(999)]),
       holderBalances: [1_000_000n],
+      launchedAt: NOW - 24n * 3600n,
     });
-    const ranked = score([distributed, baseline], NOW);
+    const ranked = score([huge, baseline], NOW);
     expect(ranked[0]?.token).toBe(tokenA);
     const r = ranked.find((s) => s.token === tokenA)!;
-    // Velocity 1, effectiveBuyers 1, stickyLiq 1, retention 1, hc ≈ log10(10000/333.3)/4 ≈ 0.371.
-    // HP under v4 weights = 0.30*1 + 0.15*1 + 0.30*1 + 0.15*1 + 0.0*0 + 0.10*0.371 ≈ 0.937.
-    // Under int10k composite scale (Epic 1.18) → ≈ 9370, allowing rounding +/-.
-    expect(r.hp).toBeGreaterThan(9300);
-    expect(r.hp).toBeLessThan(9500);
+    // Velocity ~1, effectiveBuyers ~1, stickyLiq ~1, retention ~1.
+    // holderConcentration with 200 equal balances → HHI = 50, hc ≈ 0.575
+    // (matches §41.5 reference table). HP ≈ 0.30 + 0.15 + 0.30 + 0.15 +
+    // 0.10*0.575 = 0.9575 → 9575. The ≥9500 floor confirms the four §6.7
+    // components saturate; reaching 10000 would need ~6000+ holders to drive
+    // hc to 1.0, which the harness covers.
+    expect(r.hp).toBeGreaterThanOrEqual(9500);
+    expect(r.hp).toBeLessThanOrEqual(10000);
     expect(Number.isInteger(r.hp)).toBe(true);
     expect(r.weightsVersion).toBe(HP_WEIGHTS_VERSION);
   });

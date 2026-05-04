@@ -159,11 +159,29 @@ def hhi_score(row: pd.Series) -> float:
     return max(0.0, min(1.0, 1.0 - math.log10(max(hhi, 1.0)) / math.log10(10000.0)))
 
 
+# Epic 1.22 — fixed-reference normalization constants. Mirrors
+# `packages/scoring/src/constants.ts` exactly. A drift between this file and
+# the TS engine breaks the "Track E refit reproduces the engine's HP" promise
+# documented in `docs/scoring-weights.md` §3 — keep them in lockstep.
+VELOCITY_REFERENCE = 1115.451
+EFFECTIVE_BUYERS_REFERENCE = 191.129
+STICKY_LIQUIDITY_REFERENCE = 67.275
+
+
 def compute_components(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute all 6 HP components for every row. Returns a new DataFrame
-    with `comp_<name>` columns. Each component is normalized to 0-1 via
-    percentile rank within the corpus (so the composite makes sense).
+    with `comp_<name>` columns.
+
+    **Epic 1.22 — fixed-reference normalization (spec §6.7).** velocity /
+    effectiveBuyers / stickyLiquidity raw values are mapped to [0, 1] via
+    the calibrated `*_REFERENCE` constants — NOT cohort percentile rank.
+    HP becomes an absolute signal: same input → same component score
+    regardless of the surrounding cohort.
+
+    Pre-1.22 behavior (cohort percentile via `df.rank(pct=True)`) is
+    available behind `--legacy-percentile` for the v5 → v5-formula-lock
+    diff comparison (see `track-e/REPORT_v5_formula_lock.md`).
     """
     raw = pd.DataFrame({
         "velocity_raw": df.apply(velocity_score, axis=1),
@@ -174,10 +192,39 @@ def compute_components(df: pd.DataFrame) -> pd.DataFrame:
         "holderConcentration_raw": df.apply(hhi_score, axis=1),
     })
 
-    # Normalize to 0-1 via percentile rank (corpus-relative).
-    # retention, momentum, holderConcentration are already 0-1 by construction;
-    # leave them as-is. velocity, effectiveBuyers, stickyLiquidity have
-    # unbounded scales — percentile-rank normalize.
+    out = pd.DataFrame(index=df.index)
+    # Fixed-reference normalization (§6.7): clip(raw / REFERENCE, 0, 1).
+    # `_REFERENCES` map mirrors the TS scoring package's `*_REFERENCE`
+    # exports.
+    references = {
+        "velocity": VELOCITY_REFERENCE,
+        "effectiveBuyers": EFFECTIVE_BUYERS_REFERENCE,
+        "stickyLiquidity": STICKY_LIQUIDITY_REFERENCE,
+    }
+    for comp, ref in references.items():
+        col = f"{comp}_raw"
+        out[f"comp_{comp}"] = (raw[col].astype(float) / ref).clip(0.0, 1.0)
+    # retention / momentum / holderConcentration are [0, 1] by construction.
+    for comp in ["retention", "momentum", "holderConcentration"]:
+        out[f"comp_{comp}"] = raw[f"{comp}_raw"].clip(0.0, 1.0)
+    # Keep raw values for reporting.
+    for col in raw.columns:
+        out[col] = raw[col]
+    return out
+
+
+def compute_components_legacy_percentile(df: pd.DataFrame) -> pd.DataFrame:
+    """Pre-Epic-1.22 percentile-rank normalization. Kept ONLY for the
+    v5 → v5-formula-lock diff in `REPORT_v5_formula_lock.md`. Production
+    code paths must use `compute_components` (fixed-reference)."""
+    raw = pd.DataFrame({
+        "velocity_raw": df.apply(velocity_score, axis=1),
+        "effectiveBuyers_raw": df.apply(effective_buyers_score, axis=1),
+        "stickyLiquidity_raw": df.apply(sticky_liquidity_score, axis=1),
+        "retention_raw": df.apply(retention_score, axis=1),
+        "momentum_raw": df.apply(momentum_score, axis=1),
+        "holderConcentration_raw": df.apply(hhi_score, axis=1),
+    })
     out = pd.DataFrame(index=df.index)
     for comp in ["velocity", "effectiveBuyers", "stickyLiquidity"]:
         col = f"{comp}_raw"
@@ -185,7 +232,6 @@ def compute_components(df: pd.DataFrame) -> pd.DataFrame:
         out[f"comp_{comp}"] = ranked.fillna(0.0)
     for comp in ["retention", "momentum", "holderConcentration"]:
         out[f"comp_{comp}"] = raw[f"{comp}_raw"].clip(0.0, 1.0)
-    # Keep raw values too for reporting
     for col in raw.columns:
         out[col] = raw[col]
     return out

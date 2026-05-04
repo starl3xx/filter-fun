@@ -1,0 +1,32 @@
+{
+  "name": "10-pre-cut-doomed",
+  "description": "h95 token (just before the §6.10 cut) with weak signals: one churning wallet, no LP left, broken retention. HP near zero.",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "nowSec": 1700000000,
+  "cohort": [
+    {
+      "token": "0x000000000000000000000000000000000000000a",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000a",
+        "launchedAtSec": 1699658000,
+        "buys": [
+          {"wallet": "0x0000000000000000000000000000000000000099", "tsSec": 1699998500, "amountWeth": 1}
+        ],
+        "sells": [
+          {"wallet": "0x0000000000000000000000000000000000000099", "tsSec": 1699999500, "amountWeth": 1}
+        ],
+        "liquidityDepthWeth": 0,
+        "currentHolders": ["0x0000000000000000000000000000000000000099"],
+        "holdersAtRetentionAnchor": [
+          "0x0000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000002",
+          "0x0000000000000000000000000000000000000003",
+          "0x0000000000000000000000000000000000000004"
+        ]
+      }
+    }
+  ],
+  "expected": [
+    {"token": "0x000000000000000000000000000000000000000a", "hp": 8, "rank": 1, "hpTolerance": 5}
+  ]
+}

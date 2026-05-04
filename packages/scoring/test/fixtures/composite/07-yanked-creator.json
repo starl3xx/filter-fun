@@ -1,0 +1,35 @@
+{
+  "name": "07-yanked-creator",
+  "description": "30 WETH depth with 20 WETH recently removed (backwards-compat aggregate path) → sticky raw = 10 → norm = 10/67.275 ≈ 0.149 — significantly cratered vs the un-yanked baseline",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "nowSec": 1700000000,
+  "cohort": [
+    {
+      "token": "0x000000000000000000000000000000000000000a",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000a",
+        "launchedAtSec": 1699913600,
+        "liquidityDepthWeth": 30,
+        "avgLiquidityDepthWeth": 30,
+        "recentLiquidityRemovedWeth": 20,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    },
+    {
+      "token": "0x000000000000000000000000000000000000000b",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000b",
+        "launchedAtSec": 1699913600,
+        "liquidityDepthWeth": 30,
+        "avgLiquidityDepthWeth": 30,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    }
+  ],
+  "expected": [
+    {"token": "0x000000000000000000000000000000000000000b", "hp": 2838, "rank": 1, "hpTolerance": 30},
+    {"token": "0x000000000000000000000000000000000000000a", "hp": 1946, "rank": 2, "hpTolerance": 30}
+  ]
+}

@@ -201,7 +201,7 @@ curl -s "$INDEXER_URL/scoring/weights" | jq
 ```
 
 - [ ] `version` matches the live `HP_WEIGHTS_VERSION` (currently
-      `2026-05-05-v4-locked-int10k`). A mismatch means the indexer is running stale code
+      `2026-05-04-v4-locked-int10k-formulas`). A mismatch means the indexer is running stale code
       — redeploy before next snapshot.
 - [ ] `weights` sums to `1.000` and matches spec §6.5: velocity 0.30, effectiveBuyers 0.15,
       stickyLiquidity 0.30, retention 0.15, momentum 0.00, holderConcentration 0.10.
@@ -240,7 +240,7 @@ psql "$INDEXER_DATABASE_URL" -c "
 "
 ```
 
-- [ ] All recent rows tagged `weights_version = '2026-05-05-v4-locked-int10k'`. Pre-1.18
+- [ ] All recent rows tagged `weights_version = '2026-05-04-v4-locked-int10k-formulas'`. Pre-1.18
       rows were dropped via `migrate-int10k.sql`; if you see ANY pre-cutover version
       string (`'pre-lock'` or `'2026-05-03-v4-locked'`) after the deploy, treat as an
       incident — the migration didn't complete OR the writer isn't reading the live
@@ -652,6 +652,59 @@ loudly — see `docs/bag-lock.md`):
 owner, no pause, no admin. If a security issue is found post-deploy, the remediation is to
 deploy a new commitments contract + new factory + accept that legacy tokens still gate
 against the old one. Coordinate any such change through the audit firm before broadcasting.
+
+---
+
+## 5b. Deploying a scoring-parameter change (Epic 1.22)
+
+The HP engine reads two kinds of off-chain parameters:
+
+1. **Component weights** — `LOCKED_WEIGHTS` in `packages/scoring/src/types.ts` (e.g. velocity 0.30, stickyLiquidity 0.30).
+2. **Formula constants** — `FORMULA_CONSTANTS` in `packages/scoring/src/constants.ts` (e.g. `VELOCITY_DECAY_HALFLIFE_SEC`, `*_REFERENCE` normalizers, `LP_PENALTY_TAU_SEC`).
+
+**Both follow the same procedure** documented in `docs/scoring-weights.md` §5 / §5b. A change to a `*_REFERENCE` value or a decay half-life shifts every score in the same way a weight change does — the operator's job is to make sure no one is surprised.
+
+### 5b.1 Pre-flight
+
+- [ ] Spec amendment merged in §6.4.x (formulas) or §6.5 (weights), with the new value, justification, and proposed `HP_WEIGHTS_VERSION` string.
+- [ ] Track E refit run on the proposed values; ρ vs FDV reported. For `*_REFERENCE` re-calibrations, the dispatch tolerance band `+0.36 ± 0.10` applies.
+- [ ] Public notice posted ≥ 7 days before activation. The activation date is a hard floor.
+- [ ] `HP_WEIGHTS_ACTIVATED_AT` updated to the announced UTC timestamp.
+
+The 7-day notice is non-negotiable for normal changes. Hot-fix exceptions (24h with operator + advisor sign-off) only apply to security-relevant findings — gameable signals or correctness bugs, not routine re-tunes.
+
+### 5b.2 Deploy step
+
+The change ships as a single indexer build:
+
+```sh
+# Verify the new constants are in the build.
+curl -s "$INDEXER_URL/scoring/weights" | jq '.version, .constants'
+```
+
+- [ ] `version` returns the new `HP_WEIGHTS_VERSION` string (e.g. `2026-05-04-v4-locked-int10k-formulas`).
+- [ ] `constants` object reflects the new values for whichever parameters changed.
+- [ ] No row written before the activation timestamp carries the new version stamp. Verify:
+
+```sh
+psql "$INDEXER_DATABASE_URL" -c "
+  SELECT weights_version, MIN(snapshot_at_sec) AS first, MAX(snapshot_at_sec) AS last, COUNT(*)
+  FROM hp_snapshot
+  GROUP BY 1 ORDER BY first DESC LIMIT 5;
+"
+```
+
+Each `weights_version` should land entirely on one side of the activation cutover — overlap means rows were written under the new build before activation, which is a deploy-timing bug.
+
+### 5b.3 Operator-visible side effects
+
+A `*_REFERENCE` re-calibration shifts the **distribution shape** of HP scores even if the rank order is broadly preserved. If a re-tune lowers `VELOCITY_REFERENCE` (e.g. cohort-average velocity dropped), tokens score *higher* on that component than under the previous reference. The composite HP integers will not be directly comparable across versions — historical leaderboard charts must annotate the version cutover.
+
+A weight change preserves the formula bodies but reweights the composite. Per-component scores are still comparable across versions; the composite is not.
+
+### 5b.4 If a deploy ships a stale version stamp
+
+If `weights_version` rows continue to land tagged with the previous version after the deploy, the indexer's writer is reading a stale `HP_WEIGHTS_VERSION` constant. Roll back the deploy (the writer is authoritative for the row tag, so a stale tag means future audit replay will be wrong). Do not attempt to backfill / rewrite the tag in-place — the cleanest remediation is to redeploy the corrected build and accept the small gap of mis-tagged rows as a known incident.
 
 ---
 

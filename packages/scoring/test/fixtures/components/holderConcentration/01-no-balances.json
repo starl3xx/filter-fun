@@ -1,0 +1,12 @@
+{
+  "name": "01-no-balances",
+  "description": "no holderBalances supplied → score = 0 (token can't claim distribution credit without data)",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "holderConcentration",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a"
+  },
+  "expected": 0,
+  "tolerance": 0
+}

@@ -1,0 +1,15 @@
+{
+  "name": "01-pre-launch",
+  "description": "launchedAt = nowSec → ageFactor = 0 → sticky = 0 regardless of depth",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "stickyLiquidity",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1700000000,
+    "liquidityDepthWeth": 100,
+    "avgLiquidityDepthWeth": 100
+  },
+  "expected": 0,
+  "tolerance": 0
+}

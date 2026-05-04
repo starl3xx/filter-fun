@@ -1,0 +1,13 @@
+{
+  "name": "02-single-whale",
+  "description": "1 holder owns 100% → HHI = 10000 → score = 0 (spec §41.5 reference)",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "holderConcentration",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "holderBalances": ["1000000000000000000000"]
+  },
+  "expected": 0,
+  "tolerance": 0
+}

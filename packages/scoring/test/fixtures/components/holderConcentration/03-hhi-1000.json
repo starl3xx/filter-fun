@@ -1,0 +1,16 @@
+{
+  "name": "03-hhi-1000",
+  "description": "10 equal holders → HHI = 10000 × Σ(0.1)² = 10000 × 10 × 0.01 = 1000 → score = 1 - log10(1000)/log10(10000) = 1 - 0.75 = 0.25 (spec §41.5)",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "holderConcentration",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "holderBalances": [
+      "100", "100", "100", "100", "100",
+      "100", "100", "100", "100", "100"
+    ]
+  },
+  "expected": 0.25,
+  "tolerance": 0.001
+}

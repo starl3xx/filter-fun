@@ -12,10 +12,16 @@ import {
   type TokenStats,
 } from "../src/index.js";
 
-/// v4 lock (`HP_WEIGHTS_VERSION = "2026-05-03-v4-locked"`) defaults
-/// `flags.momentum=false`. The legacy momentum tests below rely on momentum
-/// being computed, so they pass this flag bundle explicitly. New v4-lock
-/// behavior (momentum-off by default) is covered in `v4_lock_smoke.test.ts`.
+/// Epic 1.22 lock — fixed-reference normalization (`raw / *_REFERENCE`)
+/// replaces cohort min-max. Component scores are no longer "1 for cohort
+/// leader, 0 for cohort tail"; they're absolute fractions of the §6.7
+/// calibrated reference values. Tests below assert *relative* ordering
+/// rather than absolute 0/1 endpoints where the underlying behavior is
+/// preserved.
+///
+/// The momentum tests still rely on momentum being computed, so they pass
+/// this flag bundle explicitly. v4-lock default (momentum off) is covered
+/// in `v4_lock_smoke.test.ts`.
 const MOMENTUM_ON: ScoringConfig = {
   ...DEFAULT_CONFIG,
   flags: {momentum: true, concentration: true},
@@ -132,16 +138,25 @@ describe("score (v3)", () => {
 
     const ranked = score([distributed, whale], NOW);
     expect(ranked[0]?.token).toBe(tokenA);
-    // Effective buyers for the distributed token should sit at the cohort max.
-    expect(ranked[0]?.components.effectiveBuyers.score).toBe(1);
-    expect(ranked[1]?.components.effectiveBuyers.score).toBe(0);
+    // Distributed token has 10 wallets above dust → 10 sqrt-summed
+    // contributions; whale is one wallet → 1 sqrt-summed contribution.
+    // Under fixed-reference normalization (§6.7) both are well below 1.0,
+    // but distributed is strictly higher.
+    expect(ranked[0]?.components.effectiveBuyers.score).toBeGreaterThan(
+      ranked[1]!.components.effectiveBuyers.score,
+    );
   });
 
   it("dust wallets do not inflate effective buyers", () => {
-    // tokenA: 100 dust wallets (each below the dust floor) + zero liquidity.
-    // tokenB: 5 wallets each buying well above the floor.
-    // tokenB should dominate effective buyers despite far fewer wallets.
-    const dustAmount = DEFAULT_CONFIG.buyerDustFloorWeth - 1n;
+    // tokenA: 100 dust wallets (each strictly below `EFFECTIVE_BUYERS_DUST_WETH`)
+    // + zero liquidity. tokenB: 5 wallets each buying well above the floor.
+    // tokenB should dominate effective buyers and overall HP despite far
+    // fewer wallets — dust contributes exactly zero per spec §6.4.2.
+    //
+    // Use a value strictly below the locked dust constant (0.001 WETH = 1e15
+    // wei) so the dust filter applies regardless of the legacy
+    // `DEFAULT_CONFIG.buyerDustFloorWeth` value.
+    const dustAmount = 999_999_999_999_999n; // 0.001 WETH minus 1 wei
     const dustBuys = Array.from({length: 100}, (_, i) => ({
       wallet: wallet(i + 1),
       ts: NOW - 100n,
@@ -204,12 +219,16 @@ describe("score (v3)", () => {
   });
 
   it("retention reflects holder churn (long anchor only)", () => {
+    // Set `launchedAt` ≥ 1h before NOW so the §6.9 slot-fairness ageFactor
+    // saturates to 1.0 — without it, very young tokens get a fractional
+    // retention score even at full intersection.
     const sticky = makeStats({
       token: tokenA,
       volumeByWallet: new Map([[wallet(1), WETH]]),
       buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}],
       currentHolders: new Set([wallet(1), wallet(2), wallet(3)]),
       holdersAtRetentionAnchor: new Set([wallet(1), wallet(2), wallet(3)]),
+      launchedAt: NOW - 24n * 3600n,
     });
     const churning = makeStats({
       token: tokenB,
@@ -217,6 +236,7 @@ describe("score (v3)", () => {
       buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}],
       currentHolders: new Set([wallet(99)]),
       holdersAtRetentionAnchor: new Set([wallet(1), wallet(2), wallet(3)]),
+      launchedAt: NOW - 24n * 3600n,
     });
 
     const ranked = score([sticky, churning], NOW);
@@ -296,18 +316,30 @@ describe("score (v3)", () => {
 
     const ranked = score([hold, churn], NOW);
     expect(ranked[0]?.token).toBe(tokenA);
-    expect(ranked[0]?.components.velocity.score).toBe(1);
-    expect(ranked[1]?.components.velocity.score).toBeLessThan(0.5);
+    // Under fixed-reference normalization both scores are far below 1
+    // (a single 1-WETH buy is tiny relative to VELOCITY_REFERENCE), but the
+    // churn path strictly halves the held path: hold has no sells, churn
+    // has a churn-window-discounted sell on top of the same buy. Assert
+    // the relative gap, not the absolute floor.
+    expect(ranked[0]?.components.velocity.score).toBeGreaterThan(
+      ranked[1]!.components.velocity.score,
+    );
+    expect(ranked[1]?.components.velocity.score).toBeLessThan(
+      ranked[0]!.components.velocity.score * 0.6,
+    );
   });
 
   it("recent LP withdrawal hurts sticky liquidity", () => {
-    // Same average depth; tokenB has a large recent withdrawal.
+    // Same average depth; tokenB has a large recent withdrawal. Use depths
+    // *below* `STICKY_LIQUIDITY_REFERENCE` (~67 WETH) so the haircut is
+    // visible in the normalized score — anything above the reference clamps
+    // to 1.0 and the gap disappears.
     const stable = makeStats({
       token: tokenA,
       volumeByWallet: new Map([[wallet(1), WETH]]),
       buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}],
-      avgLiquidityDepthWeth: 100n * WETH,
-      liquidityDepthWeth: 100n * WETH,
+      avgLiquidityDepthWeth: 30n * WETH,
+      liquidityDepthWeth: 30n * WETH,
       currentHolders: new Set([wallet(1)]),
       holdersAtRetentionAnchor: new Set([wallet(1)]),
     });
@@ -315,18 +347,28 @@ describe("score (v3)", () => {
       token: tokenB,
       volumeByWallet: new Map([[wallet(1), WETH]]),
       buys: [{wallet: wallet(1), ts: NOW - 100n, amountWeth: WETH}],
-      avgLiquidityDepthWeth: 100n * WETH,
-      liquidityDepthWeth: 100n * WETH,
-      // 50% of avg depth pulled recently → 25% haircut at default penalty 0.5.
-      recentLiquidityRemovedWeth: 50n * WETH,
+      avgLiquidityDepthWeth: 30n * WETH,
+      liquidityDepthWeth: 30n * WETH,
+      // 50% of avg depth pulled recently → 50% haircut at default α=1.0.
+      recentLiquidityRemovedWeth: 15n * WETH,
       currentHolders: new Set([wallet(1)]),
       holdersAtRetentionAnchor: new Set([wallet(1)]),
     });
 
     const ranked = score([stable, dumped], NOW);
     expect(ranked[0]?.token).toBe(tokenA);
-    expect(ranked[0]?.components.stickyLiquidity.score).toBe(1);
-    expect(ranked[1]?.components.stickyLiquidity.score).toBe(0);
+    // Both depths are 100 WETH. tokenA (no withdrawal) sits at depth/REF;
+    // tokenB takes a 50%-of-depth haircut (50 WETH penalty under the
+    // backwards-compat aggregate path). Assert the gap, not absolute
+    // endpoints — fixed-reference (§6.7) makes both well below 1.
+    expect(ranked[0]?.components.stickyLiquidity.score).toBeGreaterThan(
+      ranked[1]!.components.stickyLiquidity.score,
+    );
+    // Confirmed haircut: dumped row's stickyLiquidity is at most ~half
+    // the stable row's (50%-of-depth withdrawal under α=1.0 backwards-compat).
+    expect(ranked[1]?.components.stickyLiquidity.score).toBeLessThan(
+      ranked[0]!.components.stickyLiquidity.score * 0.6,
+    );
   });
 
   it("a late surger gets a momentum boost but momentum cannot dominate", () => {
@@ -509,17 +551,18 @@ describe("score (v3)", () => {
       liquidityDepthWeth: WETH,
       currentHolders: new Set([wallet(1)]),
       holdersAtRetentionAnchor: new Set([wallet(1)]),
+      launchedAt: NOW - 24n * 3600n,
     });
     const ranked = score([onlyOne], NOW);
     expect(ranked).toHaveLength(1);
     expect(ranked[0]?.rank).toBe(1);
-    // Single-token cohort: min-max normalization → 0 for unbounded components,
-    // retention still captures full conviction. Plus neutral momentum (0.5).
-    // HP is therefore weights.retention * 1 + weights.momentum * 0.5, scaled
-    // to integer [0, 10000].
-    const w = PRE_FILTER_WEIGHTS;
-    const expectedFloat = w.retention + w.momentum * 0.5;
-    expect(ranked[0]?.hp).toBe(Math.round(expectedFloat * 10000));
+    // Single-token cohort under fixed-reference (§6.7): non-momentum
+    // components return their raw / REFERENCE shares + retention sits at
+    // 1.0. Default flags zero momentum out (v4 lock). HP fits in [0, 10000];
+    // exact value depends on the 1-WETH input scale relative to the §6.7
+    // references — assert a sane window rather than pinning a single int.
+    expect(ranked[0]?.hp).toBeGreaterThan(1500); // retention at 0.15 weight
+    expect(ranked[0]?.hp).toBeLessThan(2000);
   });
 
   // ── Spec §27.6 integration tests ───────────────────────────────────────────
@@ -562,21 +605,25 @@ describe("score (v3)", () => {
 
     const ranked = score([distributed, quiet], NOW);
     const distributedRow = ranked.find((r) => r.token === tokenA)!;
+    const quietRow = ranked.find((r) => r.token === tokenB)!;
     expect(distributedRow.rank).toBe(1);
-    // All unbounded components hit the cohort max (1) — broad sustained
-    // buying wins on velocity, effective buyers, and sticky liq.
-    expect(distributedRow.components.velocity.score).toBe(1);
-    expect(distributedRow.components.effectiveBuyers.score).toBe(1);
-    expect(distributedRow.components.stickyLiquidity.score).toBe(1);
-    // Retention is its own [0,1] scale (not min-maxed) — still full.
+    // Under fixed-reference (§6.7) the absolute scores depend on raw
+    // values vs `*_REFERENCE`. The distributed token's raw values are
+    // strictly higher than the quiet baseline on every unbounded component;
+    // assert that ordering plus retention saturation.
+    expect(distributedRow.components.velocity.score).toBeGreaterThan(
+      quietRow.components.velocity.score,
+    );
+    expect(distributedRow.components.effectiveBuyers.score).toBeGreaterThan(
+      quietRow.components.effectiveBuyers.score,
+    );
+    expect(distributedRow.components.stickyLiquidity.score).toBeGreaterThan(
+      quietRow.components.stickyLiquidity.score,
+    );
+    // Retention is its own [0,1] scale (not REFERENCE-normalized) — still full.
     expect(distributedRow.components.retention.score).toBe(1);
-    // HP is comfortably above the median: at least the four non-momentum
-    // weights' worth (since each non-momentum component is at 1). Scaled to
-    // integer [0, 10000] — minus 1 for rounding slack at the boundary.
-    const w = PRE_FILTER_WEIGHTS;
-    const minExpectedFloat =
-      w.velocity + w.effectiveBuyers + w.stickyLiquidity + w.retention;
-    expect(distributedRow.hp).toBeGreaterThanOrEqual(Math.round(minExpectedFloat * 10000) - 1);
+    // HP for the distributed token must be strictly above the baseline.
+    expect(distributedRow.hp).toBeGreaterThan(quietRow.hp);
   });
 
   it("§27.6 — sybil swarm with thin fundamentals loses to real distributed buyers", () => {
@@ -626,63 +673,45 @@ describe("score (v3)", () => {
     expect(ranked[0]?.token).toBe(tokenB);
     const realRow = ranked.find((r) => r.token === tokenB)!;
     const swarmRow = ranked.find((r) => r.token === tokenA)!;
-    // Real wins velocity + sticky liq; swarm wins effective buyers; both
-    // tie on retention (100%) and momentum (neutral). Composition:
-    // 0.40 + 0.15 = 0.55 > 0.25 = 0.30, so real takes HP.
-    expect(realRow.components.velocity.score).toBe(1);
-    expect(realRow.components.stickyLiquidity.score).toBe(1);
-    expect(swarmRow.components.effectiveBuyers.score).toBe(1);
+    // Real wins velocity + sticky liq; swarm may win effective buyers under
+    // sqrt+breadth (1000 wallets at sqrt(0.002) ≈ 44.7 vs 30 wallets at
+    // sqrt(1) = 30). Composition (velocity 30% + sticky 30%) overcomes the
+    // single-axis advantage, so real takes HP. Under fixed-reference these
+    // are absolute fractions; assert ordering instead of cohort endpoints.
+    expect(realRow.components.velocity.score).toBeGreaterThan(
+      swarmRow.components.velocity.score,
+    );
+    expect(realRow.components.stickyLiquidity.score).toBeGreaterThan(
+      swarmRow.components.stickyLiquidity.score,
+    );
+    expect(realRow.hp).toBeGreaterThan(swarmRow.hp);
   });
 
   // ── Targeted unit tests for v3 config knobs ────────────────────────────────
 
-  it("effectiveBuyersFunc=log restores headcount preference for sybil-heavy cohorts", () => {
-    // Same fixture as the swarm test above, but with `effectiveBuyersFunc:
-    // "log"`. Under log dampening, a swarm of just-above-floor wallets
-    // outscores a few real buyers on the effective-buyers component
-    // specifically. (We don't assert on overall HP — log/sqrt change the
-    // effective-buyers signal, not the other four components.)
-    const swarmAmount = DEFAULT_CONFIG.buyerDustFloorWeth * 2n;
-    const swarmBuys = Array.from({length: 1000}, (_, i) => ({
-      wallet: wallet(i + 1),
-      ts: NOW - 100n,
-      amountWeth: swarmAmount,
-    }));
-    const swarm = makeStats({
-      token: tokenA,
-      volumeByWallet: new Map(swarmBuys.map((b) => [b.wallet, b.amountWeth])),
-      buys: swarmBuys,
-      liquidityDepthWeth: WETH,
-      currentHolders: new Set(swarmBuys.map((b) => b.wallet)),
-      holdersAtRetentionAnchor: new Set(swarmBuys.map((b) => b.wallet)),
-    });
-    const realBuys = Array.from({length: 5}, (_, i) => ({
+  it("effectiveBuyersFunc='log' is a no-op under the Epic 1.22 sqrt lock", () => {
+    // Spec §6.4.2 locks the effective-buyers dampening function to `sqrt`.
+    // The legacy `log` toggle is preserved on `ScoringConfig` for type
+    // stability but no longer affects the formula — passing `"log"` must
+    // produce the same scores as the default `"sqrt"` path.
+    const buys = Array.from({length: 5}, (_, i) => ({
       wallet: wallet(2000 + i),
       ts: NOW - 100n,
-      amountWeth: 5n * WETH,
+      amountWeth: WETH,
     }));
-    const real = makeStats({
-      token: tokenB,
-      volumeByWallet: new Map(realBuys.map((b) => [b.wallet, b.amountWeth])),
-      buys: realBuys,
+    const t = makeStats({
+      token: tokenA,
+      volumeByWallet: new Map(buys.map((b) => [b.wallet, b.amountWeth])),
+      buys,
       liquidityDepthWeth: WETH,
-      currentHolders: new Set(realBuys.map((b) => b.wallet)),
-      holdersAtRetentionAnchor: new Set(realBuys.map((b) => b.wallet)),
+      currentHolders: new Set(buys.map((b) => b.wallet)),
+      holdersAtRetentionAnchor: new Set(buys.map((b) => b.wallet)),
     });
-
-    const log = score([swarm, real], NOW, {...DEFAULT_CONFIG, effectiveBuyersFunc: "log"});
-    const swarmLog = log.find((r) => r.token === tokenA)!;
-    const realLog = log.find((r) => r.token === tokenB)!;
-    expect(swarmLog.components.effectiveBuyers.score).toBe(1);
-    expect(realLog.components.effectiveBuyers.score).toBe(0);
-
-    // Sanity: under sqrt the swarm still leads effective buyers (because log
-    // and sqrt both favor breadth at this scale) — but by a narrower factor.
-    // Both tests share the swarm-leads-on-buyers property; the *magnitude*
-    // is what differs and what HP composition reflects elsewhere.
-    const sqrt = score([swarm, real], NOW);
-    const swarmSqrt = sqrt.find((r) => r.token === tokenA)!;
-    expect(swarmSqrt.components.effectiveBuyers.score).toBe(1);
+    const sqrtScored = score([t], NOW);
+    const logScored = score([t], NOW, {...DEFAULT_CONFIG, effectiveBuyersFunc: "log"});
+    expect(logScored[0]?.components.effectiveBuyers.score).toBe(
+      sqrtScored[0]?.components.effectiveBuyers.score,
+    );
   });
 
   it("momentumCap clips a normalized momentum score below the cap", () => {
@@ -787,21 +816,26 @@ describe("score (v3)", () => {
 
     const ranked = score([stable, fullyDumped], NOW);
     expect(ranked[0]?.token).toBe(tokenA);
-    expect(ranked[0]?.components.stickyLiquidity.score).toBe(1);
+    // tokenB takes a 100%-of-depth haircut under the backwards-compat
+    // aggregate path with α=1.0 → raw stickyLiquidity = 0 → normalized = 0.
     expect(ranked[1]?.components.stickyLiquidity.score).toBe(0);
+    // tokenA's sticky-liq is positive but, under fixed-reference (§6.7),
+    // bounded by `100 / STICKY_LIQUIDITY_REFERENCE` (~67) → saturates at 1.
+    expect(ranked[0]?.components.stickyLiquidity.score).toBe(1);
 
-    // With α=0.5 the same withdrawal halves rather than zeroes — sanity
-    // that the knob actually flows through.
+    // With α=0.5 the same withdrawal halves rather than zeroes the raw
+    // contribution. tokenA still wins (no withdrawal vs half-pulled).
     const softer = score([stable, fullyDumped], NOW, {
       ...DEFAULT_CONFIG,
       recentWithdrawalPenalty: 0.5,
     });
-    // Both tokens still have nonzero sticky-liq; min-max normalization pushes
-    // the higher one to 1 and the lower (50% haircut) to 0, but the *raw*
-    // value behind the lower row is half the higher one — confirmed via HP
-    // ordering still matching but the gap on stickyLiquidity component
-    // staying at 1↔0 (cohort range, not absolute).
     expect(softer[0]?.token).toBe(tokenA);
+    // softer's tokenB has a positive sticky-liq (50% haircut), still strictly
+    // lower than tokenA's max.
+    expect(softer[1]?.components.stickyLiquidity.score).toBeGreaterThan(0);
+    expect(softer[1]?.components.stickyLiquidity.score).toBeLessThan(
+      softer[0]!.components.stickyLiquidity.score,
+    );
   });
 
   it("FINALS_WEIGHTS aliases the v4 LOCKED_WEIGHTS (30/15/30/15/0/10)", () => {

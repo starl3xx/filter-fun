@@ -1,0 +1,20 @@
+{
+  "name": "02-retention-only-1500",
+  "description": "token with full retention only — no buys, no LP, no holderBalances → HP = 0.15 × 1.0 × 10000 = 1500",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "nowSec": 1700000000,
+  "cohort": [
+    {
+      "token": "0x000000000000000000000000000000000000000a",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000a",
+        "launchedAtSec": 1699913600,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    }
+  ],
+  "expected": [
+    {"token": "0x000000000000000000000000000000000000000a", "hp": 1500, "rank": 1}
+  ]
+}

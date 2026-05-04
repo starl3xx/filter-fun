@@ -1,0 +1,17 @@
+{
+  "name": "02-single-whale-at-cap",
+  "description": "single whale buying 100 WETH — capped at VELOCITY_PER_WALLET_CAP_WETH = 10 → vel_norm = 10 / VELOCITY_REFERENCE",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "velocity",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "volumeByWallet": {"0x0000000000000000000000000000000000000099": "100000000000000000000"},
+    "buys": [
+      {"wallet": "0x0000000000000000000000000000000000000099", "tsSec": 1699999900, "amountWeth": 100}
+    ]
+  },
+  "expected": 0.008965,
+  "tolerance": 0.0001
+}

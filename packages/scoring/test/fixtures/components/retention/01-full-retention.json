@@ -1,0 +1,23 @@
+{
+  "name": "01-full-retention",
+  "description": "anchor and current sets equal (3 wallets), 24h-old token → ratio = 1.0, ageFactor = 1.0 → score = 1.0",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "retention",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "currentHolders": [
+      "0x0000000000000000000000000000000000000001",
+      "0x0000000000000000000000000000000000000002",
+      "0x0000000000000000000000000000000000000003"
+    ],
+    "holdersAtRetentionAnchor": [
+      "0x0000000000000000000000000000000000000001",
+      "0x0000000000000000000000000000000000000002",
+      "0x0000000000000000000000000000000000000003"
+    ]
+  },
+  "expected": 1.0,
+  "tolerance": 0
+}

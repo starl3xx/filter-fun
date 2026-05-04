@@ -1,5 +1,20 @@
 import * as components from "./components.js";
 import {
+  EFFECTIVE_BUYERS_DUST_WETH,
+  EFFECTIVE_BUYERS_LOOKBACK_SEC,
+  EFFECTIVE_BUYERS_REFERENCE,
+  LP_PENALTY_TAU_SEC,
+  LP_PENALTY_WINDOW_SEC,
+  RETENTION_DUST_SUPPLY_FRAC,
+  STICKY_LIQUIDITY_REFERENCE,
+  VELOCITY_CHURN_PENALTY_FACTOR,
+  VELOCITY_CHURN_WINDOW_SEC,
+  VELOCITY_DECAY_HALFLIFE_SEC,
+  VELOCITY_LOOKBACK_SEC,
+  VELOCITY_PER_WALLET_CAP_WETH,
+  VELOCITY_REFERENCE,
+} from "./constants.js";
+import {
   COMPONENT_LABELS,
   DEFAULT_CONFIG,
   DEFAULT_FLAGS,
@@ -25,9 +40,17 @@ import {
 ///    + w_momentum            * momentum               (gated by flags.momentum)
 ///    + w_holderConcentration * holderConcentration    (gated by flags.concentration)
 ///
-/// Velocity / effective-buyers / sticky-liquidity are min-max normalized
-/// across the cohort; retention + holderConcentration are already in [0, 1]
-/// by construction; momentum is bounded in [0, momentumCap].
+/// Per spec §6.7 (Epic 1.22 lock): velocity / effective-buyers /
+/// sticky-liquidity are mapped to [0, 1] via fixed-reference constants
+/// (`*_REFERENCE` calibrated from Track E v5), NOT min-max within the cohort.
+/// This makes HP an ABSOLUTE signal — a token's score doesn't shift just
+/// because peers improved. Retention + holderConcentration are already in
+/// [0, 1] by construction; momentum is bounded in [0, momentumCap].
+///
+/// **Cohort percentile vs scoring.** The Arena tile view's mini-bars want a
+/// within-cohort percentile (display only); production must compute that
+/// separately on the API response (see `/season` schema in PR #45). Scoring
+/// itself is cohort-invariant per §6.7.
 ///
 /// **Feature flags.** When `flags.momentum === false` the momentum component
 /// short-circuits to 0 *without* invoking `computeMomentumComponent` (so a
@@ -49,32 +72,29 @@ export function score(
   const baseWeights: ScoringWeights = config.weights ?? weightsForPhase(config.phase);
   const effectiveWeights = applyFlagsToWeights(baseWeights, flags);
 
-  // 1. Raw component values per token. Velocity / effective-buyers /
-  //    sticky-liquidity are unbounded — normalized below. Retention and
-  //    holderConcentration are already in [0, 1].
+  // Per-token raw component values. Velocity / effective-buyers /
+  // sticky-liquidity are unbounded inputs to the fixed-reference mapping;
+  // retention + holderConcentration are already [0, 1].
   const raw = tokens.map((t) => ({
     token: t.token,
-    velocity: computeVelocity(t, currentTime, config),
-    effectiveBuyers: computeEffectiveBuyers(t, config),
-    stickyLiquidity: computeStickyLiquidity(t, config),
-    retention: computeRetention(t, config),
+    velocity: computeVelocityRaw(t, currentTime),
+    effectiveBuyers: computeEffectiveBuyersRaw(t, currentTime),
+    stickyLiquidity: computeStickyLiquidityRaw(t, currentTime, config),
+    retention: computeRetention(t, currentTime, config),
     holderConcentration: flags.concentration ? components.computeHolderConcentration(t) : 0,
     priorBaseComposite: t.priorBaseComposite,
     launchedAt: t.launchedAt,
   }));
 
-  // 2. Normalize unbounded components.
-  // Retention + holderConcentration are NOT min-maxed: a "100% retention"
-  // or "perfectly distributed" cohort shouldn't be reset to 0 just because
-  // every token shares the same value.
-  const normVel = normalizeMinMax(raw.map((r) => r.velocity));
-  const normBuy = normalizeMinMax(raw.map((r) => r.effectiveBuyers));
-  const normLiq = normalizeMinMax(raw.map((r) => r.stickyLiquidity));
+  // Fixed-reference normalization (§6.7). `min(1, raw / REFERENCE)` —
+  // cohort-invariant. Reference values calibrated from Track E v5 cohort 90th
+  // percentile; bumping requires a refit run (see Phase 4 of Epic 1.22).
+  const normVel = raw.map((r) => clamp01(r.velocity / VELOCITY_REFERENCE));
+  const normBuy = raw.map((r) => clamp01(r.effectiveBuyers / EFFECTIVE_BUYERS_REFERENCE));
+  const normLiq = raw.map((r) => clamp01(r.stickyLiquidity / STICKY_LIQUIDITY_REFERENCE));
 
   // The non-momentum weight share — used to renormalize the baseComposite
-  // back into [0, 1] regardless of the configured momentum weight, so the
-  // baseComposite stays comparable across configurations even after flags
-  // shift the active weight set.
+  // back into [0, 1] regardless of the configured momentum weight.
   const nonMomentumSum =
     effectiveWeights.velocity +
     effectiveWeights.effectiveBuyers +
@@ -99,10 +119,6 @@ export function score(
           nonMomentumSum
         : 0;
 
-    // Momentum: gated by HP_MOMENTUM_ENABLED. The flag-off path returns 0
-    // without invoking `computeMomentumComponent` so a spy at the boundary
-    // can assert the compute path was skipped. Flag-on path runs the full
-    // calculation against `priorBaseComposite`.
     const momentum = flags.momentum
       ? components.computeMomentumComponent(r.priorBaseComposite, baseComposite, config)
       : 0;
@@ -117,14 +133,7 @@ export function score(
 
     return {
       token: r.token,
-      // Scale to integer [HP_MIN, HP_MAX]. Round-half-up (Math.round for
-      // positives) — Track E's Python pipeline mirrors this with
-      // `int(weighted_sum * 10000 + 0.5)` so off-chain replays land on the
-      // same integer.
       hp: hpToInt(weightedSum),
-      // Stash launchedAt internally for the tie-break sort — stripped from
-      // the returned shape via destructuring below so consumers see only the
-      // public ScoredToken contract.
       _launchedAt: r.launchedAt,
       phase: config.phase,
       baseComposite,
@@ -165,13 +174,14 @@ export function score(
     };
   });
 
-  // Spec §6.5 "Composite scale + tie-break": primary key is integer HP
-  // descending; secondary key is launchedAt ascending (earlier wins). Without
-  // the secondary key, two tokens at the same integer HP would resolve by
-  // Array.sort's stable order — fine for replays of the same input but
-  // ambiguous when the indexer reads cohorts back from the DB in a different
-  // order. Tokens missing `launchedAt` fall through to the stable ordering;
-  // production cohorts always carry it (joined from the `token` table).
+  // Spec §6.10 cohort-edge tie-break (Epic 1.22 lock):
+  //   1. integer HP descending
+  //   2. launchedAt ascending (earlier-launched wins on legitimacy)
+  //   3. token address ascending lower-cased (deterministic last-resort)
+  // Tier 3 was added in Epic 1.22 — the prior implementation fell through
+  // to Array.sort's stable order, which is implementation-defined when the
+  // indexer reads cohorts back from the DB in a different row order across
+  // replicas. With three tiers the ordering is fully deterministic.
   scored.sort((a, b) => {
     if (a.hp !== b.hp) return b.hp - a.hp;
     const aL = a._launchedAt;
@@ -179,6 +189,10 @@ export function score(
     if (aL !== undefined && bL !== undefined && aL !== bL) {
       return aL < bL ? -1 : 1;
     }
+    const aAddr = a.token.toLowerCase();
+    const bAddr = b.token.toLowerCase();
+    if (aAddr < bAddr) return -1;
+    if (aAddr > bAddr) return 1;
     return 0;
   });
   return scored.map((s, idx) => {
@@ -201,11 +215,6 @@ export function score(
 /// inputs). Track E's Python pipeline mirrors this with
 /// `int(weighted_sum * 10000 + 0.5)` so a row scored on-chain matches its
 /// retrospective Track E recompute exactly.
-///
-/// Out-of-range / NaN inputs clamp to `[HP_MIN, HP_MAX]` defensively — a
-/// negative weighted sum can only arise if a future component returns a
-/// negative score, which would itself be a bug, but the clamp keeps the
-/// integer-storage invariant intact regardless.
 export function hpToInt(weightedSum01: number): number {
   if (!Number.isFinite(weightedSum01)) return HP_MIN;
   const clamped = Math.max(0, Math.min(1, weightedSum01));
@@ -215,24 +224,6 @@ export function hpToInt(weightedSum01: number): number {
 /// Applies feature flags to a weight set. Inactive components zero out;
 /// active components renormalize so the total sum is preserved (preserves
 /// HP ∈ [0, 1] for any base weight set, not just LOCKED_WEIGHTS).
-///
-/// - `flags.momentum === false` → zero momentum's weight (in addition to
-///   the score short-circuit in `score`). This guarantees
-///   `flagsActive.momentum:false` rows have momentum.weight = 0 in the
-///   stamped breakdown, so consumers reading historical rows can see that
-///   the gate was off without ambiguity.
-/// - `flags.concentration === false` → zero holderConcentration's weight.
-///
-/// Renormalization runs once over the *active* subset after both gates have
-/// applied. **PR #71 bugbot caught a stacking bug** in the prior two-pass
-/// implementation: when both flags were off and `base.momentum > 0`, the
-/// concentration-off renormalization scaled to the post-momentum-zeroed
-/// sum rather than the original total, so the final weights summed to
-/// `1.0 - base.momentum` instead of 1.0. Harmless under LOCKED_WEIGHTS
-/// (momentum = 0 in v4) but the function is publicly exported and the
-/// docstring promises sum-preservation for any caller. The squash-merge
-/// of #71 dropped the original fix commit; re-applying here in 1.17b.
-/// Compute the active subset once, scale to `baseSum` in a single pass.
 export function applyFlagsToWeights(
   base: ScoringWeights,
   flags: WeightFlags,
@@ -272,26 +263,35 @@ export function applyFlagsToWeights(
   };
 }
 
-/// Decayed net buy inflow with sybil dampening + churn discount.
+/// Velocity raw value — decayed net buy inflow with sybil dampening + churn
+/// discount. Spec §6.4.1 (locked 2026-05-04).
 ///
-/// - Each buy contributes its WETH amount × `2^(-age/halfLife)` (recency).
-/// - Each sell subtracts the same way; sells that fall within `churnWindowSec`
-///   of a same-wallet buy are doubled (pump-and-dump signal).
-/// - Per-wallet net is clamped at 0.
-/// - Per-wallet net is divided by `log2(1 + walletTotal/floor)`, so whales
-///   contribute log-scaled rather than linearly.
-function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): number {
-  const halfLife = config.velocityHalfLifeSec;
-  const floor = bigintToFloat(config.walletCapFloorWeth);
-  const churnWindow = BigInt(config.churnWindowSec);
+/// Per the locked formula:
+///   1. Drop buys/sells older than `VELOCITY_LOOKBACK_SEC` (96h hard cutoff).
+///   2. Decay weight: `0.5 ^ (age / VELOCITY_DECAY_HALFLIFE_SEC)` (24h half-life).
+///   3. Per-wallet net = max(0, decayed_buys − decayed_sells).
+///   4. Sells within `VELOCITY_CHURN_WINDOW_SEC` of a same-wallet buy get
+///      `× VELOCITY_CHURN_PENALTY_FACTOR` (pump-and-dump signal).
+///   5. Per-wallet net is capped at `VELOCITY_PER_WALLET_CAP_WETH` (absolute
+///      WETH cap — anti-whale).
+///   6. Sum capped per-wallet contributions across the cohort.
+///
+/// Returns the raw decayed-WETH sum; caller applies `VELOCITY_REFERENCE`
+/// normalization (§6.7).
+function computeVelocityRaw(t: TokenStats, now: bigint): number {
+  const halfLife = VELOCITY_DECAY_HALFLIFE_SEC;
+  const lookback = BigInt(VELOCITY_LOOKBACK_SEC);
+  const churnWindow = BigInt(VELOCITY_CHURN_WINDOW_SEC);
 
-  // All buy timestamps per wallet, sorted ascending. We can't store only the
-  // latest: an attacker who buys, dumps within the churn window, then places
-  // a tiny later buy would shift "latest" past the dump and bypass the
-  // discount. Instead each sell looks up the latest buy that happened
-  // *before or at* the sell time — a later buy can't reset the check.
+  // All in-window buy timestamps per wallet, sorted ascending. We can't store
+  // only the latest: an attacker who buys, dumps within the churn window,
+  // then places a tiny later buy would shift "latest" past the dump and
+  // bypass the discount. Instead each sell looks up the latest buy that
+  // happened *before or at* the sell time — a later buy can't reset the check.
   const buyTimestampsByWallet = new Map<Address, bigint[]>();
   for (const b of t.buys) {
+    if (b.ts > now) continue;
+    if (now - b.ts > lookback) continue;
     const arr = buyTimestampsByWallet.get(b.wallet);
     if (arr) arr.push(b.ts);
     else buyTimestampsByWallet.set(b.wallet, [b.ts]);
@@ -302,8 +302,9 @@ function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): num
 
   const buyDecayedByWallet = new Map<Address, number>();
   for (const buy of t.buys) {
+    if (buy.ts > now) continue;
     const age = Number(now - buy.ts);
-    if (age < 0) continue;
+    if (age > VELOCITY_LOOKBACK_SEC) continue;
     const decay = Math.pow(0.5, age / halfLife);
     const amt = bigintToFloat(buy.amountWeth) * decay;
     buyDecayedByWallet.set(buy.wallet, (buyDecayedByWallet.get(buy.wallet) ?? 0) + amt);
@@ -311,8 +312,9 @@ function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): num
 
   const sellDecayedByWallet = new Map<Address, number>();
   for (const sell of t.sells) {
+    if (sell.ts > now) continue;
     const age = Number(now - sell.ts);
-    if (age < 0) continue;
+    if (age > VELOCITY_LOOKBACK_SEC) continue;
     const decay = Math.pow(0.5, age / halfLife);
 
     const arr = buyTimestampsByWallet.get(sell.wallet);
@@ -325,60 +327,233 @@ function computeVelocity(t: TokenStats, now: bigint, config: ScoringConfig): num
     }
     const churn =
       lastBuyBeforeSell !== null && sell.ts - lastBuyBeforeSell <= churnWindow;
-    const churnBoost = churn ? 2 : 1;
+    const churnBoost = churn ? VELOCITY_CHURN_PENALTY_FACTOR : 1;
 
     const amt = bigintToFloat(sell.amountWeth) * decay * churnBoost;
     sellDecayedByWallet.set(sell.wallet, (sellDecayedByWallet.get(sell.wallet) ?? 0) + amt);
   }
 
   let total = 0;
+  // WETH unit conversion: amounts are wei (1e18); per-wallet cap is in WETH
+  // (≈1e18 wei). Apply cap in WETH-units after dividing.
+  const capWei = VELOCITY_PER_WALLET_CAP_WETH * 1e18;
   for (const [wallet, buyDec] of buyDecayedByWallet) {
     const sellDec = sellDecayedByWallet.get(wallet) ?? 0;
     const net = Math.max(0, buyDec - sellDec);
     if (net <= 0) continue;
-    const walletTotal = bigintToFloat(t.volumeByWallet.get(wallet) ?? 0n);
-    const cap = walletTotal > floor ? Math.log2(1 + walletTotal / floor) : 1;
-    total += net / Math.max(cap, 1);
+    const capped = Math.min(net, capWei);
+    total += capped / 1e18;
   }
   return total;
 }
 
-/// Effective buyers — sum of `f(walletBuyVolume)` across wallets above the
-/// dust floor, where `f` is the configured dampening function (spec §6.4.2).
-function computeEffectiveBuyers(t: TokenStats, config: ScoringConfig): number {
-  const dust = bigintToFloat(config.buyerDustFloorWeth);
-  const dampen = config.effectiveBuyersFunc === "log"
-    ? (v: number) => Math.log(1 + v)
-    : (v: number) => Math.sqrt(v);
+/// Effective buyers raw value — sqrt-dampened headcount of meaningful buyers
+/// in the lookback window. Spec §6.4.2 (locked 2026-05-04).
+///
+/// Per the locked formula:
+///   1. For each wallet, sum its buy volume within `EFFECTIVE_BUYERS_LOOKBACK_SEC`.
+///   2. Drop wallets whose in-window buy volume < `EFFECTIVE_BUYERS_DUST_WETH`.
+///   3. Score = Σ sqrt(in_window_volume_weth) across surviving wallets.
+///
+/// Returns the raw sqrt-sum; caller applies `EFFECTIVE_BUYERS_REFERENCE`
+/// normalization (§6.7).
+function computeEffectiveBuyersRaw(t: TokenStats, now: bigint): number {
+  const lookback = BigInt(EFFECTIVE_BUYERS_LOOKBACK_SEC);
+  const dust = EFFECTIVE_BUYERS_DUST_WETH;
+
+  // Build per-wallet in-window buy volume from `buys`. Falls back to
+  // `volumeByWallet` (full-life cumulative) when `buys` is empty — the
+  // pre-1.22 inputs (Epic 1.17b indexer) shipped only the cumulative map,
+  // so this preserves backwards compat for callers that haven't migrated.
+  const windowedByWallet = new Map<Address, number>();
+  if (t.buys.length > 0) {
+    for (const buy of t.buys) {
+      if (buy.ts > now) continue;
+      if (now - buy.ts > lookback) continue;
+      const v = bigintToFloat(buy.amountWeth) / 1e18;
+      windowedByWallet.set(buy.wallet, (windowedByWallet.get(buy.wallet) ?? 0) + v);
+    }
+  } else {
+    for (const [wallet, vol] of t.volumeByWallet) {
+      windowedByWallet.set(wallet, bigintToFloat(vol) / 1e18);
+    }
+  }
+
   let sum = 0;
-  for (const vol of t.volumeByWallet.values()) {
-    const v = bigintToFloat(vol);
+  for (const v of windowedByWallet.values()) {
     if (v < dust) continue;
-    sum += dampen(v);
+    sum += Math.sqrt(v);
   }
   return sum;
 }
 
-/// Time-weighted sticky liquidity, with a recent-withdrawal penalty.
-function computeStickyLiquidity(t: TokenStats, config: ScoringConfig): number {
+/// Sticky liquidity raw value — TVL term minus amount-decayed withdrawal
+/// penalty over the 24h LP-event window. Spec §6.4.3 (locked 2026-05-04).
+///
+/// Per the locked formula:
+///   - `TVL_TERM = avgLiquidityDepthWeth` (or `liquidityDepthWeth` fallback).
+///   - For each LP `remove` event with age `Δt < LP_PENALTY_WINDOW_SEC`:
+///       penalty += amount × exp(-Δt / LP_PENALTY_TAU_SEC)
+///   - Score = max(0, TVL_TERM − penalty) × ageFactor
+///   - ageFactor = min(1, token_age_hours / max(1, token_age_hours))
+///     where the slot-fairness denominator `max(1, token_age_hours)` (§6.9)
+///     means a 24h-old maximally-sticky LP can score 1.0 within its window.
+///
+/// Backwards-compat fallback: when `lpEvents` is omitted, falls back to the
+/// pre-1.22 aggregate path (`recentLiquidityRemovedWeth × α`). The pre-lock
+/// `α` was 1.0; preserved here.
+function computeStickyLiquidityRaw(
+  t: TokenStats,
+  now: bigint,
+  config: ScoringConfig,
+): number {
   const avg = t.avgLiquidityDepthWeth ?? t.liquidityDepthWeth;
-  const avgF = bigintToFloat(avg);
+  const avgF = bigintToFloat(avg) / 1e18;
   if (avgF <= 0) return 0;
-  const removedF = bigintToFloat(t.recentLiquidityRemovedWeth ?? 0n);
-  const penalty = (removedF / avgF) * config.recentWithdrawalPenalty;
-  return Math.max(0, avgF * (1 - Math.min(1, penalty)));
+
+  let penalty = 0;
+  if (t.lpEvents && t.lpEvents.length > 0) {
+    // Locked path: per-event penalty with `exp(-Δt / 6h)` decay.
+    for (const ev of t.lpEvents) {
+      if (ev.ts > now) continue;
+      if (ev.amountWethSigned >= 0n) continue; // adds don't penalize
+      const age = Number(now - ev.ts);
+      if (age > LP_PENALTY_WINDOW_SEC) continue;
+      const removed = bigintToFloat(-ev.amountWethSigned) / 1e18;
+      const decay = Math.exp(-age / LP_PENALTY_TAU_SEC);
+      penalty += removed * decay;
+    }
+  } else {
+    // Backwards-compat path: pre-1.22 aggregate input shape.
+    const removedF = bigintToFloat(t.recentLiquidityRemovedWeth ?? 0n) / 1e18;
+    penalty = removedF * config.recentWithdrawalPenalty;
+  }
+
+  // Slot-fairness ageFactor (§6.9) — only relevant when token_age_hours < 24
+  // (i.e., during the launch's first day). For older tokens the penalty
+  // window is fully populated and ageFactor saturates at 1.0.
+  const ageFactor = stickyLiquidityAgeFactor(t, now);
+
+  return Math.max(0, avgF - penalty) * ageFactor;
 }
 
-/// Two-anchor retention: `long` for conviction, `short` so a token bleeding
-/// fresh holders can't coast on day-old stickiness.
-function computeRetention(t: TokenStats, config: ScoringConfig): number {
-  const longFrac = retentionFraction(t.holdersAtRetentionAnchor, t.currentHolders);
-  if (!t.holdersAtRecentAnchor) return longFrac;
-  const shortFrac = retentionFraction(t.holdersAtRecentAnchor, t.currentHolders);
-  const lw = config.retentionLongWeight;
-  const sw = config.retentionShortWeight;
-  const total = lw + sw;
-  return total > 0 ? (lw * longFrac + sw * shortFrac) / total : 0;
+/// Slot-fairness ageFactor for sticky liquidity (§6.9). The spec amendment
+/// replaces the pre-lock fixed-window denominator (96h) with `max(1,
+/// token_age_hours)`, capped at the active LP-penalty window. Net effect:
+///   - tokens ≥ 1h old → ageFactor saturates at 1.0 (no penalty for being
+///     "young" once you've cleared the floor)
+///   - tokens < 1h old → ageFactor = token_age_hours (proportional ramp)
+///   - launchedAt missing → 1.0 (legacy callers)
+///
+/// The "12h-old launch with 12h of maximally-sticky LP scores 1.0" example
+/// from the spec amendment falls out of this: ageHours = 12, observedHours =
+/// min(12, 24) = 12, denom = max(1, min(12, 24)) = 12, ageFactor = 12/12 = 1.
+function stickyLiquidityAgeFactor(t: TokenStats, now: bigint): number {
+  if (t.launchedAt === undefined) return 1;
+  if (now <= t.launchedAt) return 0;
+  const ageSec = Number(now - t.launchedAt);
+  const ageHours = ageSec / 3600;
+  const windowHours = LP_PENALTY_WINDOW_SEC / 3600;
+  const observedHours = Math.min(ageHours, windowHours);
+  const denom = Math.max(1, Math.min(ageHours, windowHours));
+  return Math.min(1, observedHours / denom);
+}
+
+/// Two-anchor retention with §6.4.4 ageFactor + §6.4.4 dust threshold.
+///
+/// Per the locked formula:
+///   - retentionRatio = |currentHolders ∩ anchor| / |anchor|, applied per
+///     anchor (long + optional short), weighted blend with config defaults.
+///   - Holders below `RETENTION_DUST_SUPPLY_FRAC × totalSupply` excluded
+///     from both sets before the ratio is computed (when balance + supply
+///     data is available; otherwise dust filter is skipped).
+///   - retention = retentionRatio × ageFactor where
+///     ageFactor = min(1, token_age_hours / max(1, token_age_hours))
+///     — same slot-fairness denominator as sticky liquidity (§6.9).
+///
+/// Already in [0, 1] by construction — not subject to fixed-reference
+/// normalization.
+function computeRetention(t: TokenStats, now: bigint, config: ScoringConfig): number {
+  const longAnchor = applyRetentionDust(t.holdersAtRetentionAnchor, t);
+  const longFrac = retentionFraction(longAnchor, applyRetentionDustToCurrent(t.currentHolders, t));
+
+  let baseFrac: number;
+  if (!t.holdersAtRecentAnchor) {
+    baseFrac = longFrac;
+  } else {
+    const shortAnchor = applyRetentionDust(t.holdersAtRecentAnchor, t);
+    const shortFrac = retentionFraction(
+      shortAnchor,
+      applyRetentionDustToCurrent(t.currentHolders, t),
+    );
+    const lw = config.retentionLongWeight;
+    const sw = config.retentionShortWeight;
+    const total = lw + sw;
+    baseFrac = total > 0 ? (lw * longFrac + sw * shortFrac) / total : 0;
+  }
+
+  return baseFrac * retentionAgeFactor(t, now);
+}
+
+/// Retention slot-fairness ageFactor (§6.9). Same shape as
+/// `stickyLiquidityAgeFactor`: saturates at 1.0 for tokens ≥ 1h old, scales
+/// proportionally below that. The "anchor window" for retention is the
+/// long-anchor convention (24h).
+///   - 24h-old token: anchor=24, denom=24, ageFactor = 1.0
+///   - 1h-old token: anchor=1, denom=1, ageFactor = 1.0
+///   - 0.5h-old token: anchor=0.5, denom=1, ageFactor = 0.5
+function retentionAgeFactor(t: TokenStats, now: bigint): number {
+  if (t.launchedAt === undefined) return 1;
+  if (now <= t.launchedAt) return 0;
+  const ageSec = Number(now - t.launchedAt);
+  const ageHours = ageSec / 3600;
+  const anchorWindowHours = 24;
+  const observedHours = Math.min(ageHours, anchorWindowHours);
+  const denom = Math.max(1, Math.min(ageHours, anchorWindowHours));
+  return Math.min(1, observedHours / denom);
+}
+
+/// Apply retention dust filter to an anchor holder set. Returns the input
+/// unchanged when balance/supply data is absent (legacy callers).
+function applyRetentionDust(
+  anchor: ReadonlySet<Address> | undefined,
+  t: TokenStats,
+): ReadonlySet<Address> {
+  if (!anchor) return new Set();
+  if (!t.holderBalancesAtRetentionAnchor || t.totalSupply === undefined) return anchor;
+  const supplyF = bigintToFloat(t.totalSupply);
+  if (supplyF <= 0) return anchor;
+  const dustWei = supplyF * RETENTION_DUST_SUPPLY_FRAC;
+  const out = new Set<Address>();
+  for (const h of anchor) {
+    const balF = bigintToFloat(t.holderBalancesAtRetentionAnchor.get(h) ?? 0n);
+    if (balF >= dustWei) out.add(h);
+  }
+  return out;
+}
+
+/// Apply retention dust filter to the current-holder set. Mirrors
+/// `applyRetentionDust` but reads from `holderBalances` (per spec §41.3 the
+/// HHI/concentration component already consumes this). Returns input
+/// unchanged when balance/supply data is absent.
+function applyRetentionDustToCurrent(
+  current: ReadonlySet<Address>,
+  t: TokenStats,
+): ReadonlySet<Address> {
+  if (!t.holderBalancesAtRetentionAnchor || t.totalSupply === undefined) return current;
+  const supplyF = bigintToFloat(t.totalSupply);
+  if (supplyF <= 0) return current;
+  const dustWei = supplyF * RETENTION_DUST_SUPPLY_FRAC;
+  const out = new Set<Address>();
+  for (const h of current) {
+    // Anchor balances are the most-recent we have; current-balance map isn't
+    // separately exposed in TokenStats yet (Epic 1.22b will add). Use the
+    // anchor balance as the conservative proxy — the failure mode (a holder
+    // who's grown above dust between anchor and now is excluded) is mild.
+    const balF = bigintToFloat(t.holderBalancesAtRetentionAnchor.get(h) ?? 0n);
+    if (balF >= dustWei) out.add(h);
+  }
+  return out;
 }
 
 function retentionFraction(
@@ -394,19 +569,6 @@ function retentionFraction(
 // Re-export the component helpers so `index.ts` can surface them at the
 // package boundary.
 export {computeHolderConcentration, computeMomentumComponent} from "./components.js";
-
-function normalizeMinMax(values: number[]): number[] {
-  if (values.length === 0) return [];
-  let min = values[0]!;
-  let max = values[0]!;
-  for (const v of values) {
-    if (v < min) min = v;
-    if (v > max) max = v;
-  }
-  const range = max - min;
-  if (range === 0) return values.map(() => 0);
-  return values.map((v) => (v - min) / range);
-}
 
 function clamp01(n: number): number {
   if (Number.isNaN(n)) return 0;

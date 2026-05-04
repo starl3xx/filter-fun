@@ -1,0 +1,15 @@
+{
+  "name": "02-no-withdrawal",
+  "description": "depth=30 WETH, no withdrawals → raw=30, ageFactor=1 → norm = 30/STICKY_LIQUIDITY_REFERENCE ≈ 0.446",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "component": "stickyLiquidity",
+  "nowSec": 1700000000,
+  "input": {
+    "token": "0x000000000000000000000000000000000000000a",
+    "launchedAtSec": 1699913600,
+    "liquidityDepthWeth": 30,
+    "avgLiquidityDepthWeth": 30
+  },
+  "expected": 0.446,
+  "tolerance": 0.005
+}

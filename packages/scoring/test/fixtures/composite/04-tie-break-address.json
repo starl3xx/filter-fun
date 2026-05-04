@@ -1,0 +1,30 @@
+{
+  "name": "04-tie-break-address",
+  "description": "two tokens with identical inputs AND identical launchedAt — lower address ranks higher (spec §6.10 tie-break tier 3)",
+  "weightsVersion": "2026-05-04-v4-locked-int10k-formulas",
+  "nowSec": 1700000000,
+  "cohort": [
+    {
+      "token": "0x000000000000000000000000000000000000000b",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000b",
+        "launchedAtSec": 1699913600,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    },
+    {
+      "token": "0x000000000000000000000000000000000000000a",
+      "input": {
+        "token": "0x000000000000000000000000000000000000000a",
+        "launchedAtSec": 1699913600,
+        "currentHolders": ["0x0000000000000000000000000000000000000001"],
+        "holdersAtRetentionAnchor": ["0x0000000000000000000000000000000000000001"]
+      }
+    }
+  ],
+  "expected": [
+    {"token": "0x000000000000000000000000000000000000000a", "hp": 1500, "rank": 1},
+    {"token": "0x000000000000000000000000000000000000000b", "hp": 1500, "rank": 2}
+  ]
+}

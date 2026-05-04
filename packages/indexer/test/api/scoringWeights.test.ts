@@ -19,11 +19,12 @@ describe("/scoring/weights — handler", () => {
   it("returns the locked v4 weight set with provenance fields", () => {
     const r = buildScoringWeightsResponse({});
     expect(r.version).toBe(HP_WEIGHTS_VERSION);
-    // Epic 1.18 (2026-05-05): version bumped to mark the int10k composite scale.
-    expect(r.version).toBe("2026-05-05-v4-locked-int10k");
+    // Epic 1.22 (2026-05-04): version bumped to mark the per-component
+    // formula lock (named constants + fixed-reference normalization).
+    expect(r.version).toBe("2026-05-04-v4-locked-int10k-formulas");
     expect(r.specRef).toBe(HP_WEIGHTS_SPEC_REF);
     expect(r.activatedAt).toBe(HP_WEIGHTS_ACTIVATED_AT);
-    expect(r.activatedAt).toBe("2026-05-05T00:00:00Z");
+    expect(r.activatedAt).toBe("2026-05-11T00:00:00Z");
     expect(r.weights).toEqual({
       velocity: 0.30,
       effectiveBuyers: 0.15,
