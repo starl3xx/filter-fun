@@ -360,7 +360,18 @@ ponder.get("/operator/alerts/stream", async (c) => {
       }
       // 30s cadence: alerts are infra-health signals, not real-time market signals.
       // The web layer also reads /operator/alerts on focus to catch missed updates.
-      await new Promise((r) => setTimeout(r, 30_000));
+      //
+      // Bugbot PR #95 round 19 (Low): poll `stream.aborted` every 500ms instead
+      // of awaiting an unconditional 30s setTimeout. Without this, a client
+      // disconnect mid-tick keeps the handler alive for up to the full 30s
+      // until the next loop check. ~500ms granularity bounds disconnect-to-
+      // cleanup at half a second with negligible overhead (60 setTimeout calls
+      // per 30s iteration), no AbortController plumbing needed.
+      const SLEEP_TICK_MS = 500;
+      const SLEEP_TOTAL_MS = 30_000;
+      for (let elapsed = 0; elapsed < SLEEP_TOTAL_MS && !stream.aborted; elapsed += SLEEP_TICK_MS) {
+        await new Promise((r) => setTimeout(r, SLEEP_TICK_MS));
+      }
     }
   });
   // Reference the IP fn so the import doesn't get tree-shaken; we may re-introduce
