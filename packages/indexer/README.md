@@ -7,7 +7,7 @@ Ponder-based on-chain event indexer for filter.fun. Consumes `FilterLauncher`, `
 - `ponder.config.ts` — networks, contracts, factory patterns, block intervals. Reads addresses from env.
 - `ponder.schema.ts` — base lifecycle tables (`season`, `token`, `feeAccrual`, `phaseChange`, `liquidation`, `rolloverClaim`, `bonusFunding`, `bonusClaim`) plus enrichment tables (`pool`, `swap`, `hpSnapshot`, `holderBalance`, `holderSnapshot`, `creatorLock`, `tournamentStatus`, `tournamentQuarterEntrant`, `tournamentAnnualEntrant`).
 - `src/*.ts` — event handlers grouped by source contract: `FilterLauncher`, `FilterFactory`, `FilterToken` (Transfer → holder balances), `SeasonVault`, `FilterLpLocker`, `BonusDistributor`, `CreatorCommitments`, `TournamentRegistry`, `V4PoolManager`, `HpSnapshot` (block interval).
-- `src/api/*.ts` — HTTP API: `/season`, `/tokens`, `/token/:address`, `/tokens/:address/history`, `/profile/:address`, `/events` (SSE). Pure handlers in `handlers.ts`/`profile.ts`/`history.ts`/`builders.ts`/`hp.ts`/`status.ts`/`phase.ts`; route wiring + Drizzle adapter in `index.ts`. Cross-cutting concerns (LRU cache, per-IP rate limit, IP resolution) live in `cache.ts`/`ratelimit.ts`/`middleware.ts`.
+- `src/api/*.ts` — HTTP API: `/season`, `/tokens`, `/token/:address`, `/tokens/:address/history`, `/tokens/:address/component-deltas`, `/profile/:address`, `/wallets/:address/holdings`, `/events` (SSE). Pure handlers in `handlers.ts`/`profile.ts`/`history.ts`/`holdings.ts`/`componentDeltas.ts`/`builders.ts`/`hp.ts`/`status.ts`/`phase.ts`; route wiring + Drizzle adapter in `index.ts`. Cross-cutting concerns (LRU cache, per-IP rate limit, IP resolution) live in `cache.ts`/`ratelimit.ts`/`middleware.ts`.
 - `src/api/events/*.ts` — `/events` stream: pure detectors + priority pipeline + connection hub + tick engine; SSE route in `events/index.ts`.
 - `test/api/*.test.ts` — vitest unit tests against the pure handlers + events module.
 - `abis/*.json` — Foundry-extracted ABIs. Run `npm run abi:sync` after any contract change. `V4PoolManager.ts` is hand-written (Uniswap V4 is an upstream dep, not part of `packages/contracts`).
@@ -372,6 +372,106 @@ Wallet-level stats. Powers the Arena profile page and feeds the leaderboard "cre
 | `bonusEarnedWei` | sum of `bonusClaim.amount` |
 | `lifetimeTradeVolumeWei` | sum of `swap.wethValue` where `taker = wallet` |
 | `tokensTraded` | distinct `swap.token` count for the same wallet |
+
+#### `?role=creator` (Epic 1.23)
+
+Optional query param. When set to `creator`, the response narrows to the
+creator-keyed surface (`createdTokens` + `wins` + `CHAMPION_CREATOR` badge if
+applicable); trader-side stats and holder/tournament badges are zeroed/empty.
+Default behaviour (no param) is unchanged. Used by the admin console v2
+"past tokens" panel (Epic 1.23) — the explicit param decouples that consumer
+from any future change to the default response shape.
+
+### `GET /wallets/:address/holdings` (Epic 1.23)
+
+Per-wallet positions + projected rollover entitlement. Powers the admin
+console v2 holdings panel and the filter-moment recap card — single source of
+truth so the projection number can never disagree across the two surfaces.
+
+```json
+{
+  "wallet": "0x…",
+  "asOf": 1730000000,
+  "tokens": [
+    {
+      "address": "0x…",
+      "ticker": "$ABC",
+      "season": 7,
+      "balance": "1234567890000000000",
+      "balanceFormatted": "1.234567",
+      "isFiltered": true,
+      "isWinner": false,
+      "isFinalist": true,
+      "projectedRolloverWeth": "456789012345678",
+      "projectedRolloverWethFormatted": "0.000456",
+      "postSettlement": false
+    }
+  ],
+  "totalProjectedWeth": "456789012345678",
+  "totalProjectedWethFormatted": "0.000456"
+}
+```
+
+**Projection math** mirrors `SeasonVault.processFilterEvent`:
+1. `bountySlice = liquidationProceeds * 250 / 10000`
+2. `remainder = liquidationProceeds - bountySlice`
+3. `rolloverSlice = remainder * 4500 / 10000`
+4. `walletShare = walletCutBalance / totalCutBalance` (per token, from
+   `holderSnapshot.trigger = CUT`)
+5. `projectedRolloverWeth = walletShare * rolloverSlice`
+
+`projectedRolloverWeth` is `null` when the wallet has no CUT-trigger snapshot
+(sub-dust at cut, or the cut hasn't indexed yet), the token isn't filtered,
+or the season is post-settlement (`season.winnerSettledAt` is non-null —
+claim has moved to the on-chain Merkle path under `/claim/rollover`).
+
+`totalProjectedWeth` aggregates only the non-null per-token projections.
+
+Open auth (per-wallet self-service derived from public on-chain state). Rate-
+limit shares the per-IP bucket with the rest of the GET routes; cache TTL
+matches `/profile` (configured via `CACHE_TTL_PROFILE_MS`).
+
+### `GET /tokens/:address/component-deltas` (Epic 1.23)
+
+Per-component swap-impact rows for the admin console v2 HP-component
+drilldown. Returns up to `limit` (default 5, max 50) rows per component
+where `|delta| >= threshold` (default 0.05).
+
+```json
+{
+  "token": "0x…",
+  "computedAt": 1730000000,
+  "threshold": 0.05,
+  "components": {
+    "velocity": [
+      {
+        "timestamp": 1730000000,
+        "delta": 0.42,
+        "swap": {
+          "side": "BUY",
+          "taker": "0x…",
+          "wethValue": "500000000000000000",
+          "txHash": "0x…"
+        }
+      }
+    ],
+    "effectiveBuyers": [],
+    "stickyLiquidity": [],
+    "retention": [],
+    "momentum": []
+  }
+}
+```
+
+Deltas are computed against the immediately-preceding `hpSnapshot` row;
+`swap` context is joined from the `swap` index for trigger=`SWAP` rows.
+When multiple swaps share a block, the highest-WETH-leg swap is surfaced
+as the dominant representative (the snapshot's value already reflects the
+cumulative effect, so collapsing to one representative for display is
+honest).
+
+Not cached — admin-console-only consumer + fast-changing data, so the cache
+layer would just add staleness without a meaningful read-rate benefit.
 
 ## Cadence (Epic 1.10)
 

@@ -139,23 +139,65 @@ export interface ProfileQueries {
   tournamentBadgeFlagsForUser: (user: `0x${string}`) => Promise<TournamentBadgeFlags>;
 }
 
+/// Optional role filter (Epic 1.23). Today only `"creator"` is meaningful — the
+/// default `null` is the legacy behaviour (already creator-keyed via
+/// `createdTokensByCreator`, but the explicit param forces the route + cache to
+/// branch on it). Future work may add `"trader"` for a swap-side counterpart.
+export type ProfileRoleFilter = "creator" | null;
+
+export interface ProfileHandlerOpts {
+  role?: ProfileRoleFilter;
+}
+
 export async function getProfileHandler(
   q: ProfileQueries,
   rawAddress: string,
   /// Caller-injected clock so tests can pin `computedAt`. Route passes `() => new Date()`.
   now: () => Date,
+  opts: ProfileHandlerOpts = {},
 ): Promise<{status: number; body: ProfileResponse | {error: string}}> {
   const lower = rawAddress.toLowerCase();
   if (!isAddressLike(lower)) return {status: 400, body: {error: "invalid address"}};
   const addr = lower as `0x${string}`;
 
-  const [created, claims, swapAgg, holderFlags, tournamentFlags] = await Promise.all([
-    q.createdTokensByCreator(addr),
-    q.claimSumsForUser(addr),
-    q.swapAggregatesForUser(addr),
-    q.holderBadgeFlagsForUser(addr),
-    q.tournamentBadgeFlagsForUser(addr),
-  ]);
+  // `?role=creator` doesn't change *how* createdTokens is computed — the indexer
+  // already keys this off `creatorOf(token)`. The explicit param exists so the
+  // admin console's "past tokens by this creator" panel has a stable contract
+  // to call against, decoupled from any future change to the default response
+  // shape (e.g. if a future epic adds a `tradedTokens` array to the default
+  // payload, `?role=creator` still returns ONLY `createdTokens`).
+  //
+  // Bugbot PR #101 (Low): under `?role=creator` we used to fire all five
+  // queries in parallel and discard four — pure waste on every request, and
+  // the admin console polls this endpoint on a 60s cadence. Branch the
+  // fan-out so the creator-only path runs only the one query it needs and
+  // zero-fills the rest (response shape stays uniform).
+  const filterToCreatorOnly = opts.role === "creator";
+  let created: CreatedTokenRow[];
+  let claims: ClaimSums;
+  let swapAgg: SwapAggregates;
+  let holderFlags: HolderBadgeFlags;
+  let tournamentFlags: TournamentBadgeFlags;
+  if (filterToCreatorOnly) {
+    created = await q.createdTokensByCreator(addr);
+    claims = {rolloverEarnedWei: 0n, bonusEarnedWei: 0n};
+    swapAgg = {lifetimeTradeVolumeWei: 0n, tokensTraded: 0};
+    holderFlags = {weekWinner: false, filterSurvivor: false, filtersSurvived: 0};
+    tournamentFlags = {
+      quarterlyFinalist: false,
+      quarterlyChampion: false,
+      annualFinalist: false,
+      annualChampion: false,
+    };
+  } else {
+    [created, claims, swapAgg, holderFlags, tournamentFlags] = await Promise.all([
+      q.createdTokensByCreator(addr),
+      q.claimSumsForUser(addr),
+      q.swapAggregatesForUser(addr),
+      q.holderBadgeFlagsForUser(addr),
+      q.tournamentBadgeFlagsForUser(addr),
+    ]);
+  }
 
   const createdTokens = created.map((r) => ({
     token: r.id,
@@ -173,6 +215,32 @@ export async function getProfileHandler(
   // would silently drop the win on every successful promotion (the opposite of
   // what creators expect from progressing in the tournament). Bugbot caught this.
   const wins = countWeeklyWins(created);
+
+  // Role-filtered shape (Epic 1.23): when `?role=creator`, return only the
+  // creator-keyed surface. Stats / badges / claims are all trader-side
+  // derivations and are zeroed out so the admin console's past-tokens panel
+  // doesn't accidentally depend on them. The wire shape stays the same — just
+  // empty/zero — so a single ProfileResponse type covers both modes and clients
+  // can reuse one fetcher.
+  if (filterToCreatorOnly) {
+    return {
+      status: 200,
+      body: {
+        address: addr,
+        createdTokens,
+        stats: {
+          wins,
+          filtersSurvived: 0,
+          rolloverEarnedWei: "0",
+          bonusEarnedWei: "0",
+          lifetimeTradeVolumeWei: "0",
+          tokensTraded: 0,
+        },
+        badges: wins > 0 ? ["CHAMPION_CREATOR"] : [],
+        computedAt: now().toISOString(),
+      },
+    };
+  }
 
   return {
     status: 200,

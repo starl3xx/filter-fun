@@ -2,11 +2,14 @@
 ///
 /// Mounts on Ponder's built-in Hono server (default port 42069) via `ponder.get`. Endpoints:
 ///
-///   GET /season                          — current season state, cadence anchors, prize pools
-///   GET /tokens                          — ranked cohort with HP + components + status + bag-lock
-///   GET /token/:address                  — minimal per-token detail (used by leaderboard)
-///   GET /tokens/:address/history         — HP timeseries for one token (admin drilldown)
-///   GET /profile/:address                — wallet stats: tokens + claims + swap volume + badges
+///   GET /season                                — current season state, cadence anchors, prize pools
+///   GET /tokens                                — ranked cohort with HP + components + status + bag-lock
+///   GET /token/:address                        — minimal per-token detail (used by leaderboard)
+///   GET /tokens/:address/history               — HP timeseries for one token (admin drilldown)
+///   GET /tokens/:address/component-deltas      — per-component swap-impact rows (Epic 1.23)
+///   GET /profile/:address                      — wallet stats: tokens + claims + swap volume + badges
+///                                                Accepts `?role=creator` (Epic 1.23) to narrow to the creator-keyed surface.
+///   GET /wallets/:address/holdings             — per-wallet positions + projected rollover (Epic 1.23)
 ///
 /// Deliberately NOT exposed in genesis (Phase 1 audit 2026-05-01, finding C-4):
 ///   GET /tokens/:address/holders         — deferred to Phase 2. The underlying
@@ -43,6 +46,7 @@ import {
   bonusClaim,
   creatorEarning,
   creatorLock,
+  holderBalance,
   holderSnapshot,
   hpSnapshot,
   launchEscrowSummary,
@@ -84,6 +88,8 @@ import {
   applyGetRateLimit,
   historyCacheKey,
   historyResponseCache,
+  holdingsCacheKey,
+  holdingsResponseCache,
   profileCacheKey,
   profileResponseCache,
   seasonResponseCache,
@@ -101,9 +107,24 @@ import {
   type HolderBadgeFlags,
   type ProfileQueries,
   type ProfileResponse,
+  type ProfileRoleFilter,
   type SwapAggregates,
   type TournamentBadgeFlags,
 } from "./profile.js";
+import {
+  getHoldingsHandler,
+  type CutSnapshotForToken,
+  type HoldingsQueries,
+  type HoldingsResponse,
+  type HoldingTokenRow,
+} from "./holdings.js";
+import {
+  getComponentDeltasHandler,
+  type ComponentDeltasQueries,
+  type ComponentDeltasResponse,
+  type SnapshotRow,
+  type SwapJoinRow,
+} from "./componentDeltas.js";
 
 /// Audit H-6 (Phase 1, 2026-05-01): CORS middleware. Origin allow-list is loaded from
 /// env at module-import time via `CORS_ALLOWED_ORIGINS` (comma-separated); falls back
@@ -504,15 +525,82 @@ ponder.get("/profile/:address", async (c) => {
   if (!isAddressLike(normalized)) {
     return c.json({error: "invalid address"}, 400);
   }
+  const url = new URL(mw.req.url);
+  const roleParam = url.searchParams.get("role");
+  // Epic 1.23: `?role=creator` narrows `createdTokens` to tokens this wallet
+  // created (vs. the default which already keys on creator anyway, but the
+  // explicit param lets the admin console request a stable filter for the
+  // past-tokens panel without depending on default behaviour).
+  const role: ProfileRoleFilter = roleParam === "creator" ? "creator" : null;
+  if (roleParam !== null && role === null) {
+    return c.json({error: `unsupported role filter: ${roleParam}`}, 400);
+  }
   const bypass = shouldBypassCache(mw);
   const r = await cached(
     profileResponseCache,
-    profileCacheKey(normalized as `0x${string}`),
-    async () => getProfileHandler(buildProfileQueries(c.db), normalized, () => new Date()),
+    profileCacheKey(normalized as `0x${string}`, {role: role ?? "all"}),
+    async () =>
+      getProfileHandler(buildProfileQueries(c.db), normalized, () => new Date(), {role}),
     {bypass},
   );
   mw.header("X-Cache", r.status);
   return c.json(r.value.body as ProfileResponse | {error: string}, r.value.status as 200);
+});
+
+/// Epic 1.23 — per-token HP-component swap-impact drilldown. Powers the
+/// admin console v2 expandable section under each HP-component mini-bar.
+/// See `componentDeltas.ts` for the threshold + windowing rules.
+ponder.get("/tokens/:address/component-deltas", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyGetRateLimit(mw);
+  if (limited) return limited;
+  const raw = c.req.param("address") ?? "";
+  const normalized = raw.toLowerCase();
+  if (!isAddressLike(normalized)) {
+    return c.json({error: "invalid address"}, 400);
+  }
+  const url = new URL(mw.req.url);
+  const params = {
+    limit: url.searchParams.get("limit") ?? undefined,
+    threshold: url.searchParams.get("threshold") ?? undefined,
+  };
+  // Skip the cache layer entirely — the response is small, the underlying
+  // tables churn on every swap, and the admin console only opens this
+  // surface on demand. Adding a cache here would just add staleness without
+  // a meaningful read-rate benefit.
+  const r = await getComponentDeltasHandler(buildComponentDeltasQueries(c.db), normalized, params, {
+    nowSec: () => Math.floor(Date.now() / 1000),
+  });
+  return c.json(r.body, r.status as 200 | 400);
+});
+
+/// Epic 1.23 — per-wallet holdings + projected rollover entitlement. Powers the
+/// admin console v2 holdings panel + the filter-moment recap card. Open auth
+/// (per-wallet self-service derived from public on-chain state). See
+/// `holdings.ts` for the projection math + null-result semantics.
+ponder.get("/wallets/:address/holdings", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyGetRateLimit(mw);
+  if (limited) return limited;
+  const raw = c.req.param("address") ?? "";
+  const normalized = raw.toLowerCase();
+  if (!isAddressLike(normalized)) {
+    return c.json({error: "invalid address"}, 400);
+  }
+  const bypass = shouldBypassCache(mw);
+  const r = await cached(
+    holdingsResponseCache,
+    holdingsCacheKey(normalized as `0x${string}`),
+    async () =>
+      getHoldingsHandler(
+        buildHoldingsQueries(c.db),
+        normalized,
+        () => Math.floor(Date.now() / 1000),
+      ),
+    {bypass},
+  );
+  mw.header("X-Cache", r.status);
+  return c.json(r.value.body as HoldingsResponse | {error: string}, r.value.status as 200);
 });
 
 /// Adapts the Ponder `c.db` Drizzle handle into the database-agnostic `ApiQueries`
@@ -816,6 +904,129 @@ function buildProfileQueries(db: ApiDb): ProfileQueries {
         if (a.isChampion) annualChampion = true;
       }
       return {quarterlyFinalist, quarterlyChampion, annualFinalist, annualChampion};
+    },
+  };
+}
+
+/// Holdings-specific queries (Epic 1.23). One bulk read of `holderBalance` rows
+/// for the wallet, joined to `token` + `season` so the handler has every flag
+/// it needs without N+1 round-trips. CUT-trigger holderSnapshot lookups happen
+/// per-filtered-token and are batched at the handler layer.
+function buildHoldingsQueries(db: ApiDb): HoldingsQueries {
+  return {
+    holdingsForUser: async (wallet) => {
+      // Pull every positive-balance row for the wallet. Zero-balance rows are
+      // not deleted (see `holder_balance` schema comment), so we filter at
+      // the query layer to keep wire shape clean.
+      const balanceRows = await db
+        .select()
+        .from(holderBalance)
+        .where(and(eq(holderBalance.holder, wallet), gte(holderBalance.balance, 1n)));
+      if (balanceRows.length === 0) return [];
+
+      const tokenAddrs = balanceRows.map((r) => r.token);
+      const tokenRows = await db
+        .select()
+        .from(token)
+        .where(inArray(token.id, tokenAddrs));
+      const tokenById = new Map<string, (typeof tokenRows)[number]>();
+      for (const t of tokenRows) tokenById.set(t.id.toLowerCase(), t);
+
+      const seasonIds = [...new Set(tokenRows.map((t) => t.seasonId))];
+      const seasonRows = await Promise.all(
+        seasonIds.map((id) => db.select().from(season).where(eq(season.id, id)).limit(1)),
+      );
+      const seasonById = new Map<bigint, (typeof seasonRows)[number][number] | undefined>();
+      for (const rows of seasonRows) {
+        const s = rows[0];
+        if (s) seasonById.set(s.id, s);
+      }
+
+      const out: HoldingTokenRow[] = [];
+      for (const b of balanceRows) {
+        const t = tokenById.get(b.token.toLowerCase());
+        // Indexer hadn't ingested the token yet (race between Transfer + Deploy
+        // event ordering on a fresh launch). Skip — the next poll will pick it
+        // up. Better than surfacing a half-hydrated row.
+        if (!t) continue;
+        const s = seasonById.get(t.seasonId);
+        out.push({
+          token: t.id,
+          symbol: t.symbol,
+          seasonId: t.seasonId,
+          liquidated: t.liquidated,
+          isFinalist: t.isFinalist,
+          liquidationProceeds: t.liquidationProceeds ?? null,
+          balance: b.balance,
+          seasonWinner: s?.winner ?? null,
+          winnerSettledAt: s?.winnerSettledAt ?? null,
+        });
+      }
+      return out;
+    },
+    cutSnapshotForToken: async (tokenAddr, wallet): Promise<CutSnapshotForToken | null> => {
+      // CUT-trigger snapshots for the token: one row per holder above dust at
+      // first-cut. Sum across them for `totalCutBalance`; lift the wallet's
+      // own row for `walletCutBalance`. Both come from the same query — one
+      // round-trip per filtered token.
+      const rows = await db
+        .select()
+        .from(holderSnapshot)
+        .where(and(eq(holderSnapshot.token, tokenAddr), eq(holderSnapshot.trigger, "CUT")));
+      if (rows.length === 0) return null;
+      let total = 0n;
+      let walletBalance = 0n;
+      const walletLower = wallet.toLowerCase();
+      for (const r of rows) {
+        total += r.balance;
+        if (r.holder.toLowerCase() === walletLower) walletBalance = r.balance;
+      }
+      return {walletCutBalance: walletBalance, totalCutBalance: total};
+    },
+  };
+}
+
+/// Component-deltas queries (Epic 1.23). Two indexes are touched:
+///   - `hp_snapshot` — recent rows for the token, used to compute deltas.
+///   - `swap` — joined on `blockNumber` to attach taker / tx / WETH context to
+///     trigger=SWAP rows.
+function buildComponentDeltasQueries(db: ApiDb): ComponentDeltasQueries {
+  return {
+    recentSnapshots: async (tokenAddr, windowSize): Promise<SnapshotRow[]> => {
+      const rows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(eq(hpSnapshot.token, tokenAddr))
+        .orderBy(desc(hpSnapshot.snapshotAtSec))
+        .limit(windowSize);
+      return rows.map((r) => ({
+        token: r.token,
+        timestamp: Number(r.snapshotAtSec),
+        trigger: r.trigger,
+        blockNumber: r.blockNumber,
+        velocity: r.velocity,
+        effectiveBuyers: r.effectiveBuyers,
+        stickyLiquidity: r.stickyLiquidity,
+        retention: r.retention,
+        momentum: r.momentum,
+      }));
+    },
+    swapsForBlocks: async (tokenAddr, blockNumbers): Promise<SwapJoinRow[]> => {
+      if (blockNumbers.length === 0) return [];
+      const rows = await db
+        .select()
+        .from(swap)
+        .where(
+          and(eq(swap.token, tokenAddr), inArray(swap.blockNumber, [...blockNumbers])),
+        );
+      return rows.map((r) => ({
+        txHash: r.txHash,
+        taker: r.taker,
+        side: r.side as "BUY" | "SELL",
+        wethValue: r.wethValue,
+        blockNumber: r.blockNumber,
+        blockTimestamp: r.blockTimestamp,
+      }));
     },
   };
 }

@@ -107,11 +107,19 @@ const historyCache = new LruTtlCache<unknown>({
   ttlMs: cacheCfg.profileTtlMs,
   maxEntries: cacheCfg.maxEntries,
 });
+/// Holdings (Epic 1.23) — same TTL knob as profile (the data behind it changes on
+/// every Transfer + every filter event, which is the same cadence the profile
+/// derivations care about). Keys are per-wallet so the cache holds many entries.
+const holdingsCache = new LruTtlCache<unknown>({
+  ttlMs: cacheCfg.profileTtlMs,
+  maxEntries: cacheCfg.maxEntries,
+});
 
 export const seasonResponseCache: LruTtlCache<unknown> = seasonCache;
 export const tokensResponseCache: LruTtlCache<unknown> = tokensCache;
 export const profileResponseCache: LruTtlCache<unknown> = profileCache;
 export const historyResponseCache: LruTtlCache<unknown> = historyCache;
+export const holdingsResponseCache: LruTtlCache<unknown> = holdingsCache;
 
 // ============================================================ IP resolution
 
@@ -214,8 +222,14 @@ export function releaseEventsConn(ip: string): void {
 export const SEASON_CACHE_KEY = "season:current";
 export const TOKENS_CACHE_KEY = "tokens:current";
 
-export function profileCacheKey(addr: `0x${string}`): string {
-  return `profile:${addr.toLowerCase()}`;
+export function profileCacheKey(addr: `0x${string}`, opts?: {role?: string}): string {
+  const role = opts?.role ?? "all";
+  return `profile:${addr.toLowerCase()}:${role}`;
+}
+
+/// `/wallets/:address/holdings` cache key — per-wallet only (no other params).
+export function holdingsCacheKey(addr: `0x${string}`): string {
+  return `holdings:${addr.toLowerCase()}`;
 }
 
 /// Cache key for `/tokens/:address/history`. `from` / `to` / `interval` are part

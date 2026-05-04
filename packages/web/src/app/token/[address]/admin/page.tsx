@@ -37,8 +37,10 @@ import {AuthBanner} from "@/components/admin/AuthBanner";
 import {BagLockCard} from "@/components/admin/BagLockCard";
 import {BountyEstimate} from "@/components/admin/BountyEstimate";
 import {ClaimFeesPanel} from "@/components/admin/ClaimFeesPanel";
+import {HoldingsPanel} from "@/components/admin/HoldingsPanel";
 import {HpPanel} from "@/components/admin/HpPanel";
 import {MetadataForm} from "@/components/admin/MetadataForm";
+import {PastTokensPanel} from "@/components/admin/PastTokensPanel";
 import {PhaseCountdown} from "@/components/admin/PhaseCountdown";
 import {BulkDistributeCard, VerifyPlaceholder} from "@/components/admin/PlaceholderCards";
 import {RankPanel} from "@/components/admin/RankPanel";
@@ -192,6 +194,11 @@ function AdminConsole({token}: {token: Address}) {
             recipient={info.recipient}
             auth={auth}
           />
+          <PastTokensPanel
+            walletAddress={auth.connected}
+            isAdmin={auth.state === "ADMIN"}
+            currentToken={token}
+          />
           {adminLoading && info.creator === null && (
             <Card label="Loading">
               <p style={{margin: 0, fontSize: 12, color: C.faint, fontFamily: F.mono}}>
@@ -252,6 +259,7 @@ function AdminConsole({token}: {token: Address}) {
         >
           <MetadataForm token={token} currentUri={info.metadataURI} canEdit={canEdit} />
           <RecipientForm token={token} currentRecipient={info.recipient} canEdit={canEdit} />
+          <HoldingsPanel walletAddress={auth.connected} isAdmin={auth.state === "ADMIN"} />
           <AdminTransferForms
             ref={acceptAnchorRef}
             token={token}

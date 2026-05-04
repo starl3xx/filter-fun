@@ -14,6 +14,42 @@ export function fmtEth(decimalEther: string): string {
   return `Ξ${n.toFixed(2)}`;
 }
 
+/// Decimal-ether string from a wei `bigint`, with up to 6 decimal places. MUST
+/// stay byte-for-byte equivalent to the indexer's `weiToDecimalEther` in
+/// `packages/indexer/src/api/builders.ts` — both produce the canonical "single
+/// source of truth" wire shape that the holdings panel + filter-moment recap
+/// derive their projected rollover string from. Bugbot caught the original
+/// truncation-vs-rounding divergence on PR #101: for wei values where the 7th
+/// decimal digit is ≥ 5, truncation gives a different string and the two
+/// surfaces silently disagree.
+///
+/// **Why duplicated** rather than extracted to a shared workspace package:
+/// the repo's no-premature-abstraction policy (one function does not justify
+/// a new package). Divergence is enforced by the IDENTICAL parity battery
+/// that runs in both workspaces' test suites
+/// (`packages/web/test/regression/weiToDecimalEtherParity.test.ts` and
+/// `packages/indexer/test/api/security/weiToDecimalEtherParity.test.ts`) —
+/// editing either implementation forces both CI checks to fail until the
+/// batteries are re-aligned.
+export function weiToDecimalEther(wei: bigint): string {
+  const negative = wei < 0n;
+  const abs = negative ? -wei : wei;
+  const whole = abs / 10n ** 18n;
+  const frac = abs % 10n ** 18n;
+  if (frac === 0n) return `${negative ? "-" : ""}${whole.toString()}`;
+  const scale = 10n ** 12n;
+  const halfScale = scale / 2n;
+  let frac6 = (frac + halfScale) / scale;
+  let carryWhole = whole;
+  if (frac6 >= 10n ** 6n) {
+    carryWhole += 1n;
+    frac6 = 0n;
+  }
+  if (frac6 === 0n) return `${negative ? "-" : ""}${carryWhole.toString()}`;
+  const fracStr = frac6.toString().padStart(6, "0").replace(/0+$/, "");
+  return `${negative ? "-" : ""}${carryWhole.toString()}.${fracStr}`;
+}
+
 /// "+12.4%" / "-3.1%". Pass `priceChange24h` from /tokens (already a number).
 export function fmtPctChange(pct: number): string {
   const sign = pct >= 0 ? "+" : "";
