@@ -6,7 +6,7 @@
 /// looser than holdings — the past-tokens list rarely changes, only when the
 /// creator launches a new token or a season finalizes.
 
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useState} from "react";
 
 import {fetchProfile, type ProfileResponse} from "@/lib/arena/api";
 
@@ -25,8 +25,6 @@ export function usePastTokens(
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(Boolean(wallet));
-  const walletRef = useRef(wallet);
-  walletRef.current = wallet;
 
   useEffect(() => {
     if (!wallet) {

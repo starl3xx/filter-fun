@@ -10,7 +10,7 @@
 /// (the wallet) that the parent can change at runtime — `usePoll` only
 /// re-arms on `intervalMs`, so it can't be reused as-is.
 
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useState} from "react";
 
 import {fetchHoldings, type HoldingsResponse} from "@/lib/arena/api";
 
@@ -29,8 +29,6 @@ export function useHoldings(
   const [data, setData] = useState<HoldingsResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(Boolean(wallet));
-  const walletRef = useRef(wallet);
-  walletRef.current = wallet;
 
   useEffect(() => {
     if (!wallet) {

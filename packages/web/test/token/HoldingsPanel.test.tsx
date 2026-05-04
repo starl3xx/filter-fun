@@ -143,4 +143,33 @@ describe("HoldingsPanel", () => {
     const {container} = render(<HoldingsPanel walletAddress={WALLET} isAdmin={true} />);
     await waitFor(() => expect(container.textContent).toContain("Read failed"));
   });
+
+  it("finalist (not filtered, not winner) renders 'finalist · pre-settlement', not 'pre-cut'", async () => {
+    // Bugbot PR #101 (Low): finalist tokens fell through to the default
+    // "pre-cut · projection N/A" label, which mislabeled tokens that survived
+    // the cut. Pin the corrected copy here.
+    fetchMock.mockResolvedValue(
+      holdingsFixture({
+        tokens: [
+          {
+            address: "0x0000000000000000000000000000000000000005",
+            ticker: "$FIN",
+            season: 7,
+            balance: "100000000000000000",
+            balanceFormatted: "0.1",
+            isFiltered: false,
+            isWinner: false,
+            isFinalist: true,
+            projectedRolloverWeth: null,
+            projectedRolloverWethFormatted: null,
+            postSettlement: false,
+          },
+        ],
+      }),
+    );
+    const {container} = render(<HoldingsPanel walletAddress={WALLET} isAdmin={true} />);
+    await waitFor(() => expect(container.textContent).toContain("$FIN"));
+    expect(container.textContent).toContain("finalist · pre-settlement");
+    expect(container.textContent).not.toContain("pre-cut");
+  });
 });

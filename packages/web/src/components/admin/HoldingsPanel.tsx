@@ -171,6 +171,11 @@ function HoldingRow({token}: {token: HoldingsTokenRow}) {
 /// Per-row status string + color. Keeps the labelling in one place so the
 /// panel reads consistently; consumers don't have to think about which flag
 /// to render.
+///
+/// Bugbot PR #101 (Low): finalist tokens (`isFinalist: true, isFiltered: false,
+/// isWinner: false`) used to fall through to the default "pre-cut" copy — a
+/// finalist literally survived the cut, so labelling it "pre-cut" misled the
+/// creator. Surface a "finalist · pre-settlement" label for this state.
 function statusFor(t: HoldingsTokenRow): {label: string; color: string} {
   if (t.isWinner) return {label: "winner (no rollover)", color: C.yellow};
   if (t.postSettlement && t.isFiltered) {
@@ -184,6 +189,9 @@ function statusFor(t: HoldingsTokenRow): {label: string; color: string} {
       };
     }
     return {label: "filtered (no entitlement)", color: C.faint};
+  }
+  if (t.isFinalist) {
+    return {label: "finalist · pre-settlement", color: C.dim};
   }
   return {label: "pre-cut · projection N/A", color: C.faint};
 }

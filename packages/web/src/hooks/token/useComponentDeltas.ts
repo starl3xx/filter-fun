@@ -7,7 +7,7 @@
 /// polling; subsequent open/close transitions don't re-arm because the data
 /// is already in memory.
 
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useState} from "react";
 
 import {fetchComponentDeltas, type ComponentDeltasResponse} from "@/lib/arena/api";
 
@@ -27,8 +27,6 @@ export function useComponentDeltas(
   const [data, setData] = useState<ComponentDeltasResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const tokenRef = useRef(tokenAddress);
-  tokenRef.current = tokenAddress;
 
   useEffect(() => {
     if (!enabled || !tokenAddress) return;
