@@ -142,6 +142,11 @@ ponder.on("FilterLauncher:FinalistsSet", async ({event, context}) => {
 /// "PENDING" → "LIVE" badges and to hide the "claim refund" CTAs.
 ponder.on("FilterLauncher:SeasonActivated", async ({event, context}) => {
   const summary = await context.db.find(launchEscrowSummary, {id: event.args.seasonId});
+  // Audit: bugbot M PR #92. The defensive path MUST fall through to the broadcast —
+  // this is the only handler that emits `SEASON_ACTIVATED` on the launch SSE stream;
+  // a silent skip leaves connected Arena UI clients stuck on the pre-activation grid
+  // even after the on-chain state moved. Mirror the `SlotReserved` invariant.
+  let filledSlots: bigint;
   if (!summary) {
     // Defensive: SeasonStarted should have inserted the row. If it didn't, create
     // one and stamp activated state — preferable to crashing the indexer.
@@ -150,15 +155,17 @@ ponder.on("FilterLauncher:SeasonActivated", async ({event, context}) => {
       activated: true,
       activatedAt: event.block.timestamp,
     });
-    return;
+    filledSlots = 0n; // No counter to read on the defensive path; UI re-fetches /launch-status anyway
+  } else {
+    await context.db
+      .update(launchEscrowSummary, {id: event.args.seasonId})
+      .set({activated: true, activatedAt: event.block.timestamp});
+    filledSlots = BigInt(summary.reservationCount);
   }
-  await context.db
-    .update(launchEscrowSummary, {id: event.args.seasonId})
-    .set({activated: true, activatedAt: event.block.timestamp});
   broadcastSeasonStateEvent({
     type: "SEASON_ACTIVATED",
     seasonId: event.args.seasonId,
-    filledSlots: BigInt(summary.reservationCount),
+    filledSlots,
   });
 });
 
