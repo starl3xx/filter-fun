@@ -34,6 +34,7 @@ function mkProps(overrides: Partial<LaunchFormProps> = {}): LaunchFormProps {
     launchCostWei: 1n,
     stakeWei: 0n,
     cohort: [] as TokenResponse[],
+    seasonId: null,
     phase: "idle",
     error: null,
     onSubmit: () => undefined,

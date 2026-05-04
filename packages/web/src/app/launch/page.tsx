@@ -28,6 +28,7 @@ import {LaunchHero} from "@/components/launch/LaunchHero";
 import {FilterStrip} from "@/components/launch/FilterStrip";
 import {SlotGrid} from "@/components/launch/SlotGrid";
 import {LaunchForm} from "@/components/launch/LaunchForm";
+import {PendingRefundBanner} from "@/components/launch/PendingRefundBanner";
 import {RoiCalculator} from "@/components/launch/RoiCalculator";
 import {useEligibility} from "@/hooks/launch/useEligibility";
 import {useLaunchSlots} from "@/hooks/launch/useLaunchSlots";
@@ -221,6 +222,11 @@ export default function LaunchPage() {
       <main className="ff-launch-page" style={{position: "relative", zIndex: 1}}>
         <LaunchHero season={season} slots={slots} status={status} onScrollToForm={scrollToForm} />
 
+        {/* Epic 1.15c — pending-refund banner. Renders above the fold ONLY when
+            the connected wallet has unclaimed slots from prior aborted
+            seasons; returns null otherwise (no layout shift). */}
+        <PendingRefundBanner />
+
         <FilterStrip />
 
         <div className="ff-launch-body" ref={formRef}>
@@ -246,6 +252,7 @@ export default function LaunchPage() {
                   launchCostWei={nextCostWei}
                   stakeWei={stakeWei}
                   cohort={cohort}
+                  seasonId={seasonId !== undefined ? Number(seasonId) : null}
                   phase={phaseForButton}
                   error={combinedError}
                   onSubmit={onSubmit}

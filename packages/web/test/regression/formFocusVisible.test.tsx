@@ -55,6 +55,7 @@ describe("Form input focus-visible spec lock (Audit H-A11y-1)", () => {
         launchCostWei={0n}
         stakeWei={0n}
         cohort={[]}
+        seasonId={null}
         phase="idle"
         error={null}
         onSubmit={() => {}}

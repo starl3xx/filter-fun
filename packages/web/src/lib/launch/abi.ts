@@ -125,3 +125,57 @@ export const FilterLauncherLaunchAbi = [
 /// preview vs. wallet quote on submit and the test suite asserts the formula
 /// matches `_launchCost`.
 export const MAX_LAUNCHES = 12;
+
+/// LaunchEscrow ABI fragment — Epic 1.15c. The web only needs `claimPendingRefund`
+/// (creator-self-service refund drain) plus the function/error selectors viem
+/// needs for revert decoding. Full ABI lives in
+/// `packages/contracts/out/LaunchEscrow.sol/LaunchEscrow.json` and the indexer
+/// (`packages/indexer/abis/LaunchEscrow.ts`).
+export const LaunchEscrowAbi = [
+  {
+    type: "function",
+    name: "claimPendingRefund",
+    stateMutability: "nonpayable",
+    inputs: [
+      {name: "seasonId", type: "uint256"},
+      {name: "to", type: "address"},
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "pendingRefunds",
+    stateMutability: "view",
+    inputs: [
+      {name: "seasonId", type: "uint256"},
+      {name: "creator", type: "address"},
+    ],
+    outputs: [{type: "uint128"}],
+  },
+  {type: "error", name: "NoPendingRefund", inputs: []},
+  {type: "error", name: "PendingRefundFailed", inputs: []},
+  {type: "error", name: "ZeroAddress", inputs: []},
+  {
+    type: "event",
+    name: "PendingRefundClaimed",
+    inputs: [
+      {name: "seasonId", type: "uint256", indexed: true},
+      {name: "creator", type: "address", indexed: true},
+      {name: "to", type: "address", indexed: false},
+      {name: "amount", type: "uint256", indexed: false},
+    ],
+  },
+] as const;
+
+/// Add `launchEscrow()` getter to the launcher ABI fragment so the UI can
+/// resolve the escrow address at runtime (the address isn't yet in the
+/// deployment manifest's web-side `contractAddresses`).
+export const FilterLauncherEscrowGetterAbi = [
+  {
+    type: "function",
+    name: "launchEscrow",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{type: "address"}],
+  },
+] as const;

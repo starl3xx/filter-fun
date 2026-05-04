@@ -3,17 +3,21 @@
 /// Slot-grid state for the /launch page.
 ///
 /// Reads `getLaunchSlots(seasonId)` and `getLaunchStatus(seasonId)` from the
-/// FilterLauncher contract, then merges with the indexer's `/tokens` cohort
-/// (so each filled slot picks up its ticker / HP / status without a second
-/// per-token RPC call).
+/// FilterLauncher contract, then merges with:
+///   - the indexer's `/tokens` cohort (filled slots pick up ticker / HP / status)
+///   - the indexer's `/season/:id/launch-status` reservation rows (empty slots
+///     pick up reservation lifecycle status when in the deferred-activation
+///     pre-activation window — Epic 1.15c)
 ///
 /// Emits 12 always-stable rows: slot 0..11. Each row is one of:
-///   - { kind: "filled" }    → token launched; ticker/hp/status from /tokens
-///   - { kind: "filled-pending" } → on-chain but not yet indexed (race window)
-///   - { kind: "next" }      → first empty slot; "Claim now"
-///   - { kind: "almost" }    → empty + slot index >= 9; "Almost gone"
-///   - { kind: "open" }      → empty + slot index < 9
-///   - { kind: "closed" }    → window expired or cap reached, slot still empty
+///   - { kind: "filled" }              → token launched; ticker/hp/status from /tokens
+///   - { kind: "filled-pending" }      → on-chain but not yet indexed (race window)
+///   - { kind: "reserved-pending" }    → reservation made, season not activated yet
+///   - { kind: "reserved-refund-pending" } → season aborted + push-refund failed; creator must claim
+///   - { kind: "next" }                → first empty slot; "Claim now"
+///   - { kind: "almost" }              → empty + slot index >= 9; "Almost gone"
+///   - { kind: "open" }                → empty + slot index < 9
+///   - { kind: "closed" }              → window expired or cap reached, slot still empty
 ///
 /// The grid renders 12 rows always — using `kind` to switch presentation —
 /// so the visual rhythm of the page stays constant from launch open through
@@ -24,13 +28,16 @@ import {useReadContracts} from "wagmi";
 
 import {contractAddresses, isDeployed} from "@/lib/addresses";
 import {FilterLauncherLaunchAbi, MAX_LAUNCHES} from "@/lib/launch/abi";
-import type {TokenResponse} from "@/lib/arena/api";
+import type {LaunchStatusResponse, TokenResponse} from "@/lib/arena/api";
 
 import {useLauncherSeason} from "./useLauncherSeason";
+import {useLaunchStatus} from "./useLaunchStatus";
 
 export type SlotKind =
   | "filled"
   | "filled-pending"
+  | "reserved-pending"
+  | "reserved-refund-pending"
   | "next"
   | "almost"
   | "open"
@@ -39,8 +46,8 @@ export type SlotKind =
 export type LaunchSlot = {
   slotIndex: number;
   kind: SlotKind;
-  /// Set for filled / filled-pending kinds. Lower-cased addresses, matching
-  /// the indexer cohort key.
+  /// Set for filled / filled-pending / reserved-* kinds. Lower-cased addresses,
+  /// matching the indexer cohort key.
   token?: `0x${string}`;
   creator?: `0x${string}`;
   /// Cost (wei, decimal string) to claim this slot if empty. `null` once
@@ -50,6 +57,9 @@ export type LaunchSlot = {
   /// Convenience join with the indexer's /tokens response. Undefined for
   /// `filled-pending` (on-chain but not yet indexed) and for empty slots.
   cohortEntry?: TokenResponse;
+  /// Set for reserved-* kinds. Carries the reservation row's escrow amount +
+  /// ticker hash so the SlotCard can render "Reserved by 0xAbc · 0.05 ETH".
+  reservation?: ReservationOverlay;
 };
 
 export type LaunchSlotsResult = {
@@ -97,17 +107,24 @@ export function useLaunchSlots(cohort: TokenResponse[] | null): LaunchSlotsResul
     query: {enabled, refetchInterval: 8_000},
   });
 
+  // Epic 1.15c — overlay reservation lifecycle on empty slots. The launcher's
+  // `getLaunchSlots` only returns NORMALISED launches (post-activation +
+  // launchToken-completed); pre-activation reservations live in `LaunchEscrow`
+  // and surface via the indexer's `/season/:id/launch-status`.
+  const {data: launchStatus} = useLaunchStatus(seasonId ?? null);
+
   return useMemo(() => {
     const status = parseStatus(data?.[1]?.result);
     const filledMap = parseFilledSlots(data?.[0]?.result);
-    const slots = buildSlotRows({status, filledMap, cohort: cohort ?? []});
+    const reservationMap = parseReservations(launchStatus);
+    const slots = buildSlotRows({status, filledMap, reservationMap, cohort: cohort ?? []});
     return {
       slots,
       status,
       isLoading,
       error: error as Error | null,
     };
-  }, [data, isLoading, error, cohort]);
+  }, [data, isLoading, error, cohort, launchStatus]);
 }
 
 function parseStatus(
@@ -137,18 +154,52 @@ function parseFilledSlots(
   return out;
 }
 
+/// Epic 1.15c — extract reservation rows by slotIndex. We surface only the
+/// PENDING and REFUND_PENDING states on the grid; RELEASED slots show up
+/// through `filledMap` (the launcher's `getLaunchSlots` returns them once
+/// `launchProtocolToken` lands), and REFUNDED / REFUND_CLAIMED / FORFEITED
+/// are post-activation states that don't need a per-slot UI surface.
+export type ReservationOverlay = {
+  status: "PENDING" | "REFUND_PENDING";
+  creator: `0x${string}`;
+  tickerHash: `0x${string}`;
+  escrowAmountWei: bigint;
+};
+
+function parseReservations(
+  resp: LaunchStatusResponse | null | undefined,
+): Map<number, ReservationOverlay> {
+  const out = new Map<number, ReservationOverlay>();
+  if (!resp) return out;
+  for (const r of resp.reservations) {
+    if (r.status !== "PENDING" && r.status !== "REFUND_PENDING") continue;
+    const idx = Number(r.slotIndex);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= MAX_LAUNCHES) continue;
+    out.set(idx, {
+      status: r.status,
+      creator: r.creator,
+      tickerHash: r.tickerHash,
+      escrowAmountWei: BigInt(r.escrowAmountWei),
+    });
+  }
+  return out;
+}
+
 /// Pure grid builder, exported for unit testing.
 export function buildSlotRows({
   status,
   filledMap,
+  reservationMap,
   cohort,
 }: {
   status: LaunchSlotsResult["status"];
   filledMap: Map<number, {token: `0x${string}`; creator: `0x${string}`}>;
+  reservationMap?: Map<number, ReservationOverlay>;
   cohort: TokenResponse[];
 }): LaunchSlot[] {
   const cohortByAddress = new Map<string, TokenResponse>();
   for (const t of cohort) cohortByAddress.set(t.token.toLowerCase(), t);
+  const reservations = reservationMap ?? new Map<number, ReservationOverlay>();
 
   const launchCount = status?.launchCount ?? filledMap.size;
   const windowOpen = !status || (status.timeRemainingSec > 0 && status.launchCount < status.maxLaunches);
@@ -166,6 +217,22 @@ export function buildSlotRows({
         creator: filled.creator,
         costWei: null,
         cohortEntry,
+      });
+      continue;
+    }
+
+    // Epic 1.15c — reservation overlay precedes the empty-slot variants. A
+    // PENDING / REFUND_PENDING reservation occupies the slot from the
+    // contract's POV (the slotIndex was assigned at reserve time), so render
+    // it as taken even though no token has launched yet.
+    const reservation = reservations.get(slotIndex);
+    if (reservation) {
+      rows.push({
+        slotIndex,
+        kind: reservation.status === "PENDING" ? "reserved-pending" : "reserved-refund-pending",
+        creator: reservation.creator,
+        costWei: null,
+        reservation,
       });
       continue;
     }

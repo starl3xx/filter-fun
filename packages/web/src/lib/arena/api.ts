@@ -111,7 +111,18 @@ export type EventType =
   /// `priority: "LOW"` so LP-shedding under backpressure preserves HIGH events.
   /// Empty `message` — the data carrier is structured (see HpUpdatedData), not
   /// a ticker line.
-  | "HP_UPDATED";
+  | "HP_UPDATED"
+  // Epic 1.15a — reservation lifecycle. Emitted on `/season/:id/launch/stream`
+  // (not on the global `/events` feed). `data.seasonId` carries the per-stream
+  // filter key; the rest of `data` is type-specific.
+  | "SLOT_RESERVED"
+  | "SLOT_RELEASED"
+  | "SLOT_REFUNDED"
+  | "SLOT_REFUND_PENDING"
+  | "SLOT_REFUND_CLAIMED"
+  | "SLOT_FORFEITED"
+  | "SEASON_ACTIVATED"
+  | "SEASON_ABORTED";
 
 /// Structured payload on HP_UPDATED events. The web treats the polled
 /// `/tokens` response as the authoritative cohort (rank, status, prices) and
@@ -169,6 +180,134 @@ async function fetchJson<T>(url: string, opts: FetchOpts): Promise<T> {
   const res = await fetch(url, {signal: opts.signal, cache: "no-store"});
   if (!res.ok) throw new Error(`${url} → ${res.status}`);
   return (await res.json()) as T;
+}
+
+// ============================================================ /season/:id/tickers/check (Epic 1.15c)
+
+/// Off-chain reproduction of the contract's `reserve` validation cascade. A
+/// 200 with `ok: "available"` means the launch tx will land; the other `ok`
+/// values pinpoint which gate failed:
+///
+///   - `available`     — passes every gate; safe to submit
+///   - `blocklisted`   — multisig protocol blocklist (FILTER, WETH, ETH, ...)
+///   - `winner_taken`  — won a prior season; cross-season reservation locked
+///   - `season_taken`  — already reserved by another creator THIS season
+///
+/// 400 is reserved for malformed REQUESTS (missing/garbage ticker, bad season
+/// id). The server normalises the input via the TS port of `TickerLib.normalize`
+/// and surfaces `canonical` so the UI can render "We'll launch as $PEPE" before
+/// the tx fires.
+export type TickerCheckOk =
+  | {ok: "available"; canonical: string; hash: `0x${string}`}
+  | {ok: "blocklisted"; canonical: string; hash: `0x${string}`}
+  | {ok: "winner_taken"; canonical: string; hash: `0x${string}`; reservedSeasonId: string}
+  | {ok: "season_taken"; canonical: string; hash: `0x${string}`; reservedBy: `0x${string}`};
+
+export type TickerCheckErr = {error: string; raw?: string};
+
+export type TickerCheckResponse = TickerCheckOk | TickerCheckErr;
+
+export async function fetchTickerCheck(
+  seasonId: number | bigint | string,
+  ticker: string,
+  opts: FetchOpts = {},
+): Promise<TickerCheckResponse> {
+  const url = `${INDEXER_URL}/season/${seasonId}/tickers/check?ticker=${encodeURIComponent(ticker)}`;
+  const res = await fetch(url, {signal: opts.signal, cache: "no-store"});
+  // 200 + body shape carries the verdict; 400 surfaces format errors. Both
+  // shapes return JSON — caller branches on `ok` vs `error`.
+  return (await res.json()) as TickerCheckResponse;
+}
+
+// ============================================================ /season/:id/launch-status
+
+/// Reservation lifecycle status for a single Reservation row, mirroring the
+/// indexer schema's enum. The `status` value drives the slot-card badge.
+export type ReservationStatus =
+  | "PENDING"
+  | "RELEASED"
+  | "REFUNDED"
+  | "REFUND_PENDING"
+  | "REFUND_CLAIMED"
+  | "FORFEITED";
+
+export type ReservationRow = {
+  creator: `0x${string}`;
+  slotIndex: string;
+  tickerHash: `0x${string}`;
+  metadataHash: `0x${string}`;
+  status: ReservationStatus;
+  /// Decimal-wei.
+  escrowAmountWei: string;
+  /// Unix-seconds (decimal).
+  reservedAt: string;
+  /// Unix-seconds (decimal); null until status moves off PENDING.
+  resolvedAt: string | null;
+  /// Token address once status flipped to RELEASED.
+  token: `0x${string}` | null;
+};
+
+export type LaunchStatusResponse = {
+  seasonId: string;
+  activated: boolean;
+  aborted: boolean;
+  /// Unix-seconds (decimal); null until the corresponding state event fires.
+  activatedAt: string | null;
+  abortedAt: string | null;
+  reservationCount: number;
+  /// Decimal-wei strings — sums across the season's reservations.
+  totalEscrowedWei: string;
+  totalReleasedWei: string;
+  totalRefundedWei: string;
+  totalRefundPendingWei: string;
+  totalForfeitedWei: string;
+  reservations: ReservationRow[];
+};
+
+export async function fetchLaunchStatus(
+  seasonId: number | bigint | string,
+  opts: FetchOpts = {},
+): Promise<LaunchStatusResponse> {
+  return fetchJson<LaunchStatusResponse>(
+    `${INDEXER_URL}/season/${seasonId}/launch-status`,
+    opts,
+  );
+}
+
+// ============================================================ /wallet/:address/pending-refunds
+
+export type PendingRefundRow = {
+  /// Decimal seasonId (the contract argument is uint256).
+  seasonId: string;
+  /// Decimal-wei.
+  amountWei: string;
+  /// Unix-seconds (decimal).
+  failedAt: string;
+};
+
+export type PendingRefundsResponse = {
+  wallet: `0x${string}`;
+  pending: PendingRefundRow[];
+};
+
+export async function fetchPendingRefunds(
+  wallet: `0x${string}` | string,
+  opts: FetchOpts = {},
+): Promise<PendingRefundsResponse> {
+  return fetchJson<PendingRefundsResponse>(
+    `${INDEXER_URL}/wallet/${wallet}/pending-refunds`,
+    opts,
+  );
+}
+
+// ============================================================ /season/:id/launch/stream
+
+/// SSE URL for the per-season reservation lifecycle stream. Pair with
+/// `EventSource(launchStreamUrl(seasonId))` — the indexer broadcasts
+/// `event: launch` frames whose `data` is a `TickerEvent` (with
+/// SLOT_*/SEASON_* types). The hub already filters on seasonId server-side.
+export function launchStreamUrl(seasonId: number | bigint | string): string {
+  return `${INDEXER_URL}/season/${seasonId}/launch/stream`;
 }
 
 // ============================================================ Trade deep link
