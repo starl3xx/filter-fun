@@ -22,7 +22,7 @@ import {and, desc, eq, gte, inArray, lte} from "@ponder/core";
 import type {Context} from "hono";
 import {streamSSE} from "hono/streaming";
 
-import {feeAccrual, operatorActionLog, phaseChange, season, token} from "../../ponder.schema";
+import {feeAccrual, launchEscrowSummary, operatorActionLog, phaseChange, season, token} from "../../ponder.schema";
 
 import {applyGetRateLimit, type MwContext, clientIpFromContext} from "./middleware.js";
 import {toMwContext} from "./mwContext.js";
@@ -359,21 +359,64 @@ async function computeAlerts(db: ApiContext["db"]): Promise<Alert[]> {
   const nowSec = Math.floor(Date.now() / 1000);
 
   // 1. Settlement provenance.
+  //
+  // Bugbot PR #95 round 6:
+  //   - Medium: skip aborted seasons. Sparse-week seasons (< 4 reservations)
+  //     terminate at h48 via `abortSeason` and never receive CUT (h96) or
+  //     FINALIZE (h168) transitions by design — running the missing-CUT
+  //     evaluator against them produces a permanent error-level alert that
+  //     never self-resolves. That's the alert-fatigue failure mode the 60s
+  //     drift threshold was designed to avoid.
+  //   - Low: collapse the per-season N+1 phaseChange query into a single
+  //     batched read via `inArray`. The SSE loop runs every 30s; the pre-fix
+  //     code fired (1 + N) DB round trips per tick.
   const seasons = await db.select().from(season).orderBy(desc(season.id)).limit(5);
-  for (const s of seasons) {
-    const phaseRows = await db
-      .select()
-      .from(phaseChange)
-      .where(eq(phaseChange.seasonId, s.id));
-    out.push(
-      ...evaluateSettlementProvenance({
-        seasonId: s.id,
-        startedAtSec: Number(s.startedAt),
-        cutTimestampSec: phaseRows.find((p) => p.newPhase === "Finals")?.blockTimestamp,
-        finalizeTimestampSec: phaseRows.find((p) => p.newPhase === "Settlement")?.blockTimestamp,
-        nowSec,
-      }),
-    );
+  if (seasons.length > 0) {
+    const seasonIds = seasons.map((s) => s.id);
+    const [escrowSummaries, allPhaseRows] = await Promise.all([
+      db
+        .select()
+        .from(launchEscrowSummary)
+        .where(inArray(launchEscrowSummary.id, seasonIds)),
+      db
+        .select()
+        .from(phaseChange)
+        .where(inArray(phaseChange.seasonId, seasonIds)),
+    ]);
+    const abortedById = new Map<string, boolean>();
+    for (const e of escrowSummaries) {
+      abortedById.set(e.id.toString(), e.aborted);
+    }
+    const phasesById = new Map<string, typeof allPhaseRows>();
+    for (const p of allPhaseRows) {
+      const key = p.seasonId.toString();
+      let arr = phasesById.get(key);
+      if (!arr) {
+        arr = [] as typeof allPhaseRows;
+        phasesById.set(key, arr);
+      }
+      arr.push(p);
+    }
+    for (const s of seasons) {
+      const key = s.id.toString();
+      // The summary row may not exist yet for very fresh seasons (the
+      // launcher inserts on first reservation), in which case
+      // `abortedById.get` returns undefined and we treat as not-aborted;
+      // the season hasn't passed h48 yet either way so the missing-CUT
+      // gate (h96 + grace) wouldn't fire.
+      const aborted = abortedById.get(key) === true;
+      const phaseRows = phasesById.get(key) ?? [];
+      out.push(
+        ...evaluateSettlementProvenance({
+          seasonId: s.id,
+          startedAtSec: Number(s.startedAt),
+          cutTimestampSec: phaseRows.find((p) => p.newPhase === "Finals")?.blockTimestamp,
+          finalizeTimestampSec: phaseRows.find((p) => p.newPhase === "Settlement")?.blockTimestamp,
+          nowSec,
+          aborted,
+        }),
+      );
+    }
   }
 
   // 2. Reservation escrow stuck — surface tokens that exist but where the

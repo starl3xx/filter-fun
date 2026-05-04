@@ -126,4 +126,50 @@ describe("evaluateSettlementProvenance", () => {
     });
     expect(alerts.map((a: {id: string}) => a.id)).toContain("settlement_provenance_cut_missing:1");
   });
+
+  // Round 6 Medium: aborted seasons (sparse-week, terminated at h48) never
+  // receive CUT/FINALIZE transitions by design. Pre-fix the missing-CUT alert
+  // fired against them permanently once nowSec passed h96 + grace, training
+  // operators to ignore the banner. Post-fix the evaluator returns [] for
+  // any aborted season regardless of how far past h96 / h168 we are.
+
+  it("returns no alerts for an aborted season past h96 + grace", () => {
+    const alerts = evaluateSettlementProvenance({
+      seasonId,
+      startedAtSec,
+      // Past h96 + grace AND past h168 + grace — pre-fix would fire BOTH
+      // missing alerts; post-fix returns [].
+      nowSec: expectedFinalize + 1000,
+      aborted: true,
+    });
+    expect(alerts).toEqual([]);
+  });
+
+  it("returns no alerts for an aborted season even with stray drift values", () => {
+    // Defensive: if an aborted season somehow had a stale phaseChange row
+    // (shouldn't happen in production but the evaluator must not assume),
+    // we still suppress every alert.
+    const alerts = evaluateSettlementProvenance({
+      seasonId,
+      startedAtSec,
+      cutTimestampSec: BigInt(expectedCut + 500),
+      finalizeTimestampSec: BigInt(expectedFinalize - 500),
+      nowSec: expectedFinalize + 1000,
+      aborted: true,
+    });
+    expect(alerts).toEqual([]);
+  });
+
+  it("aborted: false evaluates normally (default behaviour preserved)", () => {
+    // Sanity that the new param doesn't accidentally suppress alerts when
+    // explicitly false — the abort gate must require the truthy value.
+    const alerts = evaluateSettlementProvenance({
+      seasonId,
+      startedAtSec,
+      nowSec: expectedCut + 100,
+      aborted: false,
+    });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.id).toBe("settlement_provenance_cut_missing:1");
+  });
 });

@@ -50,7 +50,15 @@ export function evaluateSettlementProvenance(input: {
   cutTimestampSec?: bigint;
   finalizeTimestampSec?: bigint;
   nowSec: number;
+  /// Bugbot PR #95 round 6 (Medium): aborted seasons (sparse-week, < 4
+  /// reservations, terminated at h48 via `abortSeason`) never receive CUT
+  /// or FINALIZE transitions by design. Without this gate the missing-CUT
+  /// alert fires permanently against them once `nowSec` passes h96 + grace
+  /// — alert fatigue. Caller passes `aborted: true` (sourced from
+  /// `launchEscrowSummary.aborted`) to suppress every alert for the season.
+  aborted?: boolean;
 }): Alert[] {
+  if (input.aborted) return [];
   const out: Alert[] = [];
   const expectedCut = input.startedAtSec + 96 * 3600;
   const expectedFinalize = input.startedAtSec + 168 * 3600;
