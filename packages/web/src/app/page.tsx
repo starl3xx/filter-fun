@@ -34,14 +34,17 @@ import {useAccount} from "wagmi";
 import {ArenaActivityFeed} from "@/components/arena/ArenaActivityFeed";
 import {ArenaFilterMechanic} from "@/components/arena/ArenaFilterMechanic";
 import {ArenaLeaderboard} from "@/components/arena/ArenaLeaderboard";
+import {ArenaSortDropdown, useArenaSortMode, useSortedTileTokens} from "@/components/arena/ArenaSortDropdown";
 import {ArenaTicker} from "@/components/arena/ArenaTicker";
+import {ArenaTileGrid} from "@/components/arena/ArenaTileGrid";
 import {ArenaTokenDetail} from "@/components/arena/ArenaTokenDetail";
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
 import {FilterMomentOverlay} from "@/components/arena/filterMoment/FilterMomentOverlay";
+import {useArenaViewMode, ViewToggle} from "@/components/arena/ViewToggle";
 import {DataErrorBanner} from "@/components/DataErrorBanner";
 import {Stars} from "@/components/Stars";
 import {useFilterMoment} from "@/hooks/arena/useFilterMoment";
-import {freshHpUpdateSeqByAddress, mergeHpUpdates, useHpUpdates} from "@/hooks/arena/useHpUpdates";
+import {freshHpUpdateSeqByAddress, type HpUpdate, mergeHpUpdates, useHpUpdates} from "@/hooks/arena/useHpUpdates";
 import {useSeason} from "@/hooks/arena/useSeason";
 import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
@@ -83,6 +86,23 @@ export default function HomePage() {
   // "is-fresh" flag would leave the className unchanged across consecutive
   // updates within the same recency window, suppressing the second pulse.
   const freshHpSeq = useMemo(() => freshHpUpdateSeqByAddress(hpByAddress, 3_000), [hpByAddress]);
+
+  // ============================================================ Epic 1.19
+  // View mode + tile sort (persisted in localStorage). The toggle hides on
+  // mobile via CSS, but a user who saved "tile" then resized down would
+  // still trigger the tile path — `isNarrow` below force-falls back to
+  // list at <700px so the small-screen layout is always coherent.
+  //
+  // `tileSortMeta` + `tileSorted` are gated on `tileGridActive` (computed
+  // alongside `firingMode` further down) so list/mobile/firing-mode users
+  // don't pay the per-cohort iteration + ref-tracking cost. Bugbot Low
+  // (PR #91, commit 10c2dd2). Hooks themselves still call every render
+  // (Rules of Hooks); the gate short-circuits the body.
+  const [viewMode, setViewMode] = useArenaViewMode();
+  const [sortMode, setSortMode] = useArenaSortMode();
+  const isNarrow = useIsNarrow();
+  const effectiveViewMode = isNarrow ? "list" : viewMode;
+
   const [selected, setSelected] = useState<`0x${string}` | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -245,6 +265,13 @@ export default function HomePage() {
   const urgentCutline = filterMoment.stage === "countdown";
   const firingMode = filterMoment.stage === "firing" || filterMoment.stage === "recap";
 
+  // Tile grid active iff the page will actually render it — same condition
+  // the JSX below uses. Drives both the sort-hook gate (Bugbot Low) and
+  // the dropdown gate.
+  const tileGridActive = effectiveViewMode === "tile" && !firingMode;
+  const tileSortMeta = useTileSortMeta(cohort, hpByAddress, tileGridActive);
+  const tileSorted = useSortedTileTokens(cohort, sortMode, tileSortMeta, tileGridActive);
+
   return (
     <div style={{position: "relative", minHeight: "100vh", overflow: "hidden"}}>
       <Stars />
@@ -259,18 +286,60 @@ export default function HomePage() {
         </div>
 
         <div className="ff-arena-col-center" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>
-          <ArenaLeaderboard
-            tokens={firingMode ? cohortSnapshot : cohort}
-            trendBuffers={trendBuffers}
-            selectedAddress={selected}
-            onSelect={onSelect}
-            hideCutLine={hideCutLine}
-            isLoading={tokensLoading}
-            urgentCutline={urgentCutline}
-            firingMode={firingMode}
-            recentlyFilteredAddresses={filterMoment.filteredAddresses}
-            freshHpUpdateSeqByAddress={firingMode ? undefined : freshHpSeq}
-          />
+          {/* Epic 1.19 — view-mode toggle + (when in tile mode) sort dropdown.
+              The toggle hides via CSS on mobile so users on a phone don't see
+              an unreachable affordance; the `effectiveViewMode` JS gate
+              forces list view at <700px regardless of the persisted choice. */}
+          <div
+            className="ff-arena-view-controls"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 10,
+            }}
+          >
+            {/* Bugbot finding (PR #91, commit d787b88): the sort dropdown
+                only meaningfully controls the tile grid, so its render
+                gate has to mirror the SAME condition the tile grid uses
+                below — `effectiveViewMode === "tile"` AND `!firingMode`.
+                During filter-moment firing/recap the bottom branch falls
+                back to the row layout regardless of the user's view-mode
+                preference; without the firingMode exclusion here the
+                user briefly saw a stranded sort dropdown above a list
+                view it can't sort. */}
+            {tileGridActive && (
+              <ArenaSortDropdown value={sortMode} onChange={setSortMode} />
+            )}
+            <ViewToggle value={viewMode} onChange={setViewMode} />
+          </div>
+          {effectiveViewMode === "list" || firingMode ? (
+            // Filter-moment firing animations only target the row layout; in
+            // tile mode we fall back to the row view during the firing /
+            // recap stages so the recap card's drama isn't lost. Once the
+            // overlay returns to idle the user's preferred view restores.
+            <ArenaLeaderboard
+              tokens={firingMode ? cohortSnapshot : cohort}
+              trendBuffers={trendBuffers}
+              selectedAddress={selected}
+              onSelect={onSelect}
+              hideCutLine={hideCutLine}
+              isLoading={tokensLoading}
+              urgentCutline={urgentCutline}
+              firingMode={firingMode}
+              recentlyFilteredAddresses={filterMoment.filteredAddresses}
+              freshHpUpdateSeqByAddress={firingMode ? undefined : freshHpSeq}
+            />
+          ) : (
+            <ArenaTileGrid
+              tokens={tileSorted}
+              hpByAddress={hpByAddress}
+              freshHpUpdateSeqByAddress={freshHpSeq}
+              selectedAddress={selected}
+              onSelect={onSelect}
+              chain={chain}
+            />
+          )}
           <ArenaActivityFeed events={events} liveStatus={liveStatus} />
         </div>
 
@@ -327,6 +396,87 @@ export default function HomePage() {
       )}
     </div>
   );
+}
+
+/// `useIsNarrow` — Epic 1.19 mobile force-fallback gate.
+///
+/// matchMedia (max-width: 700px). SSR-safe (returns false until mount),
+/// listens for resize so a user dragging the window across the breakpoint
+/// flips views without a refresh.
+function useIsNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 700px)");
+    const onChange = () => setNarrow(mq.matches);
+    onChange();
+    // Older Safari versions exposed `addListener` not `addEventListener`;
+    // this codebase already polyfills the older API in its setup tests, so
+    // we use the modern path here without a fallback.
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
+
+/// `useTileSortMeta` — derives the {computedAt, prevHp} map the tile sort
+/// dropdown's "activity" / "delta" modes consume. Tracks previous HP per
+/// address in a ref across renders so the next render's delta-comparator
+/// can compute |hp - prev|. Updates the ref AFTER deriving the map, so a
+/// fresh poll's HP becomes the next render's "previous".
+///
+/// **`enabled` short-circuit** — bugbot finding (PR #91, commit 10c2dd2):
+/// when the tile grid isn't rendered (list mode, mobile force-list, or
+/// firing/recap stage), we skip both the per-cohort iteration AND the
+/// post-commit ref-write effect. Rules of Hooks force us to KEEP calling
+/// the hook every render, but the body short-circuits with an empty map
+/// + skipped effect when the consumer isn't going to read the result.
+const EMPTY_TILE_SORT_META: ReadonlyMap<string, {computedAt: number; prevHp: number}> = new Map();
+function useTileSortMeta(
+  cohort: ReadonlyArray<TokenResponse>,
+  hpByAddress: ReadonlyMap<string, HpUpdate>,
+  enabled: boolean = true,
+): ReadonlyMap<string, {computedAt: number; prevHp: number}> {
+  const prevRef = useRef<Map<string, number>>(new Map());
+  const meta = useMemo(() => {
+    if (!enabled) return EMPTY_TILE_SORT_META;
+    const m = new Map<string, {computedAt: number; prevHp: number}>();
+    for (const t of cohort) {
+      const key = t.token.toLowerCase();
+      const live = hpByAddress.get(key);
+      const prev = prevRef.current.get(key) ?? t.hp;
+      m.set(key, {
+        computedAt: live?.computedAt ?? 0,
+        prevHp: prev,
+      });
+    }
+    return m;
+    // We DON'T include prevRef.current in the deps — refs aren't reactive
+    // by design, and including them would either re-fire every render or
+    // produce stale closures.
+  }, [cohort, hpByAddress, enabled]);
+
+  // Commit current HP into the ref so next render's `prevHp` reflects it.
+  // Skip when disabled — there's no consumer reading the meta, so spending
+  // O(N) per cohort change to track a value nobody reads is wasted work.
+  //
+  // **Clear on disable** — bugbot Low (PR #91, commit 96dcbeb). Without
+  // the clear, a user who switches tile→list (or firingMode activates)
+  // leaves the ref populated with HPs from before the switch. Several
+  // polls later the user switches back to tile mode and the "delta"
+  // sort reads `|current - stale|` from the pre-switch values, producing
+  // an inflated and incorrect sort order until the next poll re-seeds
+  // the ref. Clearing the moment `enabled` flips false guarantees a
+  // clean re-seed on the next enable.
+  useEffect(() => {
+    if (!enabled) {
+      prevRef.current.clear();
+      return;
+    }
+    for (const t of cohort) prevRef.current.set(t.token.toLowerCase(), t.hp);
+  }, [cohort, enabled]);
+
+  return meta;
 }
 
 /// Small "pools at a glance" card — repeats the top bar's pool figures with
