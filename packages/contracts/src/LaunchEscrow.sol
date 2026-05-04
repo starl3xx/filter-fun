@@ -312,8 +312,8 @@ contract LaunchEscrow is ReentrancyGuard {
         return _escrows[seasonId][creator].reservedAt;
     }
 
-    /// @notice Receive funds released by the launcher's deploy-path or any direct deposit.
-    ///         The launcher pre-funds via `reserve{value: cost}` and pulls back via
-    ///         `releaseToDeploy`; these are the only expected money-flows on this contract.
-    receive() external payable {}
+    /// @notice Audit: bugbot L PR #88. No `receive()` is provided. The only legitimate
+    ///         inbound is `reserve(...)` (payable, function-dispatched), which means a bare
+    ///         ETH transfer to this contract has no destination and reverts. Pre-fix the
+    ///         open `receive()` would silently accept misdirected ETH with no recovery path.
 }

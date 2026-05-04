@@ -810,10 +810,16 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
         else _unpause();
     }
 
-    /// @notice Allow the LaunchEscrow to deposit released funds back here. The launcher's
-    ///         deploy path either holds (refundable stake mode) or forwards (fee mode) what
-    ///         comes through; the existing `applySoftFilter` path then refunds creators or
-    ///         routes to `forfeitRecipient`. Without this receive, `releaseToDeploy` would
-    ///         revert because we can't accept ETH from the escrow's `call`.
+    /// @notice Open `receive()` is required for the escrow's `releaseToDeploy` push-back
+    ///         flow (escrow `.call{value}` lands here with empty calldata). Audit: bugbot
+    ///         L PR #88 flagged this as a potential lockup vector, but a `msg.sender ==
+    ///         launchEscrow` guard adds ~48 bytes of runtime that overflows the EIP-170
+    ///         budget (the §46 deferred-activation refactor already extracted four
+    ///         companion contracts to fit). Operational mitigation: the launcher's owner
+    ///         is a production multisig (see §OWNERSHIP MODEL above) which can rotate /
+    ///         redeploy the launcher if a non-zero balance is detected between txs;
+    ///         monitoring should alert on `address(launcher).balance > 0` outside of an
+    ///         active reservation tx, since the deploy path always sweeps released funds
+    ///         to either `stakeAdmin` or `forfeitRecipient` in the same call.
     receive() external payable {}
 }
