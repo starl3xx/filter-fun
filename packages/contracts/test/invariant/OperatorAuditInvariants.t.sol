@@ -105,10 +105,7 @@ contract OperatorAuditInvariantsTest is Test {
                     assertEq(actor, operator, "audit event actor mismatch");
 
                     // Non-indexed: (string action, bytes params). Decode the data blob.
-                    (string memory action, bytes memory params) = abi.decode(
-                        logs[j].data,
-                        (string, bytes)
-                    );
+                    (string memory action, bytes memory params) = abi.decode(logs[j].data, (string, bytes));
                     assertEq(action, "disableCreatorFee", "audit event action mismatch");
                     assertGt(bytes(action).length, 0, "audit event action empty");
                     assertGt(params.length, 0, "audit event params empty");
@@ -130,7 +127,10 @@ contract OperatorAuditInvariantsTest is Test {
         if (v == 0) return "0";
         uint256 temp = v;
         uint256 digits;
-        while (temp != 0) { ++digits; temp /= 10; }
+        while (temp != 0) {
+            ++digits;
+            temp /= 10;
+        }
         bytes memory buffer = new bytes(digits);
         while (v != 0) {
             digits -= 1;

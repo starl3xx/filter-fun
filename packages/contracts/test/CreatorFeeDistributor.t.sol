@@ -425,9 +425,7 @@ contract CreatorFeeDistributorTest is Test {
 
         vm.expectEmit(true, false, false, true);
         emit CreatorFeeDistributor.OperatorActionEmitted(
-            multisig,
-            "disableCreatorFee",
-            abi.encode(tokenA, "compromised")
+            multisig, "disableCreatorFee", abi.encode(tokenA, "compromised")
         );
         vm.expectEmit(true, false, false, true);
         emit CreatorFeeDistributor.CreatorFeeDisabled(tokenA);
@@ -451,9 +449,7 @@ contract CreatorFeeDistributorTest is Test {
         // The CreatorFeeDisabled event does NOT re-fire (idempotent state guard).
         vm.expectEmit(true, false, false, true);
         emit CreatorFeeDistributor.OperatorActionEmitted(
-            multisig,
-            "disableCreatorFee",
-            abi.encode(tokenA, "follow-up audit")
+            multisig, "disableCreatorFee", abi.encode(tokenA, "follow-up audit")
         );
         vm.prank(multisig);
         distributor.disableCreatorFee(tokenA, "follow-up audit");
