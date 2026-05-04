@@ -2,11 +2,19 @@
 pragma solidity ^0.8.26;
 
 import {Test, Vm} from "forge-std/Test.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {CreatorFeeDistributor} from "../../src/CreatorFeeDistributor.sol";
 import {CreatorRegistry} from "../../src/CreatorRegistry.sol";
-import {MockLauncherView} from "../mocks/MockLauncherView.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
+
+/// @notice Minimal Ownable launcher stand-in. The distributor's `disableCreatorFee`
+///         reads `Ownable(launcher).owner()` (post-Epic-1.16 merge), so the launcher
+///         must be Ownable-typed; mock has no other surface — the per-call property
+///         being tested here doesn't exercise lockerOf/vaultOf.
+contract MockOwnableLauncher is Ownable {
+    constructor(address owner_) Ownable(owner_) {}
+}
 
 /// @title OperatorAuditInvariants
 /// @notice Epic 1.21 / spec §47.4 invariant: every operator-callable settlement-relevant
@@ -32,7 +40,7 @@ contract OperatorAuditInvariantsTest is Test {
     CreatorFeeDistributor distributor;
     CreatorRegistry registry;
     MockWETH weth;
-    MockLauncherView launcher;
+    MockOwnableLauncher launcher;
 
     address treasury = makeAddr("treasury");
     address operator = makeAddr("operator");
@@ -42,10 +50,11 @@ contract OperatorAuditInvariantsTest is Test {
 
     function setUp() public {
         weth = new MockWETH();
-        launcher = new MockLauncherView();
+        // Ownable launcher with `operator` as initial owner — distributor's
+        // `disableCreatorFee` resolves auth via `Ownable(launcher).owner()`.
+        launcher = new MockOwnableLauncher(operator);
         registry = new CreatorRegistry(address(this));
         distributor = new CreatorFeeDistributor(address(launcher), address(weth), treasury, registry);
-        launcher.setOwner(operator);
     }
 
     /// @notice inv_operator_actions_logged: every successful `disableCreatorFee` call
@@ -61,10 +70,10 @@ contract OperatorAuditInvariantsTest is Test {
     ///
     /// @dev    Named with the `test_` prefix (not `invariant_`) on purpose: Foundry's
     ///         StdInvariant runner randomises calls across every method in the test
-    ///         contract between invariant invocations — including the mock's
-    ///         `setOwner(...)` — which would flip the operator address mid-run and
-    ///         falsify the per-call property under valid execution. The property here
-    ///         is per-call, not multi-call, so a deterministic loop is the right
+    ///         contract between invariant invocations — including the launcher's
+    ///         `transferOwnership(...)` — which would flip the operator address mid-run
+    ///         and falsify the per-call property under valid execution. The property
+    ///         here is per-call, not multi-call, so a deterministic loop is the right
     ///         framing. The `_invariant` suffix preserves the conceptual link to
     ///         spec §47.4's `inv_operator_actions_logged` for grep / cross-ref.
     function test_operatorActionsLogged_invariant() public {

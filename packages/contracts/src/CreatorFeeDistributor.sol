@@ -10,7 +10,11 @@ import {CreatorRegistry} from "./CreatorRegistry.sol";
 interface ILauncherView {
     function lockerOf(uint256 seasonId, address token) external view returns (address);
     function vaultOf(uint256 seasonId) external view returns (address);
-    function owner() external view returns (address);
+    // Note (bugbot PR #95 round 14, Low): `owner()` is read via the `Ownable`
+    // cast in `disableCreatorFee` (see line 175), not through this interface —
+    // the contract is `Ownable`-typed in main's deployment so the cast resolves
+    // to the inherited selector directly. We don't redeclare `owner()` here to
+    // avoid a misleading "this interface is consumed" signal.
 }
 
 /// @title CreatorFeeDistributor

@@ -200,12 +200,22 @@ export function SettlementProvenanceCard({history}: {history: SettlementHistoryE
         <div style={{display: "flex", flexDirection: "column", gap: 4}}>
           {history.map((h) => {
             const startedSec = Number(h.startedAt);
+            const expectedCutSec = startedSec + 96 * 3600;
             const expectedFinalizeSec = startedSec + 168 * 3600;
-            const drift = h.finalizeAt ? Number(h.finalizeAt) - expectedFinalizeSec : null;
-            const driftTone =
-              drift === null
+            // Bugbot PR #95 round 14 (Low): per-transition drift, not just
+            // FINALIZE. Pre-fix the card showed only FINALIZE drift under a
+            // bare "drift" label, so an operator could see CUT ✓ / FINALIZE ✓
+            // / drift "0s" and miss significant CUT drift from h96. Server-
+            // side `evaluateSettlementProvenance` already checks both anchors
+            // independently; the dashboard now mirrors that.
+            const cutDrift = h.cutAt ? Number(h.cutAt) - expectedCutSec : null;
+            const finalizeDrift = h.finalizeAt
+              ? Number(h.finalizeAt) - expectedFinalizeSec
+              : null;
+            const toneFor = (d: number | null): string =>
+              d === null
                 ? C.faint
-                : Math.abs(drift) > SETTLEMENT_DRIFT_TOLERANCE_SEC
+                : Math.abs(d) > SETTLEMENT_DRIFT_TOLERANCE_SEC
                 ? C.red
                 : C.green;
             return (
@@ -213,7 +223,7 @@ export function SettlementProvenanceCard({history}: {history: SettlementHistoryE
                 key={h.seasonId}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "70px 1fr 1fr 100px 100px",
+                  gridTemplateColumns: "70px 1fr 1fr 100px",
                   gap: 8,
                   fontFamily: F.mono,
                   fontSize: 12,
@@ -224,10 +234,19 @@ export function SettlementProvenanceCard({history}: {history: SettlementHistoryE
                 }}
               >
                 <span style={{color: C.text}}>#{h.seasonId}</span>
-                <span title={h.cutAt ?? ""}>cut {h.cutAt ? "✓" : "—"}</span>
-                <span title={h.finalizeAt ?? ""}>finalize {h.finalizeAt ? "✓" : "—"}</span>
-                <span style={{color: driftTone}}>
-                  drift {drift !== null ? `${drift}s` : "—"}
+                <span title={h.cutAt ?? ""}>
+                  cut {h.cutAt ? "✓" : "—"}{" "}
+                  <span style={{color: toneFor(cutDrift)}}>
+                    {cutDrift !== null ? `${cutDrift >= 0 ? "+" : ""}${cutDrift}s` : ""}
+                  </span>
+                </span>
+                <span title={h.finalizeAt ?? ""}>
+                  finalize {h.finalizeAt ? "✓" : "—"}{" "}
+                  <span style={{color: toneFor(finalizeDrift)}}>
+                    {finalizeDrift !== null
+                      ? `${finalizeDrift >= 0 ? "+" : ""}${finalizeDrift}s`
+                      : ""}
+                  </span>
                 </span>
                 <span title={h.rolloverRoot ?? ""}>
                   root {h.rolloverRoot ? `${h.rolloverRoot.slice(0, 10)}…` : "—"}

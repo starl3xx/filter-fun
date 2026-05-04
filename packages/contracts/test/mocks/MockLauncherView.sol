@@ -17,11 +17,6 @@ contract MockLauncherView is ILauncherView {
     mapping(uint256 => address) internal _vault;
     address internal _oracle;
     address internal _tournamentVault;
-    /// @notice Mirror of FilterLauncher.owner() used by CreatorFeeDistributor.disableCreatorFee
-    ///         (Epic 1.21 / spec §47.4.2). Defaults to the deployer-of-mock so existing tests
-    ///         that don't call disableCreatorFee aren't affected; tests that exercise that
-    ///         path call setOwner(...) explicitly.
-    address internal _owner;
     /// @notice Last setWinnerTicker call captured for assertion. The new SeasonVault path
     ///         (spec §4.6.1) calls this on the launcher at submitWinner; the mock just
     ///         records the args so tests can verify the cross-season reservation fired
@@ -45,14 +40,6 @@ contract MockLauncherView is ILauncherView {
 
     function setTournamentVault(address tournamentVault_) external {
         _tournamentVault = tournamentVault_;
-    }
-
-    function setOwner(address owner_) external {
-        _owner = owner_;
-    }
-
-    function owner() external view returns (address) {
-        return _owner;
     }
 
     function lockerOf(uint256 seasonId, address token) external view override returns (address) {
