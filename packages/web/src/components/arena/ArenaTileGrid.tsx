@@ -22,7 +22,7 @@
 /// the historical tracking. The ref approach keeps the previous-value
 /// store invisible to React's render commit so updates don't fan out.
 
-import {useMemo, useRef} from "react";
+import {useEffect, useMemo, useRef} from "react";
 
 import type {HpUpdate} from "@/hooks/arena/useHpUpdates";
 import type {TokenResponse} from "@/lib/arena/api";
@@ -60,64 +60,78 @@ export function ArenaTileGrid({
 
   // Track previous HP + stickyLiquidity per address across renders so we
   // can derive delta + soft-rug-pulse seq without consumers having to
-  // pass them in. Refs survive React StrictMode's double-invoke-mount
-  // unscathed (no state writes).
+  // pass them in.
+  //
+  // **Reads in useMemo, writes in useEffect** — bugbot finding (PR #91,
+  // commit ffaab21). The previous shape mutated refs during the render
+  // body, which is broken under React StrictMode: `reactStrictMode: true`
+  // in `next.config.mjs` double-invokes the render function, so the first
+  // invoke wrote `prevSticky = current` and the second invoke read back
+  // its own value, suppressing the floating-delta + rug-pulse on every
+  // frame in dev (and producing inconsistent behaviour across React
+  // versions in prod). The useEffect runs once after each commit, so by
+  // the time the next render reads the refs they reflect the previously-
+  // committed values exactly. The `useTileSortMeta` hook in `page.tsx`
+  // uses the same read-render / write-effect split.
   const prevHpRef = useRef<Map<string, number>>(new Map());
   const softRugSeqRef = useRef<Map<string, {seq: number; prevSticky: number}>>(new Map());
 
-  const renderEntries = tokens.map((t) => {
-    const addr = t.token.toLowerCase();
-    const live = hpByAddress.get(addr);
-    const seq = freshHpUpdateSeqByAddress.get(addr);
-    const prevHp = prevHpRef.current.get(addr);
-    const hpDelta = seq != null && prevHp != null ? t.hp - prevHp : undefined;
+  const renderEntries = useMemo(
+    () =>
+      tokens.map((t) => {
+        const addr = t.token.toLowerCase();
+        const live = hpByAddress.get(addr);
+        const seq = freshHpUpdateSeqByAddress.get(addr);
+        const prevHp = prevHpRef.current.get(addr);
+        const hpDelta = seq != null && prevHp != null ? t.hp - prevHp : undefined;
 
-    // Soft-rug detection. Compare *current* stickyLiquidity (from live or
-    // polled) against the previous live frame's stickyLiquidity. Bump the
-    // pulse seq when the drop > threshold. Stickiness arrives on the
-    // [0,1] scale so multiply by 100 to compare in pp.
-    //
-    // Note: `softRugPulseSeq` stays undefined unless the THIS render
-    // detected a fresh drop — so a sub-threshold drift (e.g. 5pp) does
-    // not light up the class on the bar. A previous fresh drop's pulse
-    // ran on its own render commit; carrying the seq forward without a
-    // new drop would mean every subsequent poll re-applied the class
-    // even though nothing rugged this tick (regression test
-    // `does NOT fire on a sub-threshold drop`).
-    const currentSticky = (live?.components.stickyLiquidity ?? t.components.stickyLiquidity) * 100;
-    const rugRecord = softRugSeqRef.current.get(addr);
-    let softRugPulseSeq: number | undefined;
-    if (rugRecord && rugRecord.prevSticky - currentSticky > STICKY_LIQUIDITY_RUG_THRESHOLD_PP) {
-      softRugPulseSeq = rugRecord.seq + 1;
+        // Soft-rug detection. Compare *current* stickyLiquidity (from live
+        // or polled) against the previous live frame's stickyLiquidity.
+        // Bump the pulse seq when the drop > threshold. Stickiness arrives
+        // on the [0,1] scale so multiply by 100 to compare in pp.
+        //
+        // `softRugPulseSeq` stays undefined unless THIS render detected a
+        // fresh drop — sub-threshold drift (e.g. 5pp) does not light up
+        // the class on the bar. A previous fresh drop's pulse ran on its
+        // own render commit; carrying the seq forward without a new drop
+        // would mean every subsequent poll re-applied the class even
+        // though nothing rugged this tick (regression test
+        // `does NOT fire on a sub-threshold drop`).
+        const currentSticky = (live?.components.stickyLiquidity ?? t.components.stickyLiquidity) * 100;
+        const rugRecord = softRugSeqRef.current.get(addr);
+        let softRugPulseSeq: number | undefined;
+        if (rugRecord && rugRecord.prevSticky - currentSticky > STICKY_LIQUIDITY_RUG_THRESHOLD_PP) {
+          softRugPulseSeq = rugRecord.seq + 1;
+        }
+
+        return {
+          token: t,
+          live,
+          seq,
+          hpDelta,
+          currentSticky,
+          softRugPulseSeq,
+        };
+      }),
+    [tokens, hpByAddress, freshHpUpdateSeqByAddress],
+  );
+
+  // Commit the previous values after the render commits — see ref
+  // declaration for the StrictMode rationale.
+  useEffect(() => {
+    for (const e of renderEntries) {
+      const addr = e.token.token.toLowerCase();
+      prevHpRef.current.set(addr, e.token.hp);
+      const cur = softRugSeqRef.current.get(addr);
+      // Always overwrite prevSticky with the current value so the NEXT
+      // render compares against today's reading (not the seed reading).
+      // `seq` only advances when this render fired a fresh pulse.
+      softRugSeqRef.current.set(addr, {
+        seq: e.softRugPulseSeq ?? cur?.seq ?? 0,
+        prevSticky: e.currentSticky,
+      });
     }
-
-    return {
-      token: t,
-      live,
-      seq,
-      hpDelta,
-      currentSticky,
-      softRugPulseSeq,
-    };
-  });
-
-  // Commit the new previous values *after* all entries are derived.
-  // Doing this in render is intentional — we want the next render to see
-  // the values from THIS render. (A `useEffect` would defer the commit a
-  // frame, which is enough for the next HP_UPDATED to read stale values
-  // and miscompute the delta.)
-  for (const e of renderEntries) {
-    const addr = e.token.token.toLowerCase();
-    prevHpRef.current.set(addr, e.token.hp);
-    const cur = softRugSeqRef.current.get(addr);
-    // Always overwrite prevSticky with the current value so the NEXT
-    // render compares against today's reading (not the seed reading).
-    // `seq` only advances when this render fired a fresh pulse.
-    softRugSeqRef.current.set(addr, {
-      seq: e.softRugPulseSeq ?? cur?.seq ?? 0,
-      prevSticky: e.currentSticky,
-    });
-  }
+  }, [renderEntries]);
 
   return (
     <section

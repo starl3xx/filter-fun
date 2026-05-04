@@ -29,7 +29,7 @@
 ///     two updates (the consumer passes `softRugPulseSeq` keyed on the
 ///     drop event so the animation REPLAYS on each new soft-rug).
 
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useState} from "react";
 
 import type {HpUpdate} from "@/hooks/arena/useHpUpdates";
 import type {TokenResponse} from "@/lib/arena/api";
@@ -585,10 +585,6 @@ function FooterStat({
 /// when the timestamp is missing or in the future.
 function useTimeSinceSeconds(unixSeconds: number | undefined): string {
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
-  const last = useRef(unixSeconds);
-  useEffect(() => {
-    last.current = unixSeconds;
-  }, [unixSeconds]);
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 15_000);
     return () => clearInterval(t);
