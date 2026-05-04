@@ -19,6 +19,7 @@
 /// the season, which is what the `LauncherLens.allEntries` getter is for.
 
 import {ponder} from "@/generated";
+import {eq} from "@ponder/core";
 import {decodeFunctionData} from "viem";
 
 import {broadcastSeasonStateEvent} from "./api/events/launchBroadcast.js";
@@ -109,31 +110,90 @@ ponder.on("FilterLauncher:PhaseAdvanced", async ({event, context}) => {
 });
 
 ponder.on("FilterLauncher:FinalistsSet", async ({event, context}) => {
-  // The lean event carries only `seasonId` — the finalist list lives in the
-  // transaction calldata. `decodeFunctionData` returns a tuple matching the
-  // ABI's input order: `[seasonId, finalists]`. A non-`setFinalists` selector
-  // shouldn't be possible (the event only fires inside that function), but
-  // wrap in try/catch so a future contract refactor that adds a different
-  // emitter doesn't crash the indexer.
+  // The lean event carries only `seasonId` — the finalist list isn't on the wire.
+  //
+  // Audit: bugbot M PR #92 round 3. The earlier calldata-decode-only path silently
+  // failed when the oracle was a Gnosis Safe (or any proxy): `event.transaction.input`
+  // is then `execTransaction(...)` calldata, NOT `setFinalists(...)` calldata, and
+  // `decodeFunctionData` either threw or returned the wrong selector — leaving every
+  // token's `isFinalist` permanently false.
+  //
+  // Robust strategy:
+  //   1. Try the calldata decode (works for EOA oracle — zero RPC cost).
+  //   2. If decode yields the wrong selector OR the embedded seasonId doesn't match
+  //      the event's seasonId, fall back to a chain read against `entryOf(seasonId, token)`
+  //      for every token in the season's cohort. ≤12 reads per season — bounded by
+  //      the launcher's `MAX_LAUNCHES`.
+  const seasonId = event.args.seasonId;
+
+  let finalistsFromCalldata: readonly `0x${string}`[] | null = null;
   try {
     const decoded = decodeFunctionData({
       abi: FilterLauncherAbi,
       data: event.transaction.input,
     });
-    if (decoded.functionName !== "setFinalists") return;
-    const [, finalists] = decoded.args as [bigint, readonly `0x${string}`[]];
-    for (const finalistAddr of finalists) {
-      const existing = await context.db.find(token, {id: finalistAddr});
-      if (!existing) continue; // unknown token — oracle config error; skip
-      await context.db
-        .update(token, {id: finalistAddr})
-        .set({isFinalist: true});
+    if (decoded.functionName === "setFinalists") {
+      const [decodedSeasonId, decodedFinalists] = decoded.args as [
+        bigint,
+        readonly `0x${string}`[],
+      ];
+      // Defence against a future refactor where the function arg order changes
+      // OR the event fires from a different (relay) function with the same selector.
+      if (decodedSeasonId === seasonId) {
+        finalistsFromCalldata = decodedFinalists;
+      }
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[indexer] FilterLauncher:FinalistsSet decode failed for season=${event.args.seasonId} tx=${event.transaction.hash}: ${msg}`,
-    );
+  } catch {
+    // Outer calldata isn't a `setFinalists(...)` call — likely a multisig wrapping
+    // (Gnosis Safe execTransaction, Timelock, etc). Fall through to chain-read.
+  }
+
+  if (finalistsFromCalldata !== null) {
+    for (const finalistAddr of finalistsFromCalldata) {
+      const existing = await context.db.find(token, {id: finalistAddr});
+      if (!existing) continue;
+      await context.db.update(token, {id: finalistAddr}).set({isFinalist: true});
+    }
+    return;
+  }
+
+  // Chain-read fallback: pull every token in this season and ask the launcher
+  // which ones the just-emitted setFinalists call marked as finalist. This is
+  // robust to multisig / timelock / relay callers because it consults contract
+  // storage directly rather than reverse-engineering the tx envelope.
+  //
+  // Block tag: pin to `event.block.number` so the read sees the post-tx state.
+  // Ponder's PublicClient defaults to `latest` which would be correct in real
+  // time but races during reorg replay.
+  const seasonTokens = await context.db.sql
+    .select()
+    .from(token)
+    .where(eq(token.seasonId, seasonId));
+  for (const t of seasonTokens) {
+    try {
+      const entry = await context.client.readContract({
+        abi: context.contracts.FilterLauncher.abi,
+        address: context.contracts.FilterLauncher.address,
+        functionName: "entryOf",
+        args: [seasonId, t.id],
+        blockNumber: event.block.number,
+      });
+      // `entryOf` returns a `TokenEntry` struct; viem decodes to an object whose
+      // shape mirrors the ABI's named outputs. Solidity struct keys: `slotIndex`,
+      // `feeSplitter`, `isFinalist`. Defensive narrowing for the field we care about.
+      const isFinalist =
+        typeof entry === "object" && entry !== null && "isFinalist" in entry
+          ? Boolean((entry as {isFinalist: unknown}).isFinalist)
+          : false;
+      if (isFinalist && !t.isFinalist) {
+        await context.db.update(token, {id: t.id}).set({isFinalist: true});
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[indexer] FinalistsSet chain-read fallback failed for token=${t.id} season=${seasonId}: ${msg}`,
+      );
+    }
   }
 });
 

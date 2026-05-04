@@ -293,15 +293,22 @@ ponder.get("/season/:id/tickers/check", async (c) => {
   const rawTicker = url.searchParams.get("ticker") ?? url.searchParams.get("t") ?? "";
   if (rawTicker.length === 0) return c.json({error: "missing ticker"}, 400);
 
-  // Lazy-import to keep the tickeralib's keccak/toBytes off the API module's hot path
+  // Lazy-import to keep the tickerlib's keccak/toBytes off the API module's hot path
   // when /season/:id/tickers/check isn't being hit.
-  const {tryNormalizeTicker, hashTicker} = await import("./ticker.js");
+  //
+  // Audit: bugbot L PR #92. Hash directly from the canonical form returned by
+  // `tryNormalizeTicker` rather than calling `hashTicker(rawTicker)` (which would
+  // re-run the entire normalize pipeline). Single byte-level scan.
+  const [{tryNormalizeTicker}, {keccak256, toBytes}] = await Promise.all([
+    import("./ticker.js"),
+    import("viem"),
+  ]);
   const norm = tryNormalizeTicker(rawTicker);
   if (!norm.ok) {
     return c.json({error: "invalid format", raw: rawTicker}, 400);
   }
   const canonical = norm.canonical;
-  const hash = hashTicker(rawTicker); // identical to keccak256(bytes(canonical))
+  const hash = keccak256(toBytes(canonical));
 
   // 1. Protocol blocklist — same hash space as winnerTickers (single bytes32 key per
   //    contract). The `tickerBlocklist` row is canonical because it was written by
