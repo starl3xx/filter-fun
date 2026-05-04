@@ -26,7 +26,8 @@ function fakeScoredToken(over: Partial<ScoredToken> = {}): ScoredToken {
   return {
     token: TOKEN,
     rank: 1,
-    hp: 0.87,
+    // Epic 1.18: integer in [0, 10000]. Pre-1.18 this was 0.87 (float).
+    hp: 8700,
     phase: "preFilter",
     baseComposite: 0.85,
     weightsVersion: HP_WEIGHTS_VERSION,
@@ -62,7 +63,9 @@ describe("buildHpUpdatedEvent", () => {
     expect(ev.message).toBe("");
     expect(ev.timestamp).toBe("2026-05-03T10:30:00.000Z");
     const data = ev.data as unknown as HpUpdatedData;
-    expect(data.hp).toBe(87); // 0.87 → 87
+    // Epic 1.18: SSE payload carries the integer HP straight through (was 0-100).
+    expect(data.hp).toBe(8700);
+    expect(Number.isInteger(data.hp)).toBe(true);
     expect(data.components.holderConcentration).toBe(0.4);
     expect(data.weightsVersion).toBe(HP_WEIGHTS_VERSION);
     expect(data.computedAt).toBe(1_700_000_000);
@@ -118,7 +121,9 @@ describe("buildHpSnapshotInsert", () => {
     expect(row.id).toBe(`${TOKEN}:1700000000`);
     expect(row.token).toBe(TOKEN);
     expect(row.snapshotAtSec).toBe(1_700_000_000n);
-    expect(row.hp).toBe(87);
+    // Epic 1.18: hp is the integer scoring already returns (no scale conversion here).
+    expect(row.hp).toBe(8700);
+    expect(Number.isInteger(row.hp)).toBe(true);
     expect(row.rank).toBe(1);
     expect(row.velocity).toBe(0.9);
     expect(row.effectiveBuyers).toBe(0.7);

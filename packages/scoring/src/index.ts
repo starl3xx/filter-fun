@@ -1,4 +1,4 @@
-export {applyFlagsToWeights, computeHolderConcentration, computeMomentumComponent, score} from "./score.js";
+export {applyFlagsToWeights, computeHolderConcentration, computeMomentumComponent, hpToInt, score} from "./score.js";
 export type {
   Address,
   ComponentBreakdown,
@@ -15,6 +15,9 @@ export {
   DEFAULT_FLAGS,
   DEFAULT_WEIGHTS,
   FINALS_WEIGHTS,
+  HP_COMPOSITE_SCALE,
+  HP_MAX,
+  HP_MIN,
   HP_WEIGHTS_ACTIVATED_AT,
   HP_WEIGHTS_SPEC_REF,
   HP_WEIGHTS_VERSION,

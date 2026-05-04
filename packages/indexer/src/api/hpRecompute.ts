@@ -25,7 +25,6 @@
 
 import type {ScoredToken} from "@filter-fun/scoring";
 
-import {hpAsInt100} from "./builders.js";
 import type {TickerEvent} from "./events/types.js";
 
 /// Closed set of trigger labels stamped onto every hpSnapshot row.
@@ -39,7 +38,11 @@ export type HpRecomputeTrigger =
 
 /// Wire-shape of the HP_UPDATED SSE event's `data` payload (per dispatch).
 export interface HpUpdatedData {
-  /// 0–100 integer (matches the wire format of /tokens.hp + hpSnapshot.hp).
+  /// Integer in `[HP_MIN, HP_MAX]` (= [0, 10000]) — Epic 1.18 composite scale,
+  /// matches the wire format of /tokens.hp + hpSnapshot.hp. Pre-1.18 the wire
+  /// shape was 0-100 integer; the SSE payload type didn't change but the
+  /// value range did. Clients that gate on absolute thresholds must be
+  /// updated in lockstep (web overlay handles this in PR #83's mergeHpUpdates).
   hp: number;
   /// Pre-weighted [0, 1] scores per component. Mirrors the per-token
   /// breakdown the leaderboard already consumes.
@@ -73,7 +76,8 @@ export function buildHpUpdatedEvent(input: {
 }): TickerEvent {
   const c = input.scored.components;
   const data: HpUpdatedData = {
-    hp: hpAsInt100(input.scored.hp),
+    // Scoring already returns integer HP in [0, 10000] — Epic 1.18.
+    hp: input.scored.hp,
     components: {
       velocity: c.velocity.score,
       effectiveBuyers: c.effectiveBuyers.score,
@@ -152,7 +156,9 @@ export function buildHpSnapshotInsert(args: {
     id: `${scored.token}:${blockTimestamp.toString()}`.toLowerCase(),
     token: scored.token,
     snapshotAtSec: blockTimestamp,
-    hp: hpAsInt100(scored.hp),
+    // Epic 1.18: scoring returns integer HP in [0, 10000] — the column type
+    // and wire shape match without further conversion.
+    hp: scored.hp,
     rank: scored.rank,
     velocity: scored.components.velocity.score,
     effectiveBuyers: scored.components.effectiveBuyers.score,

@@ -51,6 +51,7 @@ describe("M-Indexer-1: TokenRow.creator is required (no silent 0x0 fallback)", (
         liquidated: false,
         liquidationProceeds: null,
         creator: realCreator,
+        createdAt: 0n,
       },
     ];
     const out = buildTokensResponse(rows, new Map(), "competition", new Map(), 0n);

@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pipeline import hhi_score
+from pipeline import composite_hp, hhi_score
 from fetch_corpus import (
     decode_token_created,
     decode_liquid_token_created,
@@ -310,6 +310,67 @@ def test_no_leakage_inputs_catches_simulated_leak():
                 if s.startswith(LEAKAGE_PREFIXES):
                     leaks.append((node.name, s))
     assert leaks == [("velocity_score", "outcome_30d_holder_retention")], leaks
+
+
+# ---------------------------------------------------------------------------
+# Epic 1.18 — composite HP integer scale tests.
+#
+# Pin the post-1.18 contract that `composite_hp` returns integer values in
+# [0, 10000] using round-half-up rounding. The TS scoring package's
+# `hpToInt` mirrors this; if either side drifts, retrospective Track E
+# replays would diverge from the indexer's stored hpSnapshot rows.
+# ---------------------------------------------------------------------------
+
+
+def _composite_inputs(scores_per_token: list[dict]) -> pd.DataFrame:
+    """Build a comp_*-prefixed DataFrame `composite_hp` consumes."""
+    return pd.DataFrame(
+        [{f"comp_{k}": v for k, v in row.items()} for row in scores_per_token]
+    )
+
+
+def test_composite_hp_returns_integer_in_0_10000():
+    df = _composite_inputs(
+        [
+            {"velocity": 1.0, "effectiveBuyers": 1.0, "stickyLiquidity": 1.0,
+             "retention": 1.0, "momentum": 0.0, "holderConcentration": 0.5},
+            {"velocity": 0.0, "effectiveBuyers": 0.0, "stickyLiquidity": 0.0,
+             "retention": 0.0, "momentum": 0.0, "holderConcentration": 0.0},
+        ]
+    )
+    weights = {"velocity": 0.30, "effectiveBuyers": 0.15, "stickyLiquidity": 0.30,
+               "retention": 0.15, "momentum": 0.0, "holderConcentration": 0.10}
+    hp = composite_hp(df, weights)
+    assert hp.dtype.kind == "i", f"expected integer dtype, got {hp.dtype}"
+    assert (hp >= 0).all() and (hp <= 10000).all()
+    # Top row: 0.30+0.15+0.30+0.15+0.10*0.5 = 0.95 → 9500
+    assert int(hp.iloc[0]) == 9500
+    assert int(hp.iloc[1]) == 0
+
+
+def test_composite_hp_round_half_up_matches_typescript_math_round():
+    # Construct a weighted sum that lands exactly at 0.42345 (i.e. 4234.5
+    # before rounding). round-half-up → 4235; banker's rounding (Python's
+    # default `round`) would yield 4234. The TS scoring package uses
+    # Math.round which is round-half-up for positives, so this is the
+    # parity check.
+    df = _composite_inputs([{"velocity": 0.42345}])
+    hp = composite_hp(df, {"velocity": 1.0})
+    assert int(hp.iloc[0]) == 4235
+
+    # And a deterministic non-half value: 0.5 → 5000.
+    df2 = _composite_inputs([{"velocity": 0.5}])
+    hp2 = composite_hp(df2, {"velocity": 1.0})
+    assert int(hp2.iloc[0]) == 5000
+
+
+def test_composite_hp_clamps_out_of_range_inputs():
+    # Defensive clamp: if a future component returns >1 or <0 the integer
+    # scale stays in [0, 10000].
+    df = _composite_inputs([{"velocity": 2.0}, {"velocity": -1.0}])
+    hp = composite_hp(df, {"velocity": 1.0})
+    assert int(hp.iloc[0]) == 10000
+    assert int(hp.iloc[1]) == 0
 
 
 def main():

@@ -19,10 +19,11 @@ describe("/scoring/weights — handler", () => {
   it("returns the locked v4 weight set with provenance fields", () => {
     const r = buildScoringWeightsResponse({});
     expect(r.version).toBe(HP_WEIGHTS_VERSION);
-    expect(r.version).toBe("2026-05-03-v4-locked");
+    // Epic 1.18 (2026-05-05): version bumped to mark the int10k composite scale.
+    expect(r.version).toBe("2026-05-05-v4-locked-int10k");
     expect(r.specRef).toBe(HP_WEIGHTS_SPEC_REF);
     expect(r.activatedAt).toBe(HP_WEIGHTS_ACTIVATED_AT);
-    expect(r.activatedAt).toBe("2026-05-03T00:00:00Z");
+    expect(r.activatedAt).toBe("2026-05-05T00:00:00Z");
     expect(r.weights).toEqual({
       velocity: 0.30,
       effectiveBuyers: 0.15,
@@ -41,6 +42,11 @@ describe("/scoring/weights — handler", () => {
       r.weights.momentum +
       r.weights.holderConcentration;
     expect(sum).toBeCloseTo(1, 9);
+  });
+
+  it("Epic 1.18 — exposes the composite-HP scale (int [0, 10000])", () => {
+    const r = buildScoringWeightsResponse({});
+    expect(r.compositeScale).toEqual({min: 0, max: 10000, type: "integer"});
   });
 
   it("flags default to momentum=false, concentration=true with empty env", () => {

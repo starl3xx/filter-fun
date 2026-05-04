@@ -3,6 +3,8 @@ import {
   COMPONENT_LABELS,
   DEFAULT_CONFIG,
   DEFAULT_FLAGS,
+  HP_MAX,
+  HP_MIN,
   HP_WEIGHTS_VERSION,
   LOCKED_WEIGHTS,
   type Address,
@@ -58,6 +60,7 @@ export function score(
     retention: computeRetention(t, config),
     holderConcentration: flags.concentration ? components.computeHolderConcentration(t) : 0,
     priorBaseComposite: t.priorBaseComposite,
+    launchedAt: t.launchedAt,
   }));
 
   // 2. Normalize unbounded components.
@@ -104,7 +107,7 @@ export function score(
       ? components.computeMomentumComponent(r.priorBaseComposite, baseComposite, config)
       : 0;
 
-    const hp =
+    const weightedSum =
       effectiveWeights.velocity * v +
       effectiveWeights.effectiveBuyers * b +
       effectiveWeights.stickyLiquidity * l +
@@ -114,7 +117,15 @@ export function score(
 
     return {
       token: r.token,
-      hp,
+      // Scale to integer [HP_MIN, HP_MAX]. Round-half-up (Math.round for
+      // positives) — Track E's Python pipeline mirrors this with
+      // `int(weighted_sum * 10000 + 0.5)` so off-chain replays land on the
+      // same integer.
+      hp: hpToInt(weightedSum),
+      // Stash launchedAt internally for the tie-break sort — stripped from
+      // the returned shape via destructuring below so consumers see only the
+      // public ScoredToken contract.
+      _launchedAt: r.launchedAt,
       phase: config.phase,
       baseComposite,
       weightsVersion: HP_WEIGHTS_VERSION,
@@ -154,8 +165,51 @@ export function score(
     };
   });
 
-  scored.sort((a, b) => b.hp - a.hp);
-  return scored.map((s, idx) => ({...s, rank: idx + 1}));
+  // Spec §6.5 "Composite scale + tie-break": primary key is integer HP
+  // descending; secondary key is launchedAt ascending (earlier wins). Without
+  // the secondary key, two tokens at the same integer HP would resolve by
+  // Array.sort's stable order — fine for replays of the same input but
+  // ambiguous when the indexer reads cohorts back from the DB in a different
+  // order. Tokens missing `launchedAt` fall through to the stable ordering;
+  // production cohorts always carry it (joined from the `token` table).
+  scored.sort((a, b) => {
+    if (a.hp !== b.hp) return b.hp - a.hp;
+    const aL = a._launchedAt;
+    const bL = b._launchedAt;
+    if (aL !== undefined && bL !== undefined && aL !== bL) {
+      return aL < bL ? -1 : 1;
+    }
+    return 0;
+  });
+  return scored.map((s, idx) => {
+    const publicShape: ScoredToken = {
+      token: s.token,
+      rank: idx + 1,
+      hp: s.hp,
+      phase: s.phase,
+      baseComposite: s.baseComposite,
+      weightsVersion: s.weightsVersion,
+      flagsActive: s.flagsActive,
+      components: s.components,
+    };
+    return publicShape;
+  });
+}
+
+/// Convert a [0, 1] weighted sum into the integer [HP_MIN, HP_MAX] composite
+/// scale. Round-half-up via `Math.round` (rounds half toward +∞ for positive
+/// inputs). Track E's Python pipeline mirrors this with
+/// `int(weighted_sum * 10000 + 0.5)` so a row scored on-chain matches its
+/// retrospective Track E recompute exactly.
+///
+/// Out-of-range / NaN inputs clamp to `[HP_MIN, HP_MAX]` defensively — a
+/// negative weighted sum can only arise if a future component returns a
+/// negative score, which would itself be a bug, but the clamp keeps the
+/// integer-storage invariant intact regardless.
+export function hpToInt(weightedSum01: number): number {
+  if (!Number.isFinite(weightedSum01)) return HP_MIN;
+  const clamped = Math.max(0, Math.min(1, weightedSum01));
+  return Math.max(HP_MIN, Math.min(HP_MAX, Math.round(clamped * HP_MAX)));
 }
 
 /// Applies feature flags to a weight set. Inactive components zero out;

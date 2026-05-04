@@ -123,7 +123,12 @@ export async function getTokensHandler(
   const apiPhase = toApiPhase(seasonRow.phase);
   const tokenRows = await q.tokensInSeason(seasonRow.id);
   const scored = scoreCohort(
-    tokenRows.map((r) => ({id: r.id, liquidationProceeds: r.liquidationProceeds})),
+    // Epic 1.18: feed `createdAt` so scoring's tie-break key is populated.
+    tokenRows.map((r) => ({
+      id: r.id,
+      liquidationProceeds: r.liquidationProceeds,
+      createdAt: r.createdAt,
+    })),
     apiPhase,
     nowSec,
   );

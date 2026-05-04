@@ -17,9 +17,9 @@ export interface TickRecord {
   /// Token address as it appeared in the event stream (lowercased to match
   /// downstream consumers — the indexer already lowercases for map keys).
   tokenId: Address;
-  /// Composite HP, rendered 0-100 to match the spec §6.6 / §26.4 example
-  /// JSON. The underlying scoring package returns [0, 1]; the harness
-  /// multiplies by 100 here for output.
+  /// Composite HP, integer in [0, 10000] (Epic 1.18 — spec §6.5 composite
+  /// scale). Mirrors `hpSnapshot.hp` written by the indexer; harness output
+  /// is byte-comparable with replay diffs from production rows.
   hp: number;
   /// Active phase used to pick weights at this tick.
   phase: Phase;
@@ -52,7 +52,8 @@ export interface TickRecord {
 /// every registered assertion returned `passed: true`.
 export interface ScenarioResult {
   timeseries: TickRecord[];
-  /// Final composite HP per token (0-100), measured at the last tick.
+  /// Final composite HP per token (integer 0-10000, Epic 1.18), measured at
+  /// the last tick.
   finalHP: Map<Address, number>;
   assertionsPassed: boolean;
   assertionResults: AssertionResult[];

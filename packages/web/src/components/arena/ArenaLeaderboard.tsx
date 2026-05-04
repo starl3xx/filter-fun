@@ -533,7 +533,9 @@ function MiniSpark({values, color}: {values: number[]; color: string}) {
 function colorForChange(change: number, hp: number): string {
   if (change > 0) return C.green;
   if (change < 0) return C.red;
-  if (hp >= 50) return C.dim;
+  // Epic 1.18: HP scale flipped from 0-100 to 0-10000. The mid-range threshold
+  // moved from 50 → 5000 (same fraction).
+  if (hp >= 5000) return C.dim;
   return C.faint;
 }
 

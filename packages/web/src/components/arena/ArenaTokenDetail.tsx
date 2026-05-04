@@ -19,6 +19,7 @@ import {Triangle} from "@/components/Triangle";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
+import {HP_MAX} from "@/lib/arena/hp";
 import {HP_COMPONENT_COLORS, HP_KEYS_IN_ORDER, HP_LABELS, type HpKey} from "@/lib/arena/hpLabels";
 import {fmtNum, fmtUSD, fmtPrice} from "@/lib/format";
 import {sparkPath} from "@/lib/sparkline";
@@ -267,7 +268,8 @@ function HpBreakdown({components, hp}: {components: TokenResponse["components"];
           HP breakdown
         </span>
         <span style={{fontSize: 12, fontFamily: F.mono, fontWeight: 800, color: C.text, fontVariantNumeric: "tabular-nums"}}>
-          {hp}/100
+          {/* Epic 1.18: HP scale flipped to integer [0, 10000]. Prior format was `${hp}/100`. */}
+          {hp}/{HP_MAX}
         </span>
       </div>
       <ArenaHpBar hp={hp} showValue={false} />

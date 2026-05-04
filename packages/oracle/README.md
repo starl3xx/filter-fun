@@ -90,6 +90,32 @@ Bigints serialize as decimal strings (JSON has no native bigint). Keys are lower
 npm --workspace @filter-fun/oracle run test
 ```
 
+## Canonical HP ranking algorithm (Epic 1.18)
+
+The oracle's HP ranking Merkle (`buildHpRankingPayload`) consumes pre-ranked
+entries supplied by the indexer; it does **not** re-derive the ordering. The
+canonical ranking algorithm — which the indexer applies via the `score()` call
+in `@filter-fun/scoring` — is:
+
+1. **Primary key**: integer composite HP, descending. The composite scale is
+   `[0, 10000]` (spec §6.5; bumped from float `[0, 1]` in Epic 1.18).
+2. **Secondary key (tie-break)**: `launchedAt` (`token.createdAt` from the
+   indexer), ascending — earlier-launched wins.
+
+Why a tie-break: with a 10001-value integer scale, exact-HP ties are uncommon
+but not impossible (especially in degenerate cohorts or with a small number of
+contributing components active). Without the secondary key, two tied tokens
+would resolve to whatever order `Array.sort`'s stable behavior produced from
+the input — fine for replays of the same input but ambiguous when the indexer
+re-reads cohorts back from the DB in a different order. Earlier-launched
+wins because longevity is a weak signal of legitimacy and the choice is
+public, predictable, and contract-immaterial (the on-chain settlement reads
+the oracle-posted Merkle root, not HP values directly).
+
+The Merkle build itself sorts its leaves by `(rank ASC, token ASC)` — a
+deterministic ordering over the already-ranked input — so the root is
+reproducible regardless of how the indexer returned the rows.
+
 ## Out of scope (next module)
 
 - Multisig signing / EIP-712 wrapper around the payload.

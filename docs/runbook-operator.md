@@ -190,17 +190,19 @@ curl -s "$INDEXER_URL/tokens" | jq '.[] | {token, hp, hpUpdatedAt: .hpUpdatedAt}
 
 - [ ] Every token's `hpUpdatedAt` is within the last 5 minutes during the launch + trading
       windows. Stale HP > 10 min on any token = paging incident — see §6.1 (HP frozen).
-- [ ] HP values are bounded `[0, 100]`. Out-of-range = scoring bug; rollback indexer
-      immediately and freeze the season.
+- [ ] HP values are bounded `[0, 10000]` integer (Epic 1.18; was `[0, 100]` pre-cutover).
+      Out-of-range or fractional = scoring bug; rollback indexer immediately and freeze the
+      season.
 
-#### Active weight set (Epic 1.17a, 2026-05-03 v4 lock)
+#### Active weight set (Epic 1.18, 2026-05-05 v4 lock + int10k composite scale)
 
 ```sh
 curl -s "$INDEXER_URL/scoring/weights" | jq
 ```
 
-- [ ] `version` matches the live `HP_WEIGHTS_VERSION` (currently `2026-05-03-v4-locked`).
-      A mismatch means the indexer is running stale code — redeploy before next snapshot.
+- [ ] `version` matches the live `HP_WEIGHTS_VERSION` (currently
+      `2026-05-05-v4-locked-int10k`). A mismatch means the indexer is running stale code
+      — redeploy before next snapshot.
 - [ ] `weights` sums to `1.000` and matches spec §6.5: velocity 0.30, effectiveBuyers 0.15,
       stickyLiquidity 0.30, retention 0.15, momentum 0.00, holderConcentration 0.10.
 - [ ] `flags.HP_MOMENTUM_ENABLED == false` and `flags.HP_CONCENTRATION_ENABLED == true`
@@ -209,6 +211,23 @@ curl -s "$INDEXER_URL/scoring/weights" | jq
       `docs.filter.fun/protocol/scoring-weights`).
 - [ ] `phaseDifferentiation == false` under v4. A future v5 may flip this; if it does,
       the deploy that flipped it should also bump `version`.
+- [ ] `compositeScale == {"min": 0, "max": 10000, "type": "integer"}`. Pre-1.18 this
+      field was absent; if it returns the old shape, indexer is on a stale build.
+
+#### Mainnet cutover step (Epic 1.18 — int10k migration)
+
+The composite-scale flip from float [0, 1] → integer [0, 10000] is **destructive for
+existing `hp_snapshot` rows** (Sepolia testnet). Run `packages/indexer/scripts/migrate-int10k.sql`
+against the indexer Postgres BEFORE restarting the new indexer build:
+
+```sh
+psql "$INDEXER_DATABASE_URL" -f packages/indexer/scripts/migrate-int10k.sql
+```
+
+The script truncates `hp_snapshot` and verifies the table is empty before commit. The
+indexer repopulates from genesis blocks via the BLOCK_TICK / SWAP / HOLDER_SNAPSHOT
+handlers on restart. Mainnet ships clean from this version — there are no pre-1.18 rows
+to preserve.
 
 Spot-check a recent `hpSnapshot` row to confirm provenance is being stamped:
 
@@ -221,9 +240,11 @@ psql "$INDEXER_DATABASE_URL" -c "
 "
 ```
 
-- [ ] All recent rows tagged `weights_version = '2026-05-03-v4-locked'`. Pre-1.17a rows
-      backfilled to `'pre-lock'`; if you still see `pre-lock` writes after the deploy,
-      treat as an incident (the writer isn't reading the version stamp).
+- [ ] All recent rows tagged `weights_version = '2026-05-05-v4-locked-int10k'`. Pre-1.18
+      rows were dropped via `migrate-int10k.sql`; if you see ANY pre-cutover version
+      string (`'pre-lock'` or `'2026-05-03-v4-locked'`) after the deploy, treat as an
+      incident — the migration didn't complete OR the writer isn't reading the live
+      version stamp.
 - [ ] `flags_active` = `{"momentum":false,"concentration":true}` for all live writes.
 
 #### Compute pathway (Epic 1.17b — `trigger` provenance)

@@ -50,15 +50,15 @@ function makeStats(
 }
 
 describe("v4 lock — version + activated-at provenance", () => {
-  it("HP_WEIGHTS_VERSION is the locked-2026-05-03 sentinel", () => {
-    expect(HP_WEIGHTS_VERSION).toBe("2026-05-03-v4-locked");
+  it("HP_WEIGHTS_VERSION is the int10k-locked sentinel (Epic 1.18)", () => {
+    expect(HP_WEIGHTS_VERSION).toBe("2026-05-05-v4-locked-int10k");
   });
 
   it("HP_WEIGHTS_ACTIVATED_AT pins activation timestamp", () => {
-    expect(HP_WEIGHTS_ACTIVATED_AT).toBe("2026-05-03T00:00:00Z");
+    expect(HP_WEIGHTS_ACTIVATED_AT).toBe("2026-05-05T00:00:00Z");
   });
 
-  it("LOCKED_WEIGHTS values match Track E v4 final report", () => {
+  it("LOCKED_WEIGHTS values match Track E v4 final report (unchanged in 1.18)", () => {
     expect(LOCKED_WEIGHTS.velocity).toBe(0.30);
     expect(LOCKED_WEIGHTS.effectiveBuyers).toBe(0.15);
     expect(LOCKED_WEIGHTS.stickyLiquidity).toBe(0.30);
@@ -89,7 +89,7 @@ describe("v4 lock — version + activated-at provenance", () => {
       holdersAtRetentionAnchor: new Set([wallet(1)]),
     });
     const ranked = score([t], NOW);
-    expect(ranked[0]?.weightsVersion).toBe("2026-05-03-v4-locked");
+    expect(ranked[0]?.weightsVersion).toBe("2026-05-05-v4-locked-int10k");
     expect(ranked[0]?.flagsActive).toEqual(DEFAULT_FLAGS);
   });
 });
@@ -352,11 +352,12 @@ describe("v4 lock — reference input → expected HP", () => {
     const ranked = score([distributed, baseline], NOW);
     expect(ranked[0]?.token).toBe(tokenA);
     const r = ranked.find((s) => s.token === tokenA)!;
-    // Velocity 1, effectiveBuyers 1, stickyLiq 1, retention 1, hc ≈ log10(10000/3.33) / 4 ≈ ?
-    // Hand-calc: HHI = 10000 × 30 × (1/30)² = 10000 / 30 ≈ 333.3 → score = 1 - log10(333.3)/4 ≈ 0.371.
+    // Velocity 1, effectiveBuyers 1, stickyLiq 1, retention 1, hc ≈ log10(10000/333.3)/4 ≈ 0.371.
     // HP under v4 weights = 0.30*1 + 0.15*1 + 0.30*1 + 0.15*1 + 0.0*0 + 0.10*0.371 ≈ 0.937.
-    expect(r.hp).toBeGreaterThan(0.93);
-    expect(r.hp).toBeLessThan(0.95);
+    // Under int10k composite scale (Epic 1.18) → ≈ 9370, allowing rounding +/-.
+    expect(r.hp).toBeGreaterThan(9300);
+    expect(r.hp).toBeLessThan(9500);
+    expect(Number.isInteger(r.hp)).toBe(true);
     expect(r.weightsVersion).toBe(HP_WEIGHTS_VERSION);
   });
 
@@ -396,15 +397,17 @@ describe("v4 lock — reference input → expected HP", () => {
       monoRow.components.holderConcentration.score,
     );
     // The two tokens differ ONLY in concentration, so the HP gap exactly
-    // equals 0.10 × (Δ score). With both at the cohort max on every other
-    // axis, this is the cleanest end-to-end check that the new component
-    // flows through HP.
-    expect(honestRow.hp - monoRow.hp).toBeCloseTo(
+    // equals round(0.10 × Δ score × 10000). With both at the cohort max on
+    // every other axis, this is the cleanest end-to-end check that the new
+    // component flows through the int-scaled HP. Rounding slack ±1.
+    const expectedDelta = Math.round(
       0.10 *
         (honestRow.components.holderConcentration.score -
-          monoRow.components.holderConcentration.score),
-      6,
+          monoRow.components.holderConcentration.score) *
+        10000,
     );
+    expect(honestRow.hp - monoRow.hp).toBeGreaterThanOrEqual(expectedDelta - 1);
+    expect(honestRow.hp - monoRow.hp).toBeLessThanOrEqual(expectedDelta + 1);
   });
 });
 

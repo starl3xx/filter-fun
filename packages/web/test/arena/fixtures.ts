@@ -1,9 +1,14 @@
 /// Fixture cohort + season for arena tests. Twelve tokens with rank 1..12,
 /// HP descending — exactly the spec's "12 → 6 → 1" cohort shape.
+///
+/// Epic 1.18: HP wire range flipped from 0-100 to integer 0-10000. The
+/// fixture HPs below were rescaled by × 100 to keep the same fractions of
+/// the full range — every status threshold + spacing relation in the
+/// snapshot is identical to the pre-1.18 fixture.
 
 import type {BagLock, SeasonResponse, TickerEvent, TokenResponse, TokenStatus} from "@/lib/arena/api";
 
-const HP_BY_RANK = [98, 92, 88, 80, 72, 64, 52, 44, 32, 22, 14, 6];
+const HP_BY_RANK = [9800, 9200, 8800, 8000, 7200, 6400, 5200, 4400, 3200, 2200, 1400, 600];
 const TICKERS = [
   "FILTER", "BLOOD", "KING", "SURVIVE", "MOON", "FINAL",
   "CUT", "EDGE", "SLICE", "RUG", "DUST", "GHOST",

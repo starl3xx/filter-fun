@@ -77,6 +77,7 @@ describe("endpoint status convention (Audit H-2)", () => {
       name: "filter.fun",
       seasonId: 1n,
       isProtocolLaunched: true,
+      createdAt: 0n,
     };
     const q: ApiQueries = {
       ...emptyQueries(),

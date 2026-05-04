@@ -67,15 +67,15 @@ export const whalePumpScenario: ScenarioDefinition = {
           };
         },
         ({finalHP}) => {
-          // Sanity: whale HP stays moderate (< 50). HP rewards conviction
-          // (1 holder fully retained = retention 1.0 × weight 0.10 = 10
-          // points) and a slice of momentum (~5 points), so the floor is
-          // ~15; 50 is comfortably above any mathematically achievable
-          // single-whale composite.
+          // Sanity: whale HP stays moderate (< 5000 on int scale, was 50/100).
+          // HP rewards conviction (1 holder fully retained = retention 1.0
+          // × weight 0.10 = 1000 points on int10k) and a slice of momentum
+          // (~500), so the floor is ~1500; 5000 is comfortably above any
+          // mathematically achievable single-whale composite.
           const test = finalHP.get(TEST_TOKEN.toLowerCase() as typeof TEST_TOKEN) ?? -1;
           return {
-            description: "whale HP < 50",
-            passed: test >= 0 && test < 50,
+            description: "whale HP < 5000",
+            passed: test >= 0 && test < 5000,
             detail: `HP=${test}`,
           };
         },

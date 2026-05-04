@@ -1,11 +1,13 @@
 # HP Scoring Weights — Off-chain Model + Verification
 
-filter.fun's HP score combines six on-chain signals into a single 0–1 number. This page
-documents **where the weights live, how to verify what's currently active, and the
-procedure for changing them**.
+filter.fun's HP score combines six on-chain signals into a single integer in `[0, 10000]`
+(Epic 1.18 / spec §6.5 — bumped from `[0, 1]` to integer-stored to align with the BPS
+convention used elsewhere in the protocol). This page documents **where the weights
+live, how to verify what's currently active, and the procedure for changing them**.
 
-> **Spec refs**: §6.4 (per-component definitions), §6.5 (locked weights), §6.4.5
-> (momentum gate), §41 (holder concentration), §42.2.6 (oracle authority invariant).
+> **Spec refs**: §6.4 (per-component definitions), §6.5 (locked weights + composite
+> scale + tie-break), §6.4.5 (momentum gate), §41 (holder concentration), §42.2.6
+> (oracle authority invariant).
 
 > **Audience**: external auditors, traders verifying composite math, operators reviewing
 > a proposed weight update.
@@ -18,9 +20,10 @@ procedure for changing them**.
 [`packages/scoring/src/types.ts`](https://github.com/starl3xx/filter-fun/blob/main/packages/scoring/src/types.ts)
 as `LOCKED_WEIGHTS`. Contracts NEVER read these values — `SeasonVault.cut()` and
 `SeasonVault.submitWinner()` consume the **oracle-published Merkle root of rankings**
-instead. This is a deliberate design lock dated 2026-05-03 (spec §6.5) and preserves
-the §42.2.6 oracle-authority invariant: the only privileged input the contracts trust is
-the oracle-signed root, not the per-component coefficients.
+instead. This is a deliberate design lock dated 2026-05-03 (spec §6.5; composite-scale
+amendment dated 2026-05-05) and preserves the §42.2.6 oracle-authority invariant: the
+only privileged input the contracts trust is the oracle-signed root, not the
+per-component coefficients.
 
 **Implication for trust.** A weight change is enforceable only if the oracle reposts a
 new Merkle root that ranks tokens under the new weights. Contracts can't validate
@@ -30,7 +33,7 @@ hash → block} commitments to detect drift.
 
 ---
 
-## 2. The active set (`HP_WEIGHTS_VERSION = "2026-05-03-v4-locked"`)
+## 2. The active set (`HP_WEIGHTS_VERSION = "2026-05-05-v4-locked-int10k"`)
 
 | Component | Coefficient | Plain English |
 |---|---:|---|
@@ -45,11 +48,29 @@ Sum: 1.00 exactly. No per-phase differentiation in v4 — both `preFilter` and `
 resolve to this single set. (The phase API survives as a thin wrapper so a future v5 can
 revive per-phase weights without an indexer/oracle/web refactor.)
 
+### Composite scale + tie-break (Epic 1.18, 2026-05-05)
+
+- **Composite scale**: integer in `[0, 10000]`. Scoring computes
+  `Math.round(weighted_sum × 10000)` (round-half-up); Track E's Python pipeline
+  mirrors this with `int(weighted_sum × 10000 + 0.5)`. Same effective resolution as
+  the prior float `[0, 1]` with two decimal places, but cleaner storage (integer
+  column) and aligned to the BPS convention used in §9.2 / §9.4 / §11.1 / §41.4 (HHI).
+- **Tie-break**: when two tokens land on the exact-same integer HP, the
+  earlier-launched (`token.createdAt`) wins. Earlier-launched-wins because longevity
+  is a weak legitimacy signal and the choice is public, predictable, and
+  contract-immaterial (the on-chain settlement reads the oracle-posted Merkle root,
+  not HP values directly). Without the secondary key, ties would resolve by whatever
+  order `Array.sort` produced from the input — fine for replays, ambiguous when the
+  indexer reads cohorts back from the DB in a different order.
+
 Provenance constants:
 
-- `HP_WEIGHTS_VERSION = "2026-05-03-v4-locked"` — stamped on every `hpSnapshot` row.
-- `HP_WEIGHTS_ACTIVATED_AT = "2026-05-03T00:00:00Z"` — wall-clock activation.
+- `HP_WEIGHTS_VERSION = "2026-05-05-v4-locked-int10k"` — stamped on every `hpSnapshot` row.
+- `HP_WEIGHTS_ACTIVATED_AT = "2026-05-05T00:00:00Z"` — wall-clock activation.
 - `HP_WEIGHTS_SPEC_REF` — anchor to the spec §6.5 entry that authored this set.
+- `HP_COMPOSITE_SCALE = {min: 0, max: 10000, type: "integer"}` — surfaced on
+  `/scoring/weights` so clients gating on absolute thresholds can read the scale
+  rather than hardcoding it.
 
 ### Validation status
 
@@ -77,9 +98,9 @@ The endpoint returns:
 
 ```json
 {
-  "version": "2026-05-03-v4-locked",
+  "version": "2026-05-05-v4-locked-int10k",
   "specRef": "https://github.com/starl3xx/filter-fun/blob/main/filter_fun_comprehensive_spec.md#65-hp-component-weights-locked-2026-05-03-per-track-e-v4",
-  "activatedAt": "2026-05-03T00:00:00Z",
+  "activatedAt": "2026-05-05T00:00:00Z",
   "weights": {
     "velocity": 0.30,
     "effectiveBuyers": 0.15,
@@ -92,7 +113,8 @@ The endpoint returns:
     "HP_MOMENTUM_ENABLED": false,
     "HP_CONCENTRATION_ENABLED": true
   },
-  "phaseDifferentiation": false
+  "phaseDifferentiation": false,
+  "compositeScale": {"min": 0, "max": 10000, "type": "integer"}
 }
 ```
 
@@ -178,7 +200,7 @@ re-derivable:
 
 | Field | Source | Notes |
 |---|---|---|
-| `hp` | `score().hp × 100` | 0–100 integer |
+| `hp` | `score().hp` | Integer in `[0, 10000]` (Epic 1.18). Pre-1.18 was 0-100. |
 | `velocity / effectiveBuyers / stickyLiquidity / retention / momentum` | `score().components[...].score` | 0–1 floats, pre-weighting |
 | `weightsVersion` | `HP_WEIGHTS_VERSION` constant at write time | Indexed |
 | `flagsActive` | JSON of `WeightFlags` at write time | `{"momentum":bool,"concentration":bool}` |

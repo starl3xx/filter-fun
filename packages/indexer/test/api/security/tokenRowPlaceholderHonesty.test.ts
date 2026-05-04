@@ -30,6 +30,8 @@ const baseRow: TokenRow = {
   liquidationProceeds: null,
   // Audit M-Indexer-1: creator is required on TokenRow now.
   creator: "0x000000000000000000000000000000000000beef",
+  // Epic 1.18: createdAt drives the scoring tie-break key.
+  createdAt: 0n,
 };
 
 describe("TokenRow placeholder honesty (Audit H-1)", () => {

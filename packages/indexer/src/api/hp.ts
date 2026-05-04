@@ -29,6 +29,12 @@ import {
 export interface TokenRow {
   id: `0x${string}`; // token address
   liquidationProceeds: bigint | null;
+  /// Unix-seconds the token was deployed (`token.createdAt`). Drives the
+  /// Epic 1.18 tie-break — when two tokens land on the same integer HP, the
+  /// earlier-launched one ranks higher. Optional during the migration so
+  /// callers that haven't been updated yet still typecheck; the public
+  /// `/tokens` query path always populates it.
+  createdAt?: bigint;
 }
 
 /// Builds a minimal `TokenStats` from indexed data. Today this is largely empty — see the
@@ -46,6 +52,7 @@ export function tokenStatsFromRows(row: TokenRow): TokenStats {
     liquidityDepthWeth: 0n,
     currentHolders: new Set(),
     holdersAtRetentionAnchor: new Set(),
+    launchedAt: row.createdAt,
   };
 }
 

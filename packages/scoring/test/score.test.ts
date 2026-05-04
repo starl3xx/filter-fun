@@ -363,7 +363,9 @@ describe("score (v3)", () => {
 
     // Momentum's contribution is bounded by its weight in the active set; under
     // the v4 lock the weight is 0, so we exercise this with a non-zero weight
-    // override matching the legacy 0.10 cap to validate the bound.
+    // override matching the legacy 0.10 cap to validate the bound. The
+    // composite is integer-scaled by HP_MAX (10000), so the bound on the HP
+    // gap is `weight * HP_MAX` (+1 for rounding slack).
     const legacyMomentumWeight = 0.10;
     const ranked2 = score([surger, coaster], NOW, {
       ...MOMENTUM_ON,
@@ -378,7 +380,7 @@ describe("score (v3)", () => {
     });
     const sH = ranked2.find((r) => r.token === tokenA)!.hp;
     const cH = ranked2.find((r) => r.token === tokenB)!.hp;
-    expect(Math.abs(sH - cH)).toBeLessThanOrEqual(legacyMomentumWeight + 1e-9);
+    expect(Math.abs(sH - cH)).toBeLessThanOrEqual(Math.round(legacyMomentumWeight * 10000) + 1);
   });
 
   it("momentum is neutral when no prior base composite is provided", () => {
@@ -513,9 +515,11 @@ describe("score (v3)", () => {
     expect(ranked[0]?.rank).toBe(1);
     // Single-token cohort: min-max normalization → 0 for unbounded components,
     // retention still captures full conviction. Plus neutral momentum (0.5).
-    // HP is therefore weights.retention * 1 + weights.momentum * 0.5.
+    // HP is therefore weights.retention * 1 + weights.momentum * 0.5, scaled
+    // to integer [0, 10000].
     const w = PRE_FILTER_WEIGHTS;
-    expect(ranked[0]?.hp).toBeCloseTo(w.retention + w.momentum * 0.5, 6);
+    const expectedFloat = w.retention + w.momentum * 0.5;
+    expect(ranked[0]?.hp).toBe(Math.round(expectedFloat * 10000));
   });
 
   // ── Spec §27.6 integration tests ───────────────────────────────────────────
@@ -567,11 +571,12 @@ describe("score (v3)", () => {
     // Retention is its own [0,1] scale (not min-maxed) — still full.
     expect(distributedRow.components.retention.score).toBe(1);
     // HP is comfortably above the median: at least the four non-momentum
-    // weights' worth (since each non-momentum component is at 1).
+    // weights' worth (since each non-momentum component is at 1). Scaled to
+    // integer [0, 10000] — minus 1 for rounding slack at the boundary.
     const w = PRE_FILTER_WEIGHTS;
-    const minExpected =
+    const minExpectedFloat =
       w.velocity + w.effectiveBuyers + w.stickyLiquidity + w.retention;
-    expect(distributedRow.hp).toBeGreaterThanOrEqual(minExpected);
+    expect(distributedRow.hp).toBeGreaterThanOrEqual(Math.round(minExpectedFloat * 10000) - 1);
   });
 
   it("§27.6 — sybil swarm with thin fundamentals loses to real distributed buyers", () => {

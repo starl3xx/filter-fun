@@ -36,7 +36,9 @@ export interface HpRankingEntry {
   token: Address;
   /// 1-indexed rank in the cohort (rank 1 is the highest HP).
   rank: number;
-  /// 0-100 integer HP, matches indexer `hpSnapshot.hp`.
+  /// Integer HP in `[0, 10000]` (Epic 1.18 / spec §6.5 composite scale).
+  /// Matches indexer `hpSnapshot.hp`. Pre-1.18 the wire range was 0-100;
+  /// the field shape is unchanged but the value range moved.
   hp: number;
 }
 
