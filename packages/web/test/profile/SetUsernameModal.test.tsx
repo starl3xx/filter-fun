@@ -44,6 +44,40 @@ beforeEach(() => {
   submitMock.mockReset();
 });
 
+describe("SetUsernameModal — availability hint stale-reset (PR #102 pass-14)", () => {
+  it("clears stale Available verdict immediately when the value changes", async () => {
+    // Bugbot L PR #102 pass-14: prior to the fix, the previous availability
+    // hint hung around for the full 300ms debounce window. A user who saw
+    // "Available" for an old value and then typed a different value would
+    // still see "Available" until the new fetch returned. The fix sets
+    // availability to null at the top of the effect so "Checking…" shows
+    // immediately during the debounce window.
+    fetchMock.mockResolvedValue({available: true});
+    const {container} = render(
+      <SetUsernameModal
+        address={ADDR}
+        initial={initial}
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    );
+    const input = container.querySelector("input")!;
+    await act(async () => {
+      fireEvent.change(input, {target: {value: "starbreaker"}});
+    });
+    await waitFor(() => expect(container.textContent).toContain("Available"));
+
+    // Change the value. The "Available" verdict from the prior keystroke
+    // must NOT linger — we expect "Checking…" to render synchronously
+    // before the new debounced fetch resolves.
+    await act(async () => {
+      fireEvent.change(input, {target: {value: "different-name"}});
+    });
+    expect(container.textContent).toContain("Checking");
+    expect(container.textContent).not.toContain("Available");
+  });
+});
+
 describe("SetUsernameModal — submit error handling (PR #102 pass-4)", () => {
   it("surfaces a 'Network error' message when submitUsername throws", async () => {
     fetchMock.mockResolvedValue({available: true});

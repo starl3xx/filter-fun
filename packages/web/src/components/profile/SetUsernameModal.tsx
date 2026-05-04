@@ -67,6 +67,15 @@ export function SetUsernameModal({address, initial, onClose, onSuccess}: SetUser
       setAvailability({available: true});
       return;
     }
+    // Bugbot L PR #102 pass-14: clear `availability` BEFORE scheduling the
+    // new fetch so the prior verdict doesn't stay on screen during the
+    // 300ms debounce window. Without this reset, a user who typed
+    // `available-name` (verdict: Available, button enabled) and then
+    // changed it to `taken-name` would see the stale Available hint and
+    // could click submit + sign a wallet message during the gap before
+    // the network call resolves to "taken". The submit-time server check
+    // would still reject, but the wallet round-trip is wasted UX.
+    setAvailability(null);
     const seq = ++seqRef.current;
     const handle = setTimeout(() => {
       fetchUsernameAvailability(value)
