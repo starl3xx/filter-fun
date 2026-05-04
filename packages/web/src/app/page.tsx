@@ -288,7 +288,16 @@ export default function HomePage() {
               gap: 10,
             }}
           >
-            {effectiveViewMode === "tile" && (
+            {/* Bugbot finding (PR #91, commit d787b88): the sort dropdown
+                only meaningfully controls the tile grid, so its render
+                gate has to mirror the SAME condition the tile grid uses
+                below — `effectiveViewMode === "tile"` AND `!firingMode`.
+                During filter-moment firing/recap the bottom branch falls
+                back to the row layout regardless of the user's view-mode
+                preference; without the firingMode exclusion here the
+                user briefly saw a stranded sort dropdown above a list
+                view it can't sort. */}
+            {effectiveViewMode === "tile" && !firingMode && (
               <ArenaSortDropdown value={sortMode} onChange={setSortMode} />
             )}
             <ViewToggle value={viewMode} onChange={setViewMode} />
