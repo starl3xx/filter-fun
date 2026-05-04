@@ -176,6 +176,68 @@ describe("getCachedOperatorRequest", () => {
     expect(signer.calls()).toBe(2);
   });
 
+  // Bugbot PR #95 round 20 (Medium Severity): without in-flight dedup, the
+  // 30s alert-poll plus a parallel dashboards-load on cache-miss would each
+  // independently call `signMessage` and produce a burst of wallet popups
+  // (up to ~8 before the first resolves and repopulates the cache). The
+  // fix coalesces concurrent cache-misses onto a single signing promise.
+  it("coalesces concurrent cache-misses onto a single signMessage prompt", async () => {
+    __resetOperatorSignatureCacheForTests();
+    const account = privateKeyToAccount(PK);
+    let calls = 0;
+    let resolveGate!: () => void;
+    const gate = new Promise<void>((r) => {
+      resolveGate = r;
+    });
+    const slowSigner: OperatorSigner = {
+      address: account.address,
+      signMessage: async ({message}) => {
+        calls++;
+        // Hold the prompt open so concurrent callers race the cache miss.
+        await gate;
+        return account.signMessage({message});
+      },
+    };
+    const t0 = Date.UTC(2026, 4, 4, 12, 0, 0);
+    const p1 = getCachedOperatorRequest(slowSigner, "GET /operator/alerts", t0);
+    const p2 = getCachedOperatorRequest(slowSigner, "GET /operator/alerts", t0 + 100);
+    const p3 = getCachedOperatorRequest(slowSigner, "GET /operator/alerts", t0 + 200);
+    // All three concurrent — only one signMessage must have been issued.
+    expect(calls).toBe(1);
+    resolveGate();
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+    expect(calls).toBe(1);
+    // All callers receive the same signed-request object (piggyback semantics).
+    expect(r2).toBe(r1);
+    expect(r3).toBe(r1);
+  });
+
+  it("clears the in-flight slot on signing error so the next caller can retry", async () => {
+    __resetOperatorSignatureCacheForTests();
+    const account = privateKeyToAccount(PK);
+    let calls = 0;
+    let firstAttempt = true;
+    const flakySigner: OperatorSigner = {
+      address: account.address,
+      signMessage: async ({message}) => {
+        calls++;
+        if (firstAttempt) {
+          firstAttempt = false;
+          throw new Error("user rejected");
+        }
+        return account.signMessage({message});
+      },
+    };
+    const t0 = Date.UTC(2026, 4, 4, 12, 0, 0);
+    await expect(
+      getCachedOperatorRequest(flakySigner, "GET /operator/alerts", t0),
+    ).rejects.toThrow("user rejected");
+    // Retry — must not be stuck awaiting the previously-rejected promise.
+    const ok = await getCachedOperatorRequest(flakySigner, "GET /operator/alerts", t0 + 1_000);
+    expect(calls).toBe(2);
+    expect(ok.message).toContain("GET /operator/alerts");
+  });
+
   it("caches per address — different signers don't collide", async () => {
     __resetOperatorSignatureCacheForTests();
     const signerA = counterSigner();

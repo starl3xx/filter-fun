@@ -79,6 +79,16 @@ const signatureCache = new Map<
   {req: OperatorSignedRequest; expiresAt: number}
 >();
 
+/// In-flight signing promises, keyed identically to `signatureCache`. Bugbot
+/// PR #95 round 20 (Medium): without this, multiple concurrent callers that
+/// observe the same cache miss each call `signer.signMessage` independently,
+/// producing a burst of wallet popups before the first sign resolves and
+/// repopulates the cache. The operator console hits this on every page-load
+/// (alert poll + dashboard load fan out simultaneously) and on every TTL
+/// expiry — so up to ~8 concurrent prompts. Coalescing onto one in-flight
+/// promise means concurrent misses share a single wallet prompt.
+const inflightSigning = new Map<string, Promise<OperatorSignedRequest>>();
+
 /// Cache-aware variant of `signOperatorRequest`. Returns a cached signature
 /// for the same (address, action) within the TTL window; otherwise signs
 /// fresh and caches the result. Pass a fresh `nowMs` only in tests — production
@@ -98,15 +108,31 @@ export async function getCachedOperatorRequest(
   if (cached && cached.expiresAt > nowMs) {
     return cached.req;
   }
-  const req = await signOperatorRequest(signer, action, nowMs);
-  signatureCache.set(key, {req, expiresAt: nowMs + SIGNATURE_CACHE_TTL_MS});
-  return req;
+  // In-flight dedup — concurrent callers piggyback on the first one's prompt.
+  const existing = inflightSigning.get(key);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      const req = await signOperatorRequest(signer, action, nowMs);
+      signatureCache.set(key, {req, expiresAt: nowMs + SIGNATURE_CACHE_TTL_MS});
+      return req;
+    } finally {
+      // Clear the in-flight slot on BOTH success and error. On error (user
+      // rejected the wallet prompt, network blip on EIP-1271 contract
+      // wallets), the next caller should be free to retry with a fresh
+      // sign rather than awaiting an already-rejected promise forever.
+      inflightSigning.delete(key);
+    }
+  })();
+  inflightSigning.set(key, promise);
+  return promise;
 }
 
 /// Test hook — clears the signature cache between tests. Not used by
 /// production code paths.
 export function __resetOperatorSignatureCacheForTests(): void {
   signatureCache.clear();
+  inflightSigning.clear();
 }
 
 /// Convert a signed request into the headers a `fetch` call needs. Co-located
