@@ -617,9 +617,18 @@ export async function submitUsername(args: {
 }
 
 /// Compose the canonical signed-message body. The server constructs the
-/// same string in `userProfileHandler.ts`; the wallet client signs this
-/// exact body via `personal_sign`. Lowercases address + username so the
-/// signing client can be sloppy about casing.
+/// same string in `packages/indexer/src/api/username.ts:buildSetUsernameMessage`;
+/// the wallet client signs this exact body via `personal_sign`. Lowercases
+/// address + username so the signing client can be sloppy about casing.
+///
+/// SECURITY: this format is the load-bearing security boundary of the
+/// identity layer (bugbot M PR #102 pass-5). If the two copies drift, every
+/// `set-username` POST silently fails recovery (401 for all users). Both
+/// packages pin the canonical output via a literal-format test:
+///   - indexer: `test/api/username.test.ts` "formats with all fields lowercased"
+///   - web:     `test/profile/SetUsernameMessageParity.test.ts`
+/// If you change this string, change BOTH and update both tests in the same
+/// commit — drift on either side will fail its own test before merge.
 export function buildSetUsernameMessage(
   address: `0x${string}`,
   username: string,

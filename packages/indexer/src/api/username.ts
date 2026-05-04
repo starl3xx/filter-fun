@@ -125,6 +125,16 @@ export function isWithinCooldown(
 /// `nonce` is opaque to this module — caller-controlled. Including it in the
 /// signed payload from v1 keeps the door open for replay-protection without
 /// a wallet-client breaking change.
+///
+/// SECURITY: mirrored in `packages/web/src/lib/arena/api.ts:buildSetUsernameMessage`
+/// (bugbot M PR #102 pass-5). The two copies MUST stay byte-identical — drift
+/// makes every wallet's `personal_sign` recover to a different address and
+/// every set-username POST returns 401. Both copies are pinned by literal-
+/// format tests:
+///   - indexer: `test/api/username.test.ts` "formats with all fields lowercased"
+///   - web:     `test/profile/SetUsernameMessageParity.test.ts`
+/// If you change this string, change BOTH and update both tests in the same
+/// commit.
 export function buildSetUsernameMessage(
   address: `0x${string}`,
   username: string,

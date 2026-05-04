@@ -740,7 +740,18 @@ ponder.get("/profile/:identifier", async (c) => {
       200,
     );
   }
-  return c.json(r.value.body as ProfileResponse | {error: string}, r.value.status as 200);
+  // Bugbot L PR #102 pass-5: this branch is currently unreachable —
+  // `address!` is already validated by `isAddressLike` upstream, so
+  // `getProfileHandler` cannot return its 400 path. The original code cast
+  // status `as 200` which was misleading: if a future variant is added to
+  // the handler (e.g. a 403 for soft-suspended addresses), the cast would
+  // silently serve the error body with a wrong type annotation. Widen to
+  // the actual contract so a new variant surfaces as a TS build failure
+  // here instead of as a silent wire bug.
+  return c.json(
+    r.value.body as ProfileResponse | {error: string},
+    r.value.status as 200 | 400,
+  );
 });
 
 /// Epic 1.23 — per-token HP-component swap-impact drilldown. Powers the
