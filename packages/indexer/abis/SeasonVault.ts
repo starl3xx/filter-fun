@@ -715,19 +715,6 @@ export const SeasonVaultAbi = [
     "stateMutability": "view"
   },
   {
-    "type": "function",
-    "name": "winnerSettledAt",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
     "type": "event",
     "name": "ChampionBountyPaid",
     "inputs": [
