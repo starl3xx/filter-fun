@@ -1,0 +1,343 @@
+---
+title: "HP scoring — methodology + locked weights"
+description: "How filter.fun's Health Points score works, how we derived the weights, the locked formula constants, and how to verify the live engine matches the spec."
+---
+
+import { Visibility } from '/snippets/visibility.mdx'
+
+# HP scoring ▼
+
+filter.fun's HP score determines who survives the cut and who gets filtered. The numbers aren't arbitrary — every weight is empirically fit against historical token launches, every formula constant is named in source, and the engine is a pure function of the indexer's input bundle. This page documents the scale, the components, the locked constants, the methodology, and how to verify the live engine matches the spec.
+
+## The HP composite
+
+**HP is a 0–10000 integer.** Computed as the weighted sum of six components, each on a 0-1 scale, multiplied by 10000 and rounded.
+
+```
+HP = round(Σ(weight_i × component_i) × 10000)
+```
+
+A token at the maximum of every component scores 10000. A token at zero on every component scores 0. Real tokens land in the 1500–9000 range based on Track E corpus runs under the locked formulas.
+
+**Why 0–10000:**
+- Matches the basis-point convention used throughout filter.fun (fee splits, settlement math, HHI computation)
+- Integer storage eliminates float-precision bugs in rank comparisons at the cut threshold
+- Same effective resolution as 0–100 with two decimal places (10000 discrete values either way) but cleaner display and JSON
+- Aligns with "HP" as a high-score-style integer (cultural convention from games)
+
+**Tie-break (three-tier).** When two tokens land on the same integer HP, the off-chain ranking algorithm sorts:
+
+1. **HP descending** (primary)
+2. **`launchedAt` ascending** (earlier-launched wins)
+3. **Token address ascending** (lower-hex wins — final tier)
+
+The third tier guarantees a deterministic ranking under any input, so the oracle's posted Merkle root is reproducible from any replay of the indexer state. Spec §6.10.
+
+<Visibility for="agents">
+
+| field | value |
+|---|---|
+| `composite_min` | 0 |
+| `composite_max` | 10000 |
+| `composite_type` | integer |
+| `tie_break_primary` | hp DESC |
+| `tie_break_secondary` | launchedAt ASC |
+| `tie_break_tertiary` | token_address ASC |
+| `weights_version` | 2026-05-04-v4-locked-int10k-formulas |
+| `weights_activated_at` | 2026-05-11T00:00:00Z |
+| `weights_endpoint` | https://api.filter.fun/scoring/weights |
+| `spec_ref` | https://github.com/starl3xx/filter-fun/blob/main/filter_fun_comprehensive_spec.md#64-hp-component-formulas-locked-2026-05-04 |
+
+</Visibility>
+
+## The six components
+
+| Component | Weight | What it measures | Output |
+|---|---:|---|---|
+| **velocity** | 30% | Decayed net buy inflow with absolute per-wallet cap and churn penalty | `clip(raw / VELOCITY_REFERENCE, 0, 1)` |
+| **effectiveBuyers** | 15% | `Σ sqrt(walletBuyVolume)` above dust — sqrt-dampened economic significance | `clip(raw / EFFECTIVE_BUYERS_REFERENCE, 0, 1)` |
+| **stickyLiquidity** | 30% | LP depth penalized by withdrawals decayed `exp(-Δt / 6h)` over 24h | `clip(raw / STICKY_LIQUIDITY_REFERENCE, 0, 1) × ageFactor` |
+| **retention** | 15% | Two-anchor holder intersection with dust-supply filter and ageFactor | `ratio × ageFactor` (already 0-1) |
+| **momentum** | 0% | Bounded recent acceleration (disabled under v4 lock) | gated by `HP_MOMENTUM_ENABLED` |
+| **holderConcentration** | 10% | HHI on excluded-address-filtered holder balances, log-mapped | `(1 − hhi) × ageFactor` (already 0-1) |
+
+Three of the six (velocity, effectiveBuyers, stickyLiquidity) use **fixed-reference normalization** per spec §6.7: `clip(raw / *_REFERENCE, 0, 1)`. References are calibrated from the Track E v5 cohort 90th percentile; the same input always produces the same component score, regardless of cohort composition. Pre-1.22 the engine used cohort percentile rank — the lock replaces this with absolute references so a weak cohort no longer mass-medians to the middle of the scale.
+
+<Visibility for="agents">
+
+| component | weight | spec_ref | normalization | reference_constant |
+|---|---:|---|---|---|
+| velocity | 0.30 | §6.4.1 | fixed_reference | VELOCITY_REFERENCE |
+| effectiveBuyers | 0.15 | §6.4.2 | fixed_reference | EFFECTIVE_BUYERS_REFERENCE |
+| stickyLiquidity | 0.30 | §6.4.3 | fixed_reference | STICKY_LIQUIDITY_REFERENCE |
+| retention | 0.15 | §6.4.4 | already_zero_to_one | n/a |
+| momentum | 0.00 | §6.4.5 | n/a (gated off) | n/a |
+| holderConcentration | 0.10 | §6.4.6, §41 | already_zero_to_one | n/a |
+
+</Visibility>
+
+### Why these six (and not others)
+
+Three principles shaped the active component list:
+
+1. **No raw market cap.** Market cap is gameable by a single whale buy at thin liquidity. HP rewards real demand, not price action.
+2. **No raw unique-buyer count.** Sybil farms can manufacture wallet count cheaply. The sqrt-dampening on `effectiveBuyers` plus the per-wallet cap on `velocity` and the HHI penalty on `holderConcentration` make sybil construction quadratically expensive.
+3. **No social-signal data inside HP.** Social volume is high-leverage but un-verifiable on-chain and breaks HP's deterministic, auditable property. Social data lives on spectator surfaces (planned Phase 3) but doesn't influence eliminations.
+
+A worked example. Suppose a token's components score:
+
+```
+velocity            = 0.85
+effectiveBuyers     = 0.62
+stickyLiquidity     = 0.78
+retention           = 0.71
+momentum            = 0     (disabled)
+holderConcentration = 0.55
+```
+
+Then:
+
+```
+HP = round((0.85 × 0.30 + 0.62 × 0.15 + 0.78 × 0.30
+          + 0.71 × 0.15 + 0     × 0.00 + 0.55 × 0.10) × 10000)
+   = round(0.7435 × 10000)
+   = 7435
+```
+
+This token scores **HP 7435** — well above the median, comfortably surviving most cohorts.
+
+## Locked formula constants (Epic 1.22, 2026-05-04)
+
+Every parameter the formula bodies depend on lives in `packages/scoring/src/constants.ts` — named, typed, and exported. Formula bodies in `score.ts` reference these by name; **zero magic numbers**. A change to any constant follows the same ≥7-day public-notice procedure as a weight change.
+
+| Constant | Value | Section | What it controls |
+|---|---:|---|---|
+| `VELOCITY_LOOKBACK_SEC` | 345 600 (96h) | §6.4.1 | Hard window for velocity event filter |
+| `VELOCITY_DECAY_HALFLIFE_SEC` | 86 400 (24h) | §6.4.1 | Per-event time-decay half-life |
+| `VELOCITY_PER_WALLET_CAP_WETH` | 10 | §6.4.1 | Single-wallet contribution cap (anti-whale) |
+| `VELOCITY_CHURN_PENALTY_FACTOR` | 2 | §6.4.1 | Churn-detected sell penalty multiplier |
+| `VELOCITY_REFERENCE` | 1115.451 | §6.7 | Fixed-reference normalizer (v5 90th p) |
+| `EFFECTIVE_BUYERS_DUST_WETH` | 0.001 | §6.4.2 | Min in-window spend to count as a real buyer |
+| `EFFECTIVE_BUYERS_REFERENCE` | 191.129 | §6.7 | Fixed-reference normalizer |
+| `LP_PENALTY_WINDOW_SEC` | 86 400 (24h) | §6.4.3 | Sticky-liquidity LP-removal penalty window |
+| `LP_PENALTY_TAU_SEC` | 21 600 (6h) | §6.4.3 | Penalty exponential decay constant |
+| `STICKY_LIQUIDITY_REFERENCE` | 67.275 | §6.7 | Fixed-reference normalizer |
+| `RETENTION_DUST_SUPPLY_FRAC` | 0.0001 | §6.4.4 | Min holder share for retention denominator |
+| `SETTLEMENT_FINALITY_BLOCKS` | 12 | §6.12 | CUT/FINALIZE wait before snapshot insert |
+
+The full bundle is exposed at [`/scoring/weights`](https://api.filter.fun/scoring/weights) under `response.constants` so an external auditor can fetch the live engine's parameters without checking out the repo. Drift between the endpoint response and the spec amendment is a deploy bug, not a spec ambiguity.
+
+<Visibility for="agents">
+
+The constants are the audit surface for "engine matches spec." External auditors `cat packages/scoring/src/constants.ts` and cross-check against the §6.4.x + §6.7 amendment values in the spec. The `/scoring/weights` endpoint surfaces the same bundle. A future re-calibration of any `*_REFERENCE` value requires re-running the Track E refit and verifying ρ stays in the locked +0.36 ± 0.10 band; the operator runbook treats constant changes identically to weight changes.
+
+</Visibility>
+
+## Per-component formulas
+
+### Velocity — decayed net inflow (§6.4.1)
+
+```
+for each buy in last VELOCITY_LOOKBACK_SEC (96h):
+  contribution = amount × 2^(-age / VELOCITY_DECAY_HALFLIFE_SEC)   # 24h half-life
+for each sell in same window:
+  same decay; if within VELOCITY_DECAY_HALFLIFE_SEC of a same-wallet buy
+    → × VELOCITY_CHURN_PENALTY_FACTOR (= 2)
+per_wallet_net = clip(buys − sells, 0, VELOCITY_PER_WALLET_CAP_WETH)   # absolute 10 WETH cap
+raw = Σ per_wallet_net
+score = clip(raw / VELOCITY_REFERENCE, 0, 1)
+```
+
+The cap is **absolute**, not log-flattened — a single whale can contribute at most 10 WETH-equivalent to the cohort's velocity raw. Pump-and-dump within the 24h window is doubly discounted on the sell leg. Out-of-window events are dropped (no soft decay past 96h).
+
+### Effective buyers — sqrt dampening (§6.4.2)
+
+```
+qualifying_wallets = { w | volumeByWallet[w] ≥ EFFECTIVE_BUYERS_DUST_WETH (0.001 WETH) }
+raw = Σ_{w ∈ qualifying_wallets} sqrt(volumeByWallet[w])
+score = clip(raw / EFFECTIVE_BUYERS_REFERENCE, 0, 1)
+```
+
+Wallets below the dust floor contribute exactly zero — sybil resistance against 1-wei address swarms. The `sqrt` dampening means 30 wallets at 1 WETH outscore one whale at 1000 WETH on real-buyer signal.
+
+### Sticky liquidity — exponential LP-removal penalty (§6.4.3)
+
+```
+base = avgLiquidityDepthWeth ?? liquidityDepthWeth
+penalty = Σ_{remove events in last LP_PENALTY_WINDOW_SEC (24h)}
+            amount × exp(-Δt / LP_PENALTY_TAU_SEC)   # 6h decay constant
+raw = max(0, base − penalty)
+score = clip(raw / STICKY_LIQUIDITY_REFERENCE, 0, 1) × ageFactor
+```
+
+A withdrawal at age `Δt = 0` contributes its full amount; at `Δt = 6h` contributes ~37%; at 24h almost nothing. `ageFactor` saturates at 1.0 once the token has been observed for ≥1h — prevents a brand-new token from instantly claiming full sticky-liquidity credit before any time-weighted depth has accrued.
+
+### Retention — two-anchor + dust filter (§6.4.4)
+
+```
+qualifying_anchor_holders = { h ∈ holdersAtRetentionAnchor |
+                              balance[h] / totalSupply ≥ RETENTION_DUST_SUPPLY_FRAC (0.01%) }
+long_ratio  = |currentHolders ∩ qualifying_anchor_holders| / |qualifying_anchor_holders|
+short_ratio = |currentHolders ∩ holdersAtRecentAnchor|     / |holdersAtRecentAnchor|     (if recent set)
+ratio = (longWeight × long + shortWeight × short) / (longWeight + shortWeight)          (default 60/40)
+score = ratio × ageFactor
+```
+
+Already in [0, 1] — *not* reference-normalized. Dust holders (< 0.01% supply) are excluded from the denominator so a token with 10 000 dust addresses can't claim retention credit on the 50 real holders.
+
+### Holder concentration — HHI (§6.4.6 / §41)
+
+```
+shares = balances / Σ(balances)        # excluded addresses pre-filtered (§41.3)
+hhi = Σ(shares²)                       # 1.0 = single holder; 1/n = perfect distribution
+score = clip(1 − hhi, 0, 1) × ageFactor
+```
+
+Already in [0, 1]. Excluded addresses (protocol contracts, burn addresses, V4 pool manager) are filtered upstream — see `packages/scoring/src/excluded.ts` for the canonical list. Gated by `HP_CONCENTRATION_ENABLED` (default `true`); when off, the remaining five weights renormalize to sum to 1.0.
+
+### Momentum — bounded recent acceleration (§6.4.5, disabled under v4 lock)
+
+Disabled under `HP_WEIGHTS_VERSION = "2026-05-04-v4-locked-int10k-formulas"` (`weight = 0`, `HP_MOMENTUM_ENABLED = false`). Code path retained for a future v6 revival; producers should keep storing `priorBaseComposite` for that purpose.
+
+## How we derived the weights
+
+The weights aren't theoretical. They're the output of an empirical research track called **Track E** that ran across six iterations, each on real on-chain corpora, with statistical analysis and cross-validation against external research.
+
+### The story arc
+
+| Run | n | Headline finding |
+|---|---:|---|
+| **v2** ([PR #59](https://github.com/starl3xx/filter-fun/pull/59)) | 48 | First real signal across the 5 baseline components; `holderConcentration` validated as the candidate 6th component (positive predictive signal, no rank disruption) |
+| **v3** ([PR #62](https://github.com/starl3xx/filter-fun/pull/62)) | 250 | Stratification gaps + outcome-label leakage flags surfaced; momentum input bug diagnosed (98% zero) |
+| **v4** ([PR #66](https://github.com/starl3xx/filter-fun/pull/66)) | 100 stratified | L2 fit assigned momentum 0% on every outcome label across a balanced corpus; `stickyLiquidity` confirmed as dominant non-leakage signal; weights LOCKED |
+| **v4 validation** ([PR #76](https://github.com/starl3xx/filter-fun/pull/76)) | 7 | Random-sample-then-FDV funnel returned too small a cohort; v5 algorithm fix filed |
+| **v5** ([PR #87](https://github.com/starl3xx/filter-fun/pull/87)) | 43 | Liquidity-first scan algorithm; LOCKED weights ρ +0.364 (p=0.016, **significant — validated**) |
+| **v5 formula-lock refit** ([PR #96](https://github.com/starl3xx/filter-fun/pull/96)) | 43 | Locked formulas + fixed-reference normalization → ρ **+0.421 (p=0.005)**, +0.057 above pre-lock baseline; tolerance band confirmed |
+
+### Validation summary table
+
+| Weight set / engine | n | Spearman ρ | p-value | Verdict |
+|---|---:|---:|---:|---|
+| §6.5 LOCKED + formula-lock (current) | 43 | **+0.421** | **0.005** | **active** |
+| §6.5 LOCKED, pre-formula-lock (v5 reference) | 43 | +0.364 | 0.016 | reference |
+
+The formula lock **improved** rank-discriminative power vs the pre-lock percentile-rank baseline — see `track-e/REPORT_v5_formula_lock.md` for the full per-component refit.
+
+### What the methodology actually does
+
+For each Track E run:
+
+1. **Build a stratified corpus.** Pull a balanced sample of survivor + dead tokens from Clanker V4 launches. v4 used 50/50 dead/survivor (n=100); v5 used a liquidity-first scan against PoolManager Swap logs to recover top-FDV tokens (n=43).
+2. **Compute HP components** for each token at hour 96 post-launch using the production scoring code.
+3. **Compute outcome labels** the components don't read — `survived_to_day_7`, `holder_retention_at_30d`, `price_floor_at_30d`. The decoupling matters: if outcomes derive from data the components also read, fitted weights are inflated by leakage.
+4. **Fit weights via L2-regularized logistic regression** against each outcome label. Compare to defaults.
+5. **RandomForest feature importance** as a non-linear sanity check.
+6. **Leakage discipline** — flag any component-vs-outcome correlation with |ρ| ≥ 0.85; treat the corresponding fitted weights as inflated, don't act on them.
+7. **Lock decision** — adopt only fitted weights that survive the leakage check, have non-trivial empirical signal, and don't disrupt rank stability vs current weights.
+
+### What the data said about each component
+
+- **`stickyLiquidity` is the dominant predictor.** v4 RF importance 0.38 (highest of any component); v5 Spearman ρ +0.87 against price-floor outcome. Empirical weight in the L2 fit was 42%, but the leakage flag (component and outcome share underlying LP data) means that's an inflated upper bound. **Locked at 30%** — a conservative middle ground between the prior default (20%) and the inflated fit (42%).
+- **`retention` is a real but leakage-suspect signal.** v4 ρ +0.93 against the same-name outcome label hit the leakage threshold. Held at the prior default 15%.
+- **`holderConcentration` validated as a real component** across two runs (v2 ρ +0.46 / AUC 0.80; v3 ρ +0.39 / AUC 0.61). Adding it doesn't disrupt rankings (rank stability ρ +0.997 to +1.000). Locked at 10%.
+- **`velocity` and `effectiveBuyers` are weaker than prior defaults suggest.** v4 L2 fit assigned 19% and 20% (vs 30% and 15% prior). With n=100 and known leakage in the outcome that drove the fit, deviating on these would be over-fitting. Held at defaults: 30% and 15%.
+- **A sixth component, `momentum`, was tested and removed.** The L2 fit assigned momentum 0% on every outcome label across a 100-token stratified corpus. Diagnostic showed 42% of survivor-half tokens had structurally flat HP in the 72h→96h window where momentum is measured. The component was structurally degraded by the current delta-window definition. Removed; its 10% weight slot was redistributed to `stickyLiquidity` (the strongest non-leakage signal). The component's code remains in place behind a feature flag (`HP_MOMENTUM_ENABLED=false`) for v6 reconsideration if a wider delta window surfaces signal.
+
+### Cross-validation against published research
+
+The most credibility-bearing part of the methodology is that filter.fun's empirical findings independently match results from external research on adjacent launchpad ecosystems.
+
+**Marino, Naviglio, Tarantelli, Lillo (2026) — "Predicting the success of new crypto-tokens: the Pump.fun case"** ([arxiv 2602.14860](https://arxiv.org/abs/2602.14860)) — a peer-reviewable analysis of n=567,876 pump.fun tokens.
+
+Their three headline findings, mapped to filter.fun's components:
+
+| Marino finding | filter.fun equivalent | Status |
+|---|---|---|
+| "Fast accumulation of liquidity through a small number of trades is the strongest predictor of graduation" | `stickyLiquidity` as dominant component | **Cross-validated** |
+| "Markets dominated by bot-like activity exhibit systematically lower graduation probabilities" | `holderConcentration` HHI penalty + `effectiveBuyers` sqrt-dampening | **Cross-validated, design vindicated** |
+| "Presence of historically successful traders provides at most a modest and non-monotonic effect" | (we considered cross-token wallet history, didn't model it) | **Confirms our scope** |
+
+**[wangr.com pump.fun analysis dashboard](https://wangr.com/analysis/pumpfun)** — n=567,876 tokens with mortality + holder + graduation data. Reports approximately 12-day average lifespan and 0.5% graduation rate. Track E v4's observed survivor rate of 4.5% on Clanker V4 lands within wangr's reported pump.fun band (3-5%), corroborating that the corpus mortality side of the analysis generalizes across launchpad venues.
+
+**Why this matters:** filter.fun is on Base, not Solana, and uses Uniswap V4 hooks instead of pump.fun's bonding curve. The fact that two independent analyses on different chains and different launchpad mechanics arrive at the same dominant predictors is strong evidence that the HP design is targeting the right signal — not just an artifact of our specific corpus.
+
+<Visibility for="agents">
+
+| source | doi_or_url | n | finding_match |
+|---|---|---:|---|
+| Marino et al 2026 | https://arxiv.org/abs/2602.14860 | 567000 | stickyLiquidity dominant; bot-activity penalty |
+| wangr.com | https://wangr.com/analysis/pumpfun | 567876 | mortality rate corroborates (~4.5% Base vs 3-5% Solana) |
+
+</Visibility>
+
+## Settlement finality + reorg safety
+
+Every `hpSnapshot` row carries a `finality` tag (spec §6.12):
+
+| trigger | initial finality | progression |
+|---|---|---|
+| `BLOCK_TICK`, `SWAP`, `HOLDER_SNAPSHOT`, `PHASE_BOUNDARY` | `tip` | `tip` → `soft` (+6 blocks) → `final` (+12 blocks) |
+| `CUT`, `FINALIZE` | `final` (by construction) | n/a — writer waits ≥`SETTLEMENT_FINALITY_BLOCKS` past the wall-clock boundary before insert |
+
+The settlement publish path asserts `finality = "final"` and refuses to post otherwise. A reorg inside the `[soft, final)` window therefore can't put settlement at risk — only the observability surface (web UI + API) might briefly show stale `tip` data, which is recoverable on the next `HpFinalityAdvancer` tick (~12s on Base). The advancer is monotonic in the finality lattice — `final` rows never demote.
+
+## Wallet attribution: `tx.from`, not `event.args.sender`
+
+Indexer swap rows attribute to `event.transaction.from` — the EOA that signed the transaction — **not** `event.args.sender`. Under V4 hooks, `sender` is the pool manager / universal router contract; using it would bucket every trader into the same hot wallet and zero out the per-wallet velocity / effective-buyers signal. `tx.from` correctly resolves to the user's wallet for direct + universal-router calls (>99% of expected traffic). The remaining edge case (meta-tx relayers where a separate party pays gas) needs full router decoding and is filed as future work; it doesn't affect filter.fun's genesis flow. Spec §6.4.7.
+
+## How to verify
+
+Three concrete actions for an external auditor:
+
+**1. Pull live weights + constants from the API.**
+
+```bash
+curl -s https://api.filter.fun/scoring/weights | jq
+```
+
+Expected response includes `version`, `weights`, `constants`, `flags`, `compositeScale`. Cross-check `version` against the spec amendment date and the `constants` table above.
+
+**2. Run the locked fixture suite against any version-tagged hpSnapshot row.**
+
+```bash
+git clone https://github.com/starl3xx/filter-fun
+cd filter-fun
+npm install
+npm --workspace @filter-fun/scoring test -- runFixtures
+```
+
+35+ fixtures (≥5 per component + 10 composite) load deterministic `(input, expected)` pairs and assert the engine produces byte-identical output. Every fixture is tagged with `weightsVersion` and the runner asserts the tag matches the active `HP_WEIGHTS_VERSION` — a version bump without fixture updates fails CI.
+
+**3. Cross-check spec §6.4.x + §6.7 against `packages/scoring/src/constants.ts`.**
+
+The constants module is a single 130-line file that declares every parameter the formulas read. The full set is also exposed via `/scoring/weights` so the audit doesn't require a checkout.
+
+## Trust model
+
+- **Weights live off-chain** in the `scoring/` package config — *not* in contract bytecode. Contracts only see the oracle-published Merkle root of rankings; they never read weight values directly. Spec §6.5 "Where the weights live."
+- **Engine is a pure function** of the indexer's input bundle. The `inv_hp_formula_pure` runtime invariant calls `score()` 100× across varied chain states and asserts byte-identical output.
+- **Settlement-tagged rows are reorg-immune** by construction (≥12-block wait) + verified by the `inv_hp_settlement_finality` invariant before any oracle Merkle publish.
+- **Weight + constant changes follow ≥7-day public-notice procedure** (`docs.filter.fun/protocol/scoring-weights` §5 / §5b for the formula-constant variant).
+- **Every `hpSnapshot` row is tagged with `weightsVersion`** for historical reproducibility; an auditor can replay any past ranking under the exact engine that produced it.
+
+## Honest caveats
+
+The pre-formula-lock v5 cohort showed pre-v4 defaults (which kept momentum at 10%) edging the LOCKED weights by Δρ ≈ 0.045 on n=43. The 1.22 formula-lock refit reproduces the LOCKED weights at **ρ = +0.421 (p = 0.005)**, +0.057 above the pre-lock baseline — meaning under fixed-reference normalization the locked weight set is now **stronger** than the pre-v4 defaults were under the legacy normalization. The formula lock didn't just preserve the v5 finding; it improved on it.
+
+The momentum coefficient remains the most-fragile call in the locked weight set. A v6 / post-mainnet refit will revisit it once filter.fun has approximately 30+ days of its own corpus data.
+
+## What's next
+
+Post-mainnet refit: once filter.fun has approximately 30+ days of its own corpus, weights and reference constants will be refit against both stratified and recent-active cohorts. The momentum coefficient will be revisited at that point — if a wider delta window (96h − 48h vs current 96h − 72h) surfaces signal, momentum may be revived at 5-10% weight. If not, the 5-component composition stays.
+
+Other deferred work (non-blocking):
+- Per-event `lpEvents` timeline for sticky-liquidity (engine has aggregate fallback today; per-event LP requires V4 ModifyLiquidity wiring)
+- Transfer event log for exact retention-anchor reconstruction (current `firstSeenAt` approximation is the documented compromise)
+- Router-decoded EOA for meta-tx relayers (`tx.from` covers >99% of expected traffic)
+- Marino cross-check on a stratified validation cohort (current cohort structurally can't populate Marino's failure cell)
+
+---
+
+*HP scoring is the load-bearing mechanic of filter.fun's tournament. It's empirically grounded, cross-validated, formula-locked at named constants, and runtime-revisable as the protocol learns from its own data. Spec §6.4.x + §6.5 + §6.7–§6.13 + §41 contain the formal definitions; the [`scoring/` package](https://github.com/starl3xx/filter-fun/tree/main/packages/scoring) is the source of truth for the math; the [Track E reports](https://github.com/starl3xx/filter-fun/tree/main/track-e) document the methodology and findings.*
+
+**Cross-links:** [Filter Fund](/protocol/filter-fund) · [Settlement security model](/security/settlement) · [Audit status](/security/audit-status) · [Weights endpoint](https://api.filter.fun/scoring/weights) · [Track E reports on GitHub](https://github.com/starl3xx/filter-fun/tree/main/track-e)
