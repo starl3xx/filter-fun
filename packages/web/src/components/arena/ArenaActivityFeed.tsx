@@ -53,6 +53,19 @@ const EVENT_TYPE_STYLES: Record<EventType, {icon: string; color: string}> = {
   // render (see `items` below). Listed here so the closed-set Record stays
   // exhaustive — a future audit reading the union won't see a hole.
   HP_UPDATED:        {icon: "·",  color: C.faint},
+  // Epic 1.15c — reservation lifecycle events arrive on the launch SSE stream
+  // (`/season/:id/launch/stream`) NOT this market feed. Listed here so the
+  // closed-set Record stays exhaustive; if a SLOT_*/SEASON_* frame ever
+  // leaks onto the main /events feed (e.g. a future bridge) the styling
+  // matches the launch page's palette so the surface stays coherent.
+  SLOT_RESERVED:        {icon: "✨", color: C.pink},
+  SLOT_RELEASED:        {icon: "🚀", color: C.cyan},
+  SLOT_REFUNDED:        {icon: "↩",  color: C.green},
+  SLOT_REFUND_PENDING:  {icon: "💸", color: C.yellow},
+  SLOT_REFUND_CLAIMED:  {icon: "↩",  color: C.green},
+  SLOT_FORFEITED:       {icon: "▼",  color: C.red},
+  SEASON_ACTIVATED:     {icon: "✅", color: C.green},
+  SEASON_ABORTED:       {icon: "⛔", color: C.red},
 };
 
 export function ArenaActivityFeed({events, max = 16, liveStatus = "open"}: ArenaActivityFeedProps) {

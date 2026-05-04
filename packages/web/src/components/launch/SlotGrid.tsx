@@ -110,6 +110,9 @@ function SlotCard({slot, onSelect}: {slot: LaunchSlot; onSelect?: (i: number) =>
     case "filled":
     case "filled-pending":
       return <FilledCard slot={slot} slotLabel={slotLabel} />;
+    case "reserved-pending":
+    case "reserved-refund-pending":
+      return <ReservedCard slot={slot} slotLabel={slotLabel} />;
     case "next":
       return <ClaimNowCard slot={slot} slotLabel={slotLabel} onSelect={onSelect} />;
     case "almost":
@@ -119,6 +122,92 @@ function SlotCard({slot, onSelect}: {slot: LaunchSlot; onSelect?: (i: number) =>
     case "closed":
       return <EmptyCard slot={slot} slotLabel={slotLabel} variant="closed" />;
   }
+}
+
+/// Epic 1.15c — slot reserved but not yet launched. The reservation lives in
+/// `LaunchEscrow` until either (a) the season activates and `launchProtocolToken`
+/// normalises it into a launched token, or (b) the season aborts and the
+/// reservation is refunded. REFUND_PENDING surfaces a stronger warning hue
+/// (creator must call `claimPendingRefund` to drain the pending-refund slot).
+function ReservedCard({slot, slotLabel}: {slot: LaunchSlot; slotLabel: string}) {
+  const isRefundPending = slot.kind === "reserved-refund-pending";
+  const accent = isRefundPending ? C.yellow : C.cyan;
+  const label = isRefundPending ? "REFUND PENDING" : "RESERVED";
+  const escrowEth =
+    slot.reservation?.escrowAmountWei !== undefined
+      ? fmtEthFromWei(slot.reservation.escrowAmountWei)
+      : null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        padding: 12,
+        borderRadius: 12,
+        border: `1px dashed ${accent}88`,
+        background: `linear-gradient(135deg, ${accent}14, transparent 70%)`,
+        opacity: isRefundPending ? 0.85 : 1,
+      }}
+    >
+      <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+        <span
+          style={{
+            fontSize: 9,
+            fontFamily: F.mono,
+            color: C.faint,
+            letterSpacing: "0.16em",
+            fontWeight: 700,
+            textTransform: "uppercase",
+          }}
+        >
+          {slotLabel}
+        </span>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "2px 8px",
+            borderRadius: 99,
+            border: `1px solid ${accent}66`,
+            background: `${accent}1a`,
+            color: accent,
+            fontFamily: F.mono,
+            fontWeight: 800,
+            fontSize: 9,
+            letterSpacing: "0.16em",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      <div style={{display: "flex", alignItems: "center", gap: 10, minHeight: 36}}>
+        <div style={{minWidth: 0}}>
+          <div style={{fontFamily: F.display, fontWeight: 800, fontSize: 13, lineHeight: 1.1}}>
+            {isRefundPending ? "Awaiting refund claim" : "Pending activation"}
+          </div>
+          <div style={{fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 2}}>
+            by {slot.creator ? shortAddr(slot.creator) : "—"}
+          </div>
+        </div>
+      </div>
+      {escrowEth !== null && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 10,
+            color: C.dim,
+            fontFamily: F.mono,
+          }}
+        >
+          <span>escrow</span>
+          <span>{escrowEth} ETH</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function FilledCard({slot, slotLabel}: {slot: LaunchSlot; slotLabel: string}) {
