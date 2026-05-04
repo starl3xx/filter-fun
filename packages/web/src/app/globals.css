@@ -302,6 +302,86 @@ code {
   .ff-arena-row-hp-fresh { animation: none !important; }
 }
 
+/* ============================================================ Epic 1.19 — Arena tile view
+   Tile-grid layout breakpoints + tile-specific animations. The list view
+   stays the canonical default; the home page reads `arena_view_mode` from
+   localStorage and renders this grid only when the user opts in. Mobile
+   force-fallback to the list view is handled JS-side (matchMedia gate)
+   AND CSS-side here (the `.ff-arena-view-toggle` hides on narrow viewports
+   so the user can't switch INTO tile view from a phone). */
+.ff-arena-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1024px) {
+  .ff-arena-tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  /* Hide the toggle so users can't pick tile view on a phone. The home
+     page also force-renders the list view at this breakpoint via a
+     matchMedia check; CSS-hiding the toggle is the visual half of the
+     same constraint. Display:none has no a11y cost — the toggle is a
+     pure preference control with no semantic consequence. */
+  .ff-arena-view-toggle {
+    display: none !important;
+  }
+  /* The grid would only render at this breakpoint if the JS fallback
+     fails; collapse to a single column rather than 2-col mush. */
+  .ff-arena-tile-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Floating HP-delta — rises ~30px upward + fades to transparent over 2s.
+   The component declares the `animation-duration` inline (so tests can
+   override it) but the keyframes live here so reduced-motion can
+   neutralise them without touching JS. */
+@keyframes ff-arena-tile-hp-delta {
+  0%   { transform: translate3d(0, 0, 0)     scale(1);    opacity: 0; }
+  10%  { transform: translate3d(0, -2px, 0)  scale(1.05); opacity: 1; }
+  100% { transform: translate3d(0, -30px, 0) scale(1);    opacity: 0; }
+}
+.ff-arena-tile-hp-delta {
+  animation-name: ff-arena-tile-hp-delta;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ff-arena-tile-hp-delta {
+    /* Replace the float with a static fade-out so the user still sees
+       direction (the `+`/`−` sign) without the upward motion. */
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}
+
+/* Soft-rug pulse — fires on the stickyLiquidity bar when its score
+   dropped > the threshold (10pp) between two HP_UPDATED frames. Spec
+   §6.4.3 calls stickyLiquidity "the protocol's primary anti-extraction
+   signal"; this animation is the visual alarm for an in-progress
+   soft-rug. Single-shot, ~1.4s, replays when the bar's react `key`
+   advances on each successive drop. */
+@keyframes ff-arena-tile-rug-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 45, 85, 0); }
+  20%  { box-shadow: 0 0 14px 3px rgba(255, 45, 85, 0.85); }
+  60%  { box-shadow: 0 0 8px 2px rgba(255, 45, 85, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 45, 85, 0); }
+}
+.ff-arena-tile-rug-pulse {
+  animation: ff-arena-tile-rug-pulse 1.4s ease-out 1;
+  border-radius: 99px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ff-arena-tile-rug-pulse {
+    /* Drop the keyframes; keep a static red border so the colour-only
+       channel still surfaces the alarm. */
+    animation: none !important;
+    box-shadow: 0 0 0 1px rgba(255, 45, 85, 0.65) !important;
+  }
+}
+
 /* Hover-pause for the ticker marquee — applies to any element the marquee
    class is on, including the pre-filter near-cut strip. */
 .ff-ticker:hover .ff-ticker__track,
