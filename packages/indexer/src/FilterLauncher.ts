@@ -28,6 +28,7 @@ import {
   phaseChange,
   reservation,
   season,
+  seasonTickerReservation,
   tickerBlocklist,
   token,
   vaultSeason,
@@ -235,18 +236,33 @@ ponder.on("FilterLauncher:SeasonActivated", async ({event, context}) => {
 /// banner); the escrow signal increments `totalRefunded` (per-creator amounts come
 /// from `ReservationRefunded` / `RefundFailed` log per creator).
 ponder.on("FilterLauncher:SeasonAborted", async ({event, context}) => {
-  const summary = await context.db.find(launchEscrowSummary, {id: event.args.seasonId});
+  const seasonId = event.args.seasonId;
+  const summary = await context.db.find(launchEscrowSummary, {id: seasonId});
   if (!summary) {
     await context.db.insert(launchEscrowSummary).values({
-      id: event.args.seasonId,
+      id: seasonId,
       aborted: true,
       abortedAt: event.block.timestamp,
     });
-    return;
+  } else {
+    await context.db
+      .update(launchEscrowSummary, {id: seasonId})
+      .set({aborted: true, abortedAt: event.block.timestamp});
   }
-  await context.db
-    .update(launchEscrowSummary, {id: event.args.seasonId})
-    .set({aborted: true, abortedAt: event.block.timestamp});
+
+  // Audit: bugbot L PR #92. Clear `seasonTickerReservation` rows for this season
+  // — the on-chain `seasonTickers[seasonId][hash]` mapping was zeroed by the
+  // contract's abort path, so the indexer mirror MUST follow. Without this,
+  // `/season/:id/tickers/check` returns `season_taken` for tickers whose
+  // contract storage is empty, diverging from on-chain state. Bounded at
+  // ≤ MAX_LAUNCHES (12) per aborted season.
+  const stale = await context.db.sql
+    .select()
+    .from(seasonTickerReservation)
+    .where(eq(seasonTickerReservation.seasonId, seasonId));
+  for (const row of stale) {
+    await context.db.delete(seasonTickerReservation, {id: row.id});
+  }
 });
 
 /// Epic 1.15a — multisig added a ticker hash to the protocol blocklist.
