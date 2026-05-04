@@ -115,12 +115,22 @@ export function SetUsernameModal({address, initial, onClose, onSuccess}: SetUser
         setSubmitting(false);
         return;
       }
-      const r = await submitUsername({address, username: value, signature, nonce});
-      if (r.ok) {
-        onSuccess(r.profile);
-        return;
+      try {
+        const r = await submitUsername({address, username: value, signature, nonce});
+        if (r.ok) {
+          onSuccess(r.profile);
+          return;
+        }
+        setSubmitError(humanizeError(r.error));
+      } catch {
+        // Bugbot M PR #102 pass-4: `submitUsername` can throw on network
+        // failure (DNS, offline, indexer 5xx that the helper wraps). Without
+        // an explicit catch the rejection went unhandled and the user only
+        // saw the button re-enable with zero feedback. Surface a generic
+        // retry-able message — we don't know which network layer failed,
+        // so the safest copy is "try again".
+        setSubmitError("Network error — try again.");
       }
-      setSubmitError(humanizeError(r.error));
     } finally {
       setSubmitting(false);
     }
