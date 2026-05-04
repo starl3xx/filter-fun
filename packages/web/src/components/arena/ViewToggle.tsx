@@ -20,7 +20,7 @@
 /// universally legible (4 horizontal lines for list, 2×2 grid for tile).
 /// The active mode picks up the broadcast pink-glow treatment from PR #63.
 
-import {useEffect, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 
 import {C, F} from "@/lib/tokens";
 
@@ -70,10 +70,16 @@ export function useArenaViewMode(): [ArenaViewMode, (mode: ArenaViewMode) => voi
   useEffect(() => {
     setMode(readStoredViewMode());
   }, []);
-  const set = (next: ArenaViewMode) => {
+  // **Stable setter identity** — bugbot Low (PR #91, commit 278b16d).
+  // Without `useCallback` the setter is a fresh closure on every parent
+  // render, which busts any `useMemo`/`useCallback` downstream that
+  // captures it (e.g. memoized props passed into `<ViewToggle>`). The
+  // dependency array is empty because `setMode` is a stable React setter
+  // and `writeStoredViewMode` is a module-scope function.
+  const set = useCallback((next: ArenaViewMode) => {
     setMode(next);
     writeStoredViewMode(next);
-  };
+  }, []);
   return [mode, set];
 }
 

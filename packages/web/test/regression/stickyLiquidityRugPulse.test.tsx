@@ -186,6 +186,77 @@ describe("Epic 1.19 — stickyLiquidity soft-rug pulse on >10pp drop", () => {
     expect(afterNode!.classList.contains("ff-arena-tile-rug-pulse")).toBe(true);
   });
 
+  // Bugbot Medium (PR #91, commit 278b16d): the pre-fix shape only set
+  // `softRugPulseSeq` on the single render that detected the drop. On
+  // the very next render — a poll, an SSE frame for an unrelated tile,
+  // anything — the threshold check failed (prevSticky was already
+  // updated by the useEffect to the post-drop value) so the seq
+  // reverted to `undefined`, the `RugBarSlot` key flipped from `rug-N`
+  // back to `rug-static`, and the in-flight 1.4s CSS keyframe got
+  // destroyed mid-pulse. Post-fix: once a pulse has fired, the seq is
+  // preserved across non-drop renders so the React key stays stable
+  // and the animation runs to completion.
+  it("preserves the rug-pulse class across an idle re-render after a fresh drop", () => {
+    const live1 = liveHpFor(0.9, 1000);
+    const hpByAddress1 = new Map([[TOKEN.token.toLowerCase(), live1]]);
+    const fresh = new Map([[TOKEN.token.toLowerCase(), 1000]]);
+
+    const {container, rerender} = render(
+      <ArenaTileGrid
+        tokens={[TOKEN]}
+        hpByAddress={hpByAddress1}
+        freshHpUpdateSeqByAddress={fresh}
+        selectedAddress={null}
+        onSelect={() => {}}
+        chain="base"
+      />,
+    );
+
+    // Render 2: fresh > 10pp drop → pulse fires.
+    const live2 = liveHpFor(0.7, 1500);
+    const hpByAddress2 = new Map([[TOKEN.token.toLowerCase(), live2]]);
+    const fresh2 = new Map([[TOKEN.token.toLowerCase(), 1500]]);
+    rerender(
+      <ArenaTileGrid
+        tokens={[TOKEN]}
+        hpByAddress={hpByAddress2}
+        freshHpUpdateSeqByAddress={fresh2}
+        selectedAddress={null}
+        onSelect={() => {}}
+        chain="base"
+      />,
+    );
+    const pulsedAfterDrop = container.querySelector(
+      '[data-component-bar="stickyLiquidity"].ff-arena-tile-rug-pulse',
+    );
+    expect(pulsedAfterDrop).not.toBeNull();
+
+    // Render 3: another HP_UPDATED frame arrives with the SAME post-drop
+    // sticky value (no further drop). The pre-fix shape would lose the
+    // pulse class here. Post-fix it stays.
+    const live3 = liveHpFor(0.7, 2000);
+    const hpByAddress3 = new Map([[TOKEN.token.toLowerCase(), live3]]);
+    const fresh3 = new Map([[TOKEN.token.toLowerCase(), 2000]]);
+    rerender(
+      <ArenaTileGrid
+        tokens={[TOKEN]}
+        hpByAddress={hpByAddress3}
+        freshHpUpdateSeqByAddress={fresh3}
+        selectedAddress={null}
+        onSelect={() => {}}
+        chain="base"
+      />,
+    );
+    const pulsedAfterIdle = container.querySelector(
+      '[data-component-bar="stickyLiquidity"].ff-arena-tile-rug-pulse',
+    );
+    expect(pulsedAfterIdle).not.toBeNull();
+    // And critically: the DOM node identity must be the same as after
+    // the drop — if the key flipped, React would have remounted the
+    // span and the keyframe would have replayed (or been killed).
+    expect(pulsedAfterIdle).toBe(pulsedAfterDrop);
+  });
+
   it("does NOT fire the pulse on a sub-threshold drop (5pp)", () => {
     const live1 = liveHpFor(0.9, 1000);
     const hpByAddress1 = new Map([[TOKEN.token.toLowerCase(), live1]]);

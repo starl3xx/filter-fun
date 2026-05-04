@@ -90,18 +90,30 @@ export function ArenaTileGrid({
         // Bump the pulse seq when the drop > threshold. Stickiness arrives
         // on the [0,1] scale so multiply by 100 to compare in pp.
         //
-        // `softRugPulseSeq` stays undefined unless THIS render detected a
-        // fresh drop — sub-threshold drift (e.g. 5pp) does not light up
-        // the class on the bar. A previous fresh drop's pulse ran on its
-        // own render commit; carrying the seq forward without a new drop
-        // would mean every subsequent poll re-applied the class even
-        // though nothing rugged this tick (regression test
-        // `does NOT fire on a sub-threshold drop`).
+        // **Pulse-seq stickiness across non-drop renders** — bugbot Medium
+        // (PR #91, commit 278b16d). The class on the bar drives a 1.4s CSS
+        // keyframe; the `RugBarSlot` keys on `softRugPulseSeq` so a fresh
+        // drop forces a remount and replays the animation. The pre-fix
+        // shape only set `softRugPulseSeq` on the single render that
+        // detected the drop — on the very next render (a poll, an SSE
+        // frame for an unrelated tile, anything that re-runs the memo)
+        // the threshold check failed (prevSticky was already updated to
+        // the post-drop value by the useEffect) so the seq reverted to
+        // `undefined`, the key flipped from `rug-N` back to `rug-static`,
+        // and the in-flight CSS animation got destroyed mid-pulse. The
+        // fix: once `seq > 0` (i.e., a pulse has fired at least once for
+        // this address), preserve that seq across non-drop renders so
+        // the React key stays consistent and the keyframe runs to
+        // completion. We deliberately gate on `seq > 0` — `seq === 0`
+        // is the seed value; preserving it would re-introduce the
+        // sub-threshold-drop bug from PR #91 round 1.
         const currentSticky = (live?.components.stickyLiquidity ?? t.components.stickyLiquidity) * 100;
         const rugRecord = softRugSeqRef.current.get(addr);
         let softRugPulseSeq: number | undefined;
         if (rugRecord && rugRecord.prevSticky - currentSticky > STICKY_LIQUIDITY_RUG_THRESHOLD_PP) {
           softRugPulseSeq = rugRecord.seq + 1;
+        } else if (rugRecord && rugRecord.seq > 0) {
+          softRugPulseSeq = rugRecord.seq;
         }
 
         return {

@@ -15,7 +15,7 @@
 /// dropdown selects the order *among non-filtered tokens*; filtered are
 /// appended after.
 
-import {useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useMemo, useState} from "react";
 
 import type {TokenResponse} from "@/lib/arena/api";
 import {C, F} from "@/lib/tokens";
@@ -64,10 +64,14 @@ export function useArenaSortMode(): [ArenaSortMode, (m: ArenaSortMode) => void] 
   useEffect(() => {
     setMode(readStoredSortMode());
   }, []);
-  const set = (next: ArenaSortMode) => {
+  // **Stable setter identity** — bugbot Low (PR #91, commit 278b16d).
+  // See `useArenaViewMode` in `ViewToggle.tsx` for the rationale; same
+  // shape applied here so consumers can safely include the setter in
+  // memoization dependencies.
+  const set = useCallback((next: ArenaSortMode) => {
     setMode(next);
     writeStoredSortMode(next);
-  };
+  }, []);
   return [mode, set];
 }
 
