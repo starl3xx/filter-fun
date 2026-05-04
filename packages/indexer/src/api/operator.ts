@@ -315,7 +315,12 @@ ponder.get("/operator/alerts/stream", async (c) => {
 
   const stream = streamSSE(c as unknown as Context, async (stream) => {
     let lastJson = "";
-    while (!stream.aborted && !stream.closed) {
+    // Bugbot PR #95 round 16 (Low): Hono's `SSEStreamingApi` exposes
+    // `aborted` but NOT `closed` — pre-fix the loop included `!stream.closed`,
+    // which evaluated `!undefined → true` and was silently a no-op. A future
+    // Hono release introducing `closed` with different semantics would have
+    // changed loop behavior unpredictably. Just check `!stream.aborted`.
+    while (!stream.aborted) {
       // Bugbot PR #95 round 4 (Medium Severity): pre-fix a transient DB
       // failure in `computeAlerts` would throw out of the SSE handler and
       // tear down the operator's alert stream permanently — the operator
