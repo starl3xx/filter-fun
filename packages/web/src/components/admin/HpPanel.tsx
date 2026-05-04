@@ -273,7 +273,10 @@ function DrilldownRow({
           <span>·</span>
           <span style={{color: C.text}}>
             {wethValueLabel(row.swap.wethValue)} {row.swap.side === "BUY" ? "buy" : "sell"} by{" "}
-            <a href={`/profile/${row.swap.taker}`} style={{color: C.cyan, textDecoration: "none"}}>
+            {/* Bugbot M PR #102: profile pages live at `/p/[identifier]`
+                (Epic 1.24), not `/profile/...`. The pre-1.24 link 404'd
+                — there was no web /profile route, only the indexer one. */}
+            <a href={`/p/${row.swap.taker}`} style={{color: C.cyan, textDecoration: "none"}}>
               {truncateAddress(row.swap.taker)}
             </a>
           </span>
