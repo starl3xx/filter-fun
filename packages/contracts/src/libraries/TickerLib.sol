@@ -7,9 +7,16 @@ pragma solidity ^0.8.26;
 ///         `SeasonVault.submitWinner` cross-season reservation, and the off-chain UI tx-prep
 ///         (via a TS port) all derive the same canonical hash from a user-supplied string.
 ///
-///         Normalisation rules (in order):
-///           1. Drop a single leading `$` if present (UX convention; "$FILTER" → "FILTER").
-///           2. Trim ASCII whitespace from both ends.
+///         Normalisation rules (in order — audit: bugbot M PR #88 — the order MUST match
+///         the implementation exactly so the off-chain TS port produces identical hashes):
+///           1. Trim ASCII whitespace (` \t\n\r`) from both ends. This runs FIRST so a
+///              user paste like `" $FILTER "` (paste with leading/trailing spaces) yields
+///              the same canonical form as `"$FILTER"`.
+///           2. Drop a single leading `$` if present (UX convention; AFTER trim, so the
+///              `$` only counts as "leading" once whitespace has been removed). Inputs
+///              like `"$ PEPE"` (a space immediately after `$`) are NOT accepted: the
+///              `$`-strip leaves `" PEPE"`, the inner space is not stripped (only outer
+///              trims run), and the format validator below rejects on the inner space.
 ///           3. Uppercase ASCII letters; non-ASCII bytes pass through and trip the format
 ///              validator below (so a homograph like Cyrillic `Е` (U+0415) is rejected at
 ///              format time, never silently accepted as `E`).
