@@ -28,7 +28,6 @@ import {holderBalance, swap} from "../../ponder.schema";
 import {
   DEFAULT_CONFIG,
   flagsFromEnv,
-  RETENTION_DUST_SUPPLY_FRAC,
   score,
   VELOCITY_LOOKBACK_SEC,
   type Address,
@@ -182,12 +181,22 @@ export function liveFlags(): WeightFlags {
   return flagsFromEnv(process.env);
 }
 
+/// Drizzle-shaped query handle. Both Ponder's writer-side `context.db.sql`
+/// and the API/SSE-side `ApiContext["db"]` satisfy this — they're the same
+/// `pg-core` query builder. We intentionally don't import the ponder type
+/// to keep the helper testable with a hand-rolled fake.
+export interface ProjectionDb {
+  select: (...args: any[]) => any;
+}
+
 /// Bulk-fetches swaps + holderBalances for the cohort and groups by token.
-/// Exposed so other writers (e.g. the periodic finality advancer) can reuse
-/// the partitioning logic if they ever need it; production callers should
-/// use `scoreCohort` directly.
-export async function fetchProjectionInputs(
-  context: any,
+/// Single source of truth for the projection-fetch SQL — both the writer-
+/// side path (`scoreCohortFromContext` via `fetchProjectionInputs`) and the
+/// HTTP/SSE adapters in `api/index.ts` + `api/events/index.ts` route through
+/// this. Bugbot M (PR #97): consolidating here prevents the three call
+/// sites from silently diverging on a filter or column change.
+export async function fetchProjectionInputsFromDb(
+  db: ProjectionDb,
   tokenAddrs: ReadonlyArray<`0x${string}`>,
   currentTime: bigint,
 ): Promise<Map<string, TokenProjectionInputs>> {
@@ -198,11 +207,11 @@ export async function fetchProjectionInputs(
   }
 
   const lookbackStart = currentTime - BigInt(VELOCITY_LOOKBACK_SEC);
+  const tokenAddrsMutable = [...tokenAddrs];
 
   // Bulk swap fetch: one query covers the cohort. Drizzle's inArray is
   // PG-side; the result set is bounded by the 96h window.
-  const tokenAddrsMutable = [...tokenAddrs];
-  const swapRows = await context.db.sql
+  const swapRows = await db
     .select()
     .from(swap)
     .where(and(inArray(swap.token, tokenAddrsMutable), gte(swap.blockTimestamp, lookbackStart)));
@@ -230,7 +239,7 @@ export async function fetchProjectionInputs(
 
   // Bulk holderBalance fetch: balance > 0 only (exited wallets contribute
   // nothing under the projection's current-holder definition).
-  const holderRows = await context.db.sql
+  const holderRows = await db
     .select()
     .from(holderBalance)
     .where(
@@ -252,6 +261,17 @@ export async function fetchProjectionInputs(
   }
 
   return out;
+}
+
+/// Writer-side wrapper: extracts `context.db.sql` and delegates to the
+/// shared helper. Kept as a named export so the recompute writer's import
+/// pattern is unchanged.
+export async function fetchProjectionInputs(
+  context: any,
+  tokenAddrs: ReadonlyArray<`0x${string}`>,
+  currentTime: bigint,
+): Promise<Map<string, TokenProjectionInputs>> {
+  return fetchProjectionInputsFromDb(context.db.sql, tokenAddrs, currentTime);
 }
 
 /// Public entry point used by the `/tokens` route + the recompute writer.
@@ -307,6 +327,3 @@ export async function scoreCohortFromContext(
   );
   return scoreCohort(rows, apiPhase, currentTime, projections, config);
 }
-
-// Re-exported for tests that want to construct fixtures.
-export {RETENTION_DUST_SUPPLY_FRAC};

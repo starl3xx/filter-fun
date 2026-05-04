@@ -18,15 +18,13 @@
 /// invocations subscribe to its hub.
 
 import {ponder, type ApiContext} from "@/generated";
-import {and, desc, eq, gt, gte, inArray, lte} from "@ponder/core";
+import {and, desc, eq, gte, lte} from "@ponder/core";
 import type {Context} from "hono";
 import {streamSSE} from "hono/streaming";
 
-import {feeAccrual, holderBalance, season, swap, token} from "../../../ponder.schema";
+import {feeAccrual, season, token} from "../../../ponder.schema";
 
-import {VELOCITY_LOOKBACK_SEC} from "@filter-fun/scoring";
-
-import type {TokenProjectionInputs} from "../hp.js";
+import {fetchProjectionInputsFromDb} from "../hp.js";
 
 import {
   clientIpFromContext,
@@ -290,55 +288,11 @@ function buildQueries(db: ApiContext["db"]): EventsQueries {
         .where(and(gte(feeAccrual.blockTimestamp, start), lte(feeAccrual.blockTimestamp, sinceSec)));
       return aggregateFeesByToken(rows, lockerMap);
     },
-    /// Epic 1.22b — bulk projection fetch for the SSE tick path. Same shape
-    /// as the REST `ApiQueries.projectionInputsForCohort` adapter.
+    /// Epic 1.22b — delegates to the shared `fetchProjectionInputsFromDb`
+    /// helper so REST + SSE + writer-side projection paths stay in lockstep.
+    /// Bugbot M (PR #97): consolidated to one query path.
     projectionInputsForCohort: async (tokens, currentTime) => {
-      const out = new Map<string, TokenProjectionInputs>();
-      if (tokens.length === 0) return out;
-      for (const a of tokens) out.set(a.toLowerCase(), {swaps: [], holders: []});
-
-      const lookbackStart = currentTime - BigInt(VELOCITY_LOOKBACK_SEC);
-      const swapRows = await db
-        .select()
-        .from(swap)
-        .where(and(inArray(swap.token, [...tokens]), gte(swap.blockTimestamp, lookbackStart)));
-      for (const s of swapRows) {
-        const slot = out.get(s.token.toLowerCase());
-        if (!slot) continue;
-        (slot.swaps as Array<{
-          taker: `0x${string}`;
-          side: string;
-          wethValue: bigint;
-          blockTimestamp: bigint;
-        }>).push({
-          taker: s.taker,
-          side: s.side,
-          wethValue: s.wethValue,
-          blockTimestamp: s.blockTimestamp,
-        });
-      }
-
-      const holderRows = await db
-        .select()
-        .from(holderBalance)
-        .where(
-          and(inArray(holderBalance.token, [...tokens]), gt(holderBalance.balance, 0n)),
-        );
-      for (const h of holderRows) {
-        const slot = out.get(h.token.toLowerCase());
-        if (!slot) continue;
-        (slot.holders as Array<{
-          holder: `0x${string}`;
-          balance: bigint;
-          firstSeenAt: bigint;
-        }>).push({
-          holder: h.holder,
-          balance: h.balance,
-          firstSeenAt: h.firstSeenAt,
-        });
-      }
-
-      return out;
+      return fetchProjectionInputsFromDb(db, tokens, currentTime);
     },
   };
 }

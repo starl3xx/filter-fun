@@ -36,15 +36,13 @@
 /// per-IP budget.
 
 import {ponder, type ApiContext} from "@/generated";
-import {and, count, desc, eq, gt, gte, inArray, lte} from "@ponder/core";
+import {and, count, desc, eq, gte, inArray, lte} from "@ponder/core";
 import {cors} from "hono/cors";
-import {VELOCITY_LOOKBACK_SEC} from "@filter-fun/scoring";
 
 import {
   bonusClaim,
   creatorEarning,
   creatorLock,
-  holderBalance,
   holderSnapshot,
   hpSnapshot,
   launchEscrowSummary,
@@ -78,7 +76,7 @@ import {
   type CreatorEarningRow,
   type TokenDetailRow,
 } from "./handlers.js";
-import type {TokenProjectionInputs} from "./hp.js";
+import {fetchProjectionInputsFromDb} from "./hp.js";
 import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
 import {buildScoringWeightsResponse} from "./scoringWeights.js";
 import {getTokenHistoryHandler, type HistoryQueries, type HpSnapshotRow} from "./history.js";
@@ -610,57 +608,11 @@ function buildQueries(db: ApiDb): ApiQueries {
       }));
       return out;
     },
-    /// Epic 1.22b — bulk projection fetch. Two queries (swap + holderBalance)
-    /// scoped to the cohort and grouped in memory. Mirrors the writer-side
-    /// `fetchProjectionInputs` (which uses a Ponder context); kept separate
-    /// so the HTTP path can pin against `ApiQueries` for tests.
+    /// Epic 1.22b — delegates to the shared `fetchProjectionInputsFromDb`
+    /// helper so the REST, SSE, and writer-side projection fetches stay in
+    /// lockstep. Bugbot M (PR #97): consolidated to one query path.
     projectionInputsForCohort: async (tokens, currentTime) => {
-      const out = new Map<string, TokenProjectionInputs>();
-      if (tokens.length === 0) return out;
-      for (const a of tokens) out.set(a.toLowerCase(), {swaps: [], holders: []});
-
-      const lookbackStart = currentTime - BigInt(VELOCITY_LOOKBACK_SEC);
-      const swapRows = await db
-        .select()
-        .from(swap)
-        .where(and(inArray(swap.token, [...tokens]), gte(swap.blockTimestamp, lookbackStart)));
-      for (const s of swapRows) {
-        const slot = out.get(s.token.toLowerCase());
-        if (!slot) continue;
-        (slot.swaps as Array<{
-          taker: `0x${string}`;
-          side: string;
-          wethValue: bigint;
-          blockTimestamp: bigint;
-        }>).push({
-          taker: s.taker,
-          side: s.side,
-          wethValue: s.wethValue,
-          blockTimestamp: s.blockTimestamp,
-        });
-      }
-
-      const holderRows = await db
-        .select()
-        .from(holderBalance)
-        .where(
-          and(inArray(holderBalance.token, [...tokens]), gt(holderBalance.balance, 0n)),
-        );
-      for (const h of holderRows) {
-        const slot = out.get(h.token.toLowerCase());
-        if (!slot) continue;
-        (slot.holders as Array<{
-          holder: `0x${string}`;
-          balance: bigint;
-          firstSeenAt: bigint;
-        }>).push({
-          holder: h.holder,
-          balance: h.balance,
-          firstSeenAt: h.firstSeenAt,
-        });
-      }
-
-      return out;
+      return fetchProjectionInputsFromDb(db, tokens, currentTime);
     },
   };
 }
