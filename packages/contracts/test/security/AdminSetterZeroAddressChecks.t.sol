@@ -7,6 +7,8 @@ import {FilterLauncher} from "../../src/FilterLauncher.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault} from "../../src/TournamentVault.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
 
 /// @title AdminSetterZeroAddressChecks -- Audit Finding H-4 (Phase 1, 2026-05-01)
@@ -127,4 +129,19 @@ contract AdminSetterZeroAddressChecksTest is Test {
     // `setForfeitRecipient` was removed when `forfeitRecipient` became immutable (Epic 1.15a
     // — EIP-170 size budget). The constructor sets it to `treasury_`; rotation is no longer
     // supported in-contract.
+
+    // ============================================================ setTournament
+
+    /// @notice Audit: bugbot M PR #88. The one-shot `setTournament` guard MUST also
+    ///         reject zero `registry_` — otherwise a first call with zero leaves the
+    ///         storage slot at `address(0)`, and the AlreadySet sentinel fails to fire
+    ///         on a second call. This would let an attacker (or a confused operator)
+    ///         silently re-wire the tournament addresses post-deploy.
+    function test_BugbotPR88_SetTournamentRejectsZeroRegistry() public {
+        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
+        launcher.setTournament(TournamentRegistry(address(0)), TournamentVault(payable(address(0))));
+        // Sanity: storage stays at zero, so a follow-up call with valid args still works
+        // (the one-shot guard hasn't been tripped because the bad call reverted).
+        assertEq(address(launcher.tournamentRegistry()), address(0));
+    }
 }

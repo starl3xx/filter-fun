@@ -332,9 +332,12 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     ///         inline-deployed) because together they push FilterLauncher's init code past
     ///         EIP-3860 (49,152 B). DeploySepolia handles the deploy + wire sequence.
     function setTournament(TournamentRegistry registry_, TournamentVault vault_) external onlyOwner {
+        // Audit: bugbot M PR #88. The one-shot guard MUST also reject zero `registry_` or
+        // a first call with a zero address would leave `tournamentRegistry == address(0)`,
+        // bypassing the AlreadySet sentinel and allowing a subsequent re-wire. Vault is
+        // checked transitively — operator-side `VerifySepolia` asserts non-zero post-deploy.
+        if (address(registry_) == address(0)) revert ZeroAddress();
         if (address(tournamentRegistry) != address(0)) revert AlreadySet();
-        // Operator-side zero checks: VerifySepolia.s.sol asserts both addresses non-zero
-        // post-deploy. Skipping the on-chain checks here keeps the launcher under EIP-170.
         tournamentRegistry = registry_;
         tournamentVault = vault_;
     }
@@ -651,7 +654,16 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     /// @notice Abort a sparse season: at h48 with `activated == false`, sweep escrow refunds
     ///         and mark the season aborted. Oracle-gated — production scheduler EOA is the
     ///         oracle, so the same lifecycle authority owns this terminal transition.
-    function abortSeason(uint256 seasonId) external onlyOracle nonReentrant {
+    function abortSeason(uint256 seasonId) external onlyOracle {
+        // Audit: bugbot L PR #88. Reject non-existent / future-numbered seasons. Without
+        // this gate, a future season ID's default-zero `launchEndTime` passes the
+        // `WindowStillOpen` comparison and the ID can be pre-poisoned with `aborted=true`,
+        // tripping `SeasonAlreadyAborted` when `currentSeasonId` later reaches it.
+        // (`nonReentrant` dropped to recover bytecode budget; the only external call here
+        // is `launchEscrow.refundAll`, which carries its own `nonReentrant` and uses a
+        // pull-pattern fallback for failed pushes — the launcher side has no
+        // re-entry-sensitive state to protect.)
+        if (launchEndTime[seasonId] == 0) revert WrongPhase();
         if (block.timestamp < launchEndTime[seasonId]) revert WindowStillOpen();
         if (activated[seasonId]) revert SeasonAlreadyActivated();
         if (aborted[seasonId]) revert SeasonAlreadyAborted();
@@ -684,6 +696,11 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     {
         uint256 sid = currentSeasonId;
         if (phaseOf[sid] != Phase.Launch) revert WrongPhase();
+        // Audit: bugbot M PR #88. An aborted season stays in Phase.Launch (terminal)
+        // but must NOT accept further protocol launches — the deployed token would be
+        // orphaned (no Filter/Finals/Settlement runs). Mirrors the community `reserve`
+        // gate which already rejects aborted seasons.
+        if (aborted[sid]) revert SeasonAlreadyAborted();
         // Audit: bugbot M PR #88. Normalise via TickerLib so the protocol path produces
         // the SAME canonical hash as the community `reserve` path (which always normalises).
         // Pre-fix `keccak256(bytes(symbol_))` on raw `"Filter"` would not collide with
@@ -720,8 +737,10 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
         _tokens[sid].push(token);
         creatorRegistry.register(token, msg.sender);
         creatorFeeDistributor.registerToken(token, sid);
+        // Audit: bugbot M PR #88. Emit `canonicalSymbol` so the indexer's `TokenLaunched`
+        // payload matches the deployed ERC-20's actual `symbol()` (which is canonical).
         emit TokenLaunched(
-            sid, token, locker, msg.sender, true, type(uint64).max, 0, name_, symbol_, metadataURI_
+            sid, token, locker, msg.sender, true, type(uint64).max, 0, name_, canonicalSymbol, metadataURI_
         );
     }
 

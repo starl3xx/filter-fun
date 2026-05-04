@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {FilterLauncher} from "../src/FilterLauncher.sol";
@@ -389,6 +389,49 @@ contract FilterLauncherTest is Test {
         launcher.launchProtocolToken("X", "X!", ""); // "!" is not [A-Z0-9]
     }
 
+    /// @notice Audit: bugbot M PR #88. An aborted season stays in Phase.Launch
+    ///         (terminal) but `launchProtocolToken` MUST reject further launches —
+    ///         deployed tokens would otherwise be orphaned with no Filter/Finals/
+    ///         Settlement runs reachable.
+    function test_ProtocolLaunchRejectsAbortedSeason() public {
+        uint256 sid = _openSeason();
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(oracle);
+        launcher.abortSeason(sid);
+        assertEq(launcher.aborted(sid), true);
+
+        vm.expectRevert(FilterLauncher.SeasonAlreadyAborted.selector);
+        launcher.launchProtocolToken("filter.fun", "FILTER", "ipfs://x");
+    }
+
+    /// @notice Audit: bugbot M PR #88. The `TokenLaunched` event for a protocol
+    ///         launch must emit the canonical symbol (matching the deployed ERC-20's
+    ///         `symbol()`), not the raw operator-supplied input.
+    function test_ProtocolLaunchEmitsCanonicalSymbol() public {
+        _openSeason();
+        vm.recordLogs();
+        (address token,) = launcher.launchProtocolToken("filter.fun", "$Filter", "ipfs://x");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        // Find TokenLaunched event by topic[0].
+        bytes32 sig = keccak256(
+            "TokenLaunched(uint256,address,address,address,bool,uint64,uint256,string,string,string)"
+        );
+        bool found = false;
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics[0] == sig) {
+                (,,,,, string memory emittedSymbol,) = abi.decode(
+                    logs[i].data, (address, bool, uint64, uint256, string, string, string)
+                );
+                assertEq(emittedSymbol, "FILTER", "event symbol must be canonical");
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "TokenLaunched event missing");
+        // Sanity: deployed token's symbol matches the event payload.
+        assertEq(IERC20Metadata(token).symbol(), "FILTER");
+    }
+
     // ============================================================ Pricing
 
     function test_DynamicPricingMonotonic() public view {
@@ -449,6 +492,18 @@ contract FilterLauncherTest is Test {
         vm.expectRevert(FilterLauncher.SeasonNotActivated.selector);
         launcher.advancePhase(sid, IFilterLauncher.Phase.Filter);
         assertEq(uint8(launcher.phaseOf(sid)), uint8(IFilterLauncher.Phase.Launch));
+    }
+
+    /// @notice Audit: bugbot L PR #88. Calling `abortSeason` with a non-existent /
+    ///         future-numbered season ID must revert. Pre-fix the default-zero
+    ///         `launchEndTime` slipped through the `WindowStillOpen` check, allowing
+    ///         the oracle to pre-poison a future season ID with `aborted=true`.
+    function test_AbortSeasonRejectsNonExistentId() public {
+        // currentSeasonId is 0 (no startSeason called). Try to abort season 99.
+        vm.prank(oracle);
+        vm.expectRevert(FilterLauncher.WrongPhase.selector);
+        launcher.abortSeason(99);
+        assertEq(launcher.aborted(99), false, "must not pre-poison");
     }
 
     function test_PauseBlocksReserve() public {
