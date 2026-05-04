@@ -160,21 +160,44 @@ export async function getProfileHandler(
   if (!isAddressLike(lower)) return {status: 400, body: {error: "invalid address"}};
   const addr = lower as `0x${string}`;
 
-  const [created, claims, swapAgg, holderFlags, tournamentFlags] = await Promise.all([
-    q.createdTokensByCreator(addr),
-    q.claimSumsForUser(addr),
-    q.swapAggregatesForUser(addr),
-    q.holderBadgeFlagsForUser(addr),
-    q.tournamentBadgeFlagsForUser(addr),
-  ]);
-
   // `?role=creator` doesn't change *how* createdTokens is computed — the indexer
   // already keys this off `creatorOf(token)`. The explicit param exists so the
   // admin console's "past tokens by this creator" panel has a stable contract
   // to call against, decoupled from any future change to the default response
   // shape (e.g. if a future epic adds a `tradedTokens` array to the default
   // payload, `?role=creator` still returns ONLY `createdTokens`).
+  //
+  // Bugbot PR #101 (Low): under `?role=creator` we used to fire all five
+  // queries in parallel and discard four — pure waste on every request, and
+  // the admin console polls this endpoint on a 60s cadence. Branch the
+  // fan-out so the creator-only path runs only the one query it needs and
+  // zero-fills the rest (response shape stays uniform).
   const filterToCreatorOnly = opts.role === "creator";
+  let created: CreatedTokenRow[];
+  let claims: ClaimSums;
+  let swapAgg: SwapAggregates;
+  let holderFlags: HolderBadgeFlags;
+  let tournamentFlags: TournamentBadgeFlags;
+  if (filterToCreatorOnly) {
+    created = await q.createdTokensByCreator(addr);
+    claims = {rolloverEarnedWei: 0n, bonusEarnedWei: 0n};
+    swapAgg = {lifetimeTradeVolumeWei: 0n, tokensTraded: 0};
+    holderFlags = {weekWinner: false, filterSurvivor: false, filtersSurvived: 0};
+    tournamentFlags = {
+      quarterlyFinalist: false,
+      quarterlyChampion: false,
+      annualFinalist: false,
+      annualChampion: false,
+    };
+  } else {
+    [created, claims, swapAgg, holderFlags, tournamentFlags] = await Promise.all([
+      q.createdTokensByCreator(addr),
+      q.claimSumsForUser(addr),
+      q.swapAggregatesForUser(addr),
+      q.holderBadgeFlagsForUser(addr),
+      q.tournamentBadgeFlagsForUser(addr),
+    ]);
+  }
 
   const createdTokens = created.map((r) => ({
     token: r.id,

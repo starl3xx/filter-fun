@@ -22,6 +22,7 @@ vi.mock("@/lib/arena/api", async () => {
 });
 
 import {fetchHoldings, type HoldingsResponse} from "@/lib/arena/api";
+import {weiToDecimalEther} from "@/lib/arena/format";
 
 import {HoldingsPanel} from "@/components/admin/HoldingsPanel";
 
@@ -78,12 +79,17 @@ describe("Holdings ↔ filter-moment cross-link", () => {
 
     // Decimal-ether derivation matches the indexer's weiToDecimalEther
     // formatting. Both UIs ultimately render the same string.
-    const whole = totalWei / 10n ** 18n;
-    const fracStr = ((totalWei % 10n ** 18n) / 10n ** 12n)
-      .toString()
-      .padStart(6, "0")
-      .replace(/0+$/, "");
-    const formatted = fracStr.length > 0 ? `${whole.toString()}.${fracStr}` : whole.toString();
-    expect(formatted).toBe(fixture.totalProjectedWethFormatted);
+    expect(weiToDecimalEther(totalWei)).toBe(fixture.totalProjectedWethFormatted);
+  });
+
+  it("rounding boundary: a value where 7th decimal ≥ 5 — truncation would diverge", () => {
+    // Bugbot PR #101: the original cross-link fixture (4.6e15 wei) sits at a
+    // value where rounding and truncation happen to agree, so the test passed
+    // even though page.tsx was truncating. This test pins a value where they
+    // *don't* agree (1.2345648 ETH = 1234564800000000000 wei → indexer rounds
+    // to "1.234565", truncation would produce "1.234564"). If a future
+    // refactor re-introduces truncation in either surface, this test fails.
+    const wei = 1_234_564_800_000_000_000n;
+    expect(weiToDecimalEther(wei)).toBe("1.234565");
   });
 });

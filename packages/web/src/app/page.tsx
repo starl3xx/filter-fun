@@ -51,7 +51,7 @@ import {useTokens} from "@/hooks/arena/useTokens";
 import {useTrendBuffers} from "@/hooks/arena/useTrendBuffers";
 import {useHoldings} from "@/hooks/token/useHoldings";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
-import {fmtEth} from "@/lib/arena/format";
+import {fmtEth, weiToDecimalEther} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
 
 export default function HomePage() {
@@ -272,13 +272,11 @@ export default function HomePage() {
       }
     }
     if (totalWei === 0n) return null;
-    // Decimal-ether with up to 6 places — matches `weiToDecimalEther` on the
-    // indexer. RolloverCard's `fmtEth` rounds to 2 places for display.
-    const whole = totalWei / 10n ** 18n;
-    const frac = totalWei % 10n ** 18n;
-    if (frac === 0n) return whole.toString();
-    const fracStr = (frac / 10n ** 12n).toString().padStart(6, "0").replace(/0+$/, "");
-    return fracStr.length > 0 ? `${whole.toString()}.${fracStr}` : whole.toString();
+    // Bugbot PR #101: MUST use the rounding helper — truncation here would
+    // diverge from the indexer's `weiToDecimalEther` for wei values whose 7th
+    // decimal digit is ≥ 5, breaking the "single source of truth" guarantee
+    // the holdings panel and filter-moment recap rely on.
+    return weiToDecimalEther(totalWei);
   }, [holdings, filterMoment.filteredAddresses]);
 
   // Pre-filter-window flag drives the leaderboard's urgent cut line + AT

@@ -278,6 +278,48 @@ describe("/profile/:address", () => {
     expect(body.stats.rolloverEarnedWei).toBe((10n ** 18n).toString());
     expect(body.stats.tokensTraded).toBe(3);
   });
+
+  it("?role=creator: fires only `createdTokensByCreator` — trader-side queries are skipped", async () => {
+    // Bugbot PR #101 (Low): under the creator-only path, the four trader-side
+    // queries used to run in parallel and get discarded. This test pins that
+    // they're never called when `role=creator`, so the polling cost on the
+    // admin console's past-tokens panel (60s cadence) stays bounded.
+    const calls = {
+      created: 0,
+      claims: 0,
+      swap: 0,
+      holder: 0,
+      tournament: 0,
+    };
+    const q: ProfileQueries = {
+      createdTokensByCreator: async () => {
+        calls.created += 1;
+        return [];
+      },
+      claimSumsForUser: async () => {
+        calls.claims += 1;
+        return {rolloverEarnedWei: 0n, bonusEarnedWei: 0n};
+      },
+      swapAggregatesForUser: async () => {
+        calls.swap += 1;
+        return ZERO_SWAP;
+      },
+      holderBadgeFlagsForUser: async () => {
+        calls.holder += 1;
+        return ZERO_HOLDER;
+      },
+      tournamentBadgeFlagsForUser: async () => {
+        calls.tournament += 1;
+        return ZERO_TOURNEY;
+      },
+    };
+    await getProfileHandler(q, addr(0xc0de), fixedNow, {role: "creator"});
+    expect(calls.created).toBe(1);
+    expect(calls.claims).toBe(0);
+    expect(calls.swap).toBe(0);
+    expect(calls.holder).toBe(0);
+    expect(calls.tournament).toBe(0);
+  });
 });
 
 // ============================================================ enrichment fields (PR #45)
