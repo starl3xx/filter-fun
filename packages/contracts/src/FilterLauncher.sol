@@ -42,6 +42,9 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     error RefundFailed();
     error AlreadyResolved();
     error ZeroAddress();
+    error AlreadySet();
+    error NotSet();
+    error BadTransition();
 
     event SeasonStarted(
         uint256 indexed seasonId, address vault, uint256 launchStartTime, uint256 launchEndTime
@@ -220,7 +223,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     ///         the same selector — important for the off-chain alerter that watches for
     ///         this selector across the contract surface.
     function setPolManager(IPOLManager polManager_) external onlyOwner {
-        require(address(polManager) == address(0), "polManager set");
+        if (address(polManager) != address(0)) revert AlreadySet();
         if (address(polManager_) == address(0)) revert ZeroAddress();
         polManager = polManager_;
     }
@@ -231,7 +234,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     }
 
     function setFactory(IFilterFactory factory_) external onlyOwner {
-        require(address(factory) == address(0), "factory set");
+        if (address(factory) != address(0)) revert AlreadySet();
         // Audit H-4: a zero factory bricks every subsequent `launchToken` call (the call
         // hits factory.deployToken on a zero address). Failing closed at set-time keeps the
         // launcher recoverable.
@@ -279,7 +282,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
 
     /// @notice Opens a new season. Deploys its `SeasonVault` and starts the 48h launch window.
     function startSeason() external onlyOracle whenNotPaused returns (uint256 seasonId) {
-        require(address(polManager) != address(0), "polManager unset");
+        if (address(polManager) == address(0)) revert NotSet();
         seasonId = ++currentSeasonId;
         if (_phase[seasonId] != Phase.Launch && _phase[seasonId] != Phase(0)) revert SeasonAlreadyOpen();
 
@@ -309,7 +312,7 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     function advancePhase(uint256 seasonId, Phase target) external onlyOracle whenNotPaused {
         Phase cur = _phase[seasonId];
         // Allow only forward, ordered transitions.
-        require(uint8(target) == uint8(cur) + 1, "bad transition");
+        if (uint8(target) != uint8(cur) + 1) revert BadTransition();
         _phase[seasonId] = target;
         // Leaving Launch: emit LaunchClosed if not already.
         if (cur == Phase.Launch && !_launchClosedEmitted[seasonId]) {

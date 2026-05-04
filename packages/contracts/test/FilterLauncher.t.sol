@@ -449,7 +449,7 @@ contract FilterLauncherTest is Test {
     function test_SkippingPhaseReverts() public {
         uint256 sid = _openSeason();
         vm.prank(oracle);
-        vm.expectRevert(bytes("bad transition"));
+        vm.expectRevert(FilterLauncher.BadTransition.selector);
         launcher.advancePhase(sid, IFilterLauncher.Phase.Settlement);
     }
 
