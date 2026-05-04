@@ -49,6 +49,7 @@ import {useSeason} from "@/hooks/arena/useSeason";
 import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
 import {useTrendBuffers} from "@/hooks/arena/useTrendBuffers";
+import {useHoldings} from "@/hooks/token/useHoldings";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {fmtEth} from "@/lib/arena/format";
 import {C, F} from "@/lib/tokens";
@@ -237,25 +238,48 @@ export default function HomePage() {
     return Math.max(0, now - before).toFixed(2);
   }, [season, seasonSnapshot]);
 
-  // Connected wallet → tickers it held that just got filtered. Until the
-  // indexer ships the wallet × filtered-tokens projection endpoint, we can
-  // surface the *tickers* (we know which tokens were filtered, but not
-  // whether the wallet held them). The rollover-card is therefore best-
-  // effort: when wagmi reports no connection, it stays hidden; when it
-  // reports a connection but we lack holdings data, we render the card
-  // with placeholder entitlement and a bookmark for follow-up indexer
-  // work. See the indexer follow-up file in the PR description.
+  // Connected wallet → tickers it held that just got filtered, plus the
+  // projected rollover entitlement in WETH. Both come from the Epic 1.23
+  // `/wallets/:address/holdings` endpoint — single source of truth shared
+  // with the admin console's holdings panel, so the projection number can
+  // never disagree across the two surfaces.
   const {address: walletAddress, isConnected} = useAccount();
+  const wallet = isConnected && walletAddress ? (walletAddress as `0x${string}`) : null;
+  const {data: holdings} = useHoldings(wallet);
   const walletFilteredTickers: string[] = useMemo(() => {
-    if (!isConnected || !walletAddress) return [];
+    if (!holdings) return [];
     if (filterMoment.filteredAddresses.size === 0) return [];
-    // TODO(indexer follow-up): replace with `/wallets/{address}/holdings`
-    // once it ships. Today we have no per-wallet holdings on the indexer's
-    // public surface, so the card stays neutral — the parent treats an
-    // empty list as "no rollover sub-card to show". Keeping the wiring in
-    // place means the indexer work is a one-line swap.
-    return [];
-  }, [isConnected, walletAddress, filterMoment.filteredAddresses]);
+    return holdings.tokens
+      .filter((t) => t.isFiltered && filterMoment.filteredAddresses.has(t.address.toLowerCase() as `0x${string}`))
+      .map((t) => t.ticker);
+  }, [holdings, filterMoment.filteredAddresses]);
+  const walletEntitlementEth: string | null = useMemo(() => {
+    if (!holdings) return null;
+    if (filterMoment.filteredAddresses.size === 0) return null;
+    // Sum projected rollover across ONLY the tokens that just got filtered
+    // in this filter moment. The wider total in `holdings.totalProjectedWeth`
+    // covers every prior-filtered position — we want to surface the slice
+    // that's actually relevant to this ceremony.
+    let totalWei = 0n;
+    for (const t of holdings.tokens) {
+      if (!t.isFiltered) continue;
+      if (!filterMoment.filteredAddresses.has(t.address.toLowerCase() as `0x${string}`)) continue;
+      if (t.projectedRolloverWeth === null) continue;
+      try {
+        totalWei += BigInt(t.projectedRolloverWeth);
+      } catch {
+        // Defensive: ignore unparseable wire-format strings.
+      }
+    }
+    if (totalWei === 0n) return null;
+    // Decimal-ether with up to 6 places — matches `weiToDecimalEther` on the
+    // indexer. RolloverCard's `fmtEth` rounds to 2 places for display.
+    const whole = totalWei / 10n ** 18n;
+    const frac = totalWei % 10n ** 18n;
+    if (frac === 0n) return whole.toString();
+    const fracStr = (frac / 10n ** 12n).toString().padStart(6, "0").replace(/0+$/, "");
+    return fracStr.length > 0 ? `${whole.toString()}.${fracStr}` : whole.toString();
+  }, [holdings, filterMoment.filteredAddresses]);
 
   // Pre-filter-window flag drives the leaderboard's urgent cut line + AT
   // RISK chip. Both the hook's `countdown` stage and the broader
@@ -356,7 +380,7 @@ export default function HomePage() {
         cohortSnapshot={cohortSnapshot}
         filteredAddresses={filterMoment.filteredAddresses}
         walletFilteredTickers={walletFilteredTickers}
-        walletEntitlementEth={null}
+        walletEntitlementEth={walletEntitlementEth}
         championPoolDelta={championPoolDelta}
         championPoolNow={season?.championPool ?? "0"}
         secondsUntilCut={filterMoment.secondsUntilCut}

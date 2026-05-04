@@ -331,6 +331,190 @@ export function launchStreamUrl(seasonId: number | bigint | string): string {
   return `${INDEXER_URL}/season/${seasonId}/launch/stream`;
 }
 
+// ============================================================ /tokens/:address/history (PR #45)
+
+/// One point in the per-token HP timeseries. Mirrors `HistoryPoint` in
+/// `packages/indexer/src/api/history.ts` — keep the wire shape in sync.
+export type HistoryPoint = {
+  timestamp: number;
+  hp: number;
+  rank: number;
+  phase: string;
+  components: {
+    velocity: number;
+    effectiveBuyers: number;
+    stickyLiquidity: number;
+    retention: number;
+    momentum: number;
+  };
+};
+
+export type HistoryResponse = {
+  token: `0x${string}`;
+  from: number;
+  to: number;
+  interval: number;
+  points: HistoryPoint[];
+};
+
+export type HistoryQuery = {
+  from?: number;
+  to?: number;
+  interval?: number;
+};
+
+export async function fetchTokenHistory(
+  tokenAddress: `0x${string}` | string,
+  query: HistoryQuery = {},
+  opts: FetchOpts = {},
+): Promise<HistoryResponse> {
+  const params = new URLSearchParams();
+  if (query.from !== undefined) params.set("from", String(query.from));
+  if (query.to !== undefined) params.set("to", String(query.to));
+  if (query.interval !== undefined) params.set("interval", String(query.interval));
+  const qs = params.toString();
+  const url = qs
+    ? `${INDEXER_URL}/tokens/${tokenAddress}/history?${qs}`
+    : `${INDEXER_URL}/tokens/${tokenAddress}/history`;
+  return fetchJson<HistoryResponse>(url, opts);
+}
+
+// ============================================================ /tokens/:address/component-deltas (Epic 1.23)
+
+export type ComponentKey = "velocity" | "effectiveBuyers" | "stickyLiquidity" | "retention" | "momentum";
+
+export type SwapImpactSwap = {
+  side: "BUY" | "SELL";
+  taker: `0x${string}`;
+  /// Decimal-wei.
+  wethValue: string;
+  txHash: `0x${string}`;
+};
+
+export type SwapImpactRow = {
+  timestamp: number;
+  /// Component score delta vs the prior snapshot, in [-1, 1].
+  delta: number;
+  swap: SwapImpactSwap | null;
+};
+
+export type ComponentDeltasResponse = {
+  token: `0x${string}`;
+  computedAt: number;
+  threshold: number;
+  components: Record<ComponentKey, SwapImpactRow[]>;
+};
+
+export async function fetchComponentDeltas(
+  tokenAddress: `0x${string}` | string,
+  query: {limit?: number; threshold?: number} = {},
+  opts: FetchOpts = {},
+): Promise<ComponentDeltasResponse> {
+  const params = new URLSearchParams();
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.threshold !== undefined) params.set("threshold", String(query.threshold));
+  const qs = params.toString();
+  const url = qs
+    ? `${INDEXER_URL}/tokens/${tokenAddress}/component-deltas?${qs}`
+    : `${INDEXER_URL}/tokens/${tokenAddress}/component-deltas`;
+  return fetchJson<ComponentDeltasResponse>(url, opts);
+}
+
+// ============================================================ /wallets/:address/holdings (Epic 1.23)
+
+/// One position row from the indexer's per-wallet holdings response. The
+/// `is*` flags + `projectedRolloverWeth` form the wire-shape contract; clients
+/// derive the rendered status string from the flag set. Decimal-wei strings on
+/// the wire side, decimal-ether strings (≤6 places) on the formatted variants.
+export type HoldingsTokenRow = {
+  address: `0x${string}`;
+  /// Already prefixed with `$`.
+  ticker: string;
+  season: number;
+  /// Decimal-wei.
+  balance: string;
+  /// Decimal-ether (≤6 places).
+  balanceFormatted: string;
+  isFiltered: boolean;
+  isWinner: boolean;
+  isFinalist: boolean;
+  /// Decimal-wei or null. Null when projection isn't available — see
+  /// `holdings.ts` in the indexer for the null-result rules.
+  projectedRolloverWeth: string | null;
+  /// Decimal-ether mirror of `projectedRolloverWeth`.
+  projectedRolloverWethFormatted: string | null;
+  /// True once the season's winner has been settled — the projection moves
+  /// to the on-chain Merkle path (`/claim/rollover`) and is suppressed here.
+  postSettlement: boolean;
+};
+
+export type HoldingsResponse = {
+  wallet: `0x${string}`;
+  /// Unix-seconds at which the indexer computed the response.
+  asOf: number;
+  tokens: HoldingsTokenRow[];
+  /// Decimal-wei sum across non-null per-token projections.
+  totalProjectedWeth: string;
+  /// Decimal-ether mirror of `totalProjectedWeth`.
+  totalProjectedWethFormatted: string;
+};
+
+export async function fetchHoldings(
+  wallet: `0x${string}` | string,
+  opts: FetchOpts = {},
+): Promise<HoldingsResponse> {
+  return fetchJson<HoldingsResponse>(
+    `${INDEXER_URL}/wallets/${wallet}/holdings`,
+    opts,
+  );
+}
+
+// ============================================================ /profile/:address (Epic 1.23 — ?role=creator)
+
+export type ProfileCreatedToken = {
+  token: `0x${string}`;
+  ticker: string;
+  seasonId: number;
+  rank: number;
+  status:
+    | "ACTIVE"
+    | "FILTERED"
+    | "WEEKLY_WINNER"
+    | "QUARTERLY_FINALIST"
+    | "QUARTERLY_CHAMPION"
+    | "ANNUAL_FINALIST"
+    | "ANNUAL_CHAMPION";
+  launchedAt: string;
+};
+
+export type ProfileResponse = {
+  address: `0x${string}`;
+  createdTokens: ProfileCreatedToken[];
+  stats: {
+    wins: number;
+    filtersSurvived: number;
+    rolloverEarnedWei: string;
+    bonusEarnedWei: string;
+    lifetimeTradeVolumeWei: string;
+    tokensTraded: number;
+  };
+  badges: string[];
+  computedAt: string;
+};
+
+/// `?role=creator` returns ONLY the creator-keyed surface — `createdTokens` +
+/// `wins` + `CHAMPION_CREATOR` badge if applicable. Trader-side stats are
+/// zeroed so the consumer can rely on the response to reflect the role.
+export async function fetchProfile(
+  wallet: `0x${string}` | string,
+  opts: FetchOpts & {role?: "creator"} = {},
+): Promise<ProfileResponse> {
+  const url = opts.role
+    ? `${INDEXER_URL}/profile/${wallet}?role=${opts.role}`
+    : `${INDEXER_URL}/profile/${wallet}`;
+  return fetchJson<ProfileResponse>(url, {signal: opts.signal});
+}
+
 // ============================================================ Trade deep link
 
 /// Build a "Trade $TICKER" deep-link for the configured chain.

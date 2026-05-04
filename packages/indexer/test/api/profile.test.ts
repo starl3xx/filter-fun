@@ -214,6 +214,70 @@ describe("/profile/:address", () => {
     const r = await getProfileHandler(fixtureQueries({}), addr(1), fixedNow);
     expect((r.body as ProfileResponse).computedAt).toBe(FIXED_NOW.toISOString());
   });
+
+  // ============================================================ Epic 1.23: ?role=creator
+
+  it("?role=creator: returns createdTokens + zeroed trader-side stats", async () => {
+    const tok = addr(0xa1);
+    const r = await getProfileHandler(
+      fixtureQueries({
+        created: [
+          {
+            id: tok,
+            symbol: "WIN",
+            seasonId: 4n,
+            liquidated: false,
+            isFinalist: true,
+            createdAt: 1_700_000_000n,
+            seasonWinner: tok,
+            rank: 1,
+            tournamentStatus: null,
+          },
+        ],
+        // Trader-side data — should be zeroed under role filter even though
+        // the underlying queries returned values.
+        claims: {rolloverEarnedWei: 999n, bonusEarnedWei: 999n},
+        swap: {lifetimeTradeVolumeWei: 999n, tokensTraded: 9},
+        holder: {weekWinner: true, filterSurvivor: true, filtersSurvived: 3},
+        tourney: {
+          quarterlyFinalist: true,
+          quarterlyChampion: true,
+          annualFinalist: true,
+          annualChampion: true,
+        },
+      }),
+      addr(0xc0de),
+      fixedNow,
+      {role: "creator"},
+    );
+    expect(r.status).toBe(200);
+    const body = r.body as ProfileResponse;
+    expect(body.createdTokens).toHaveLength(1);
+    expect(body.createdTokens[0]?.status).toBe("WEEKLY_WINNER");
+    expect(body.stats.wins).toBe(1); // creator-side stat — preserved
+    expect(body.stats.filtersSurvived).toBe(0);
+    expect(body.stats.rolloverEarnedWei).toBe("0");
+    expect(body.stats.bonusEarnedWei).toBe("0");
+    expect(body.stats.lifetimeTradeVolumeWei).toBe("0");
+    expect(body.stats.tokensTraded).toBe(0);
+    // Only CHAMPION_CREATOR fires (creator-side badge); trader/tournament holder
+    // badges are suppressed under the role filter.
+    expect(body.badges).toEqual(["CHAMPION_CREATOR"]);
+  });
+
+  it("default behaviour unchanged when no role filter passed", async () => {
+    const r = await getProfileHandler(
+      fixtureQueries({
+        claims: {rolloverEarnedWei: 1n * 10n ** 18n, bonusEarnedWei: 0n},
+        swap: {lifetimeTradeVolumeWei: 2n * 10n ** 18n, tokensTraded: 3},
+      }),
+      addr(0xc0de),
+      fixedNow,
+    );
+    const body = r.body as ProfileResponse;
+    expect(body.stats.rolloverEarnedWei).toBe((10n ** 18n).toString());
+    expect(body.stats.tokensTraded).toBe(3);
+  });
 });
 
 // ============================================================ enrichment fields (PR #45)
