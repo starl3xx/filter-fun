@@ -17,7 +17,25 @@ import type {DetectedEvent, EventPriority, TickerEvent} from "./types.js";
 /// Priority lookup. `LARGE_TRADE` is the only type that meaningfully differs from its
 /// default — a trade near the cut line elevates from LOW to MEDIUM via
 /// `priorityOverride`. Otherwise the type → priority map is fixed (spec §36.1.4).
-const PRIORITY_BY_TYPE: Record<DetectedEvent["type"], EventPriority> = {
+///
+/// Reservation lifecycle types (SLOT_*, SEASON_ACTIVATED/ABORTED) are NOT detected —
+/// they're emitted directly by Ponder handlers via `launchBroadcast.ts` and never
+/// flow through this renderer. Their priorities live in `launchBroadcast`. We omit
+/// them from this map by typing it on the detector subset rather than the full
+/// `EventType` so a future detector for those types would have to add a row here.
+type DetectableEvent = Extract<
+  DetectedEvent["type"],
+  | "RANK_CHANGED"
+  | "CUT_LINE_CROSSED"
+  | "HP_SPIKE"
+  | "VOLUME_SPIKE"
+  | "LARGE_TRADE"
+  | "FILTER_FIRED"
+  | "FILTER_COUNTDOWN"
+  | "PHASE_ADVANCED"
+  | "HP_UPDATED"
+>;
+const PRIORITY_BY_TYPE: Record<DetectableEvent, EventPriority> = {
   CUT_LINE_CROSSED: "HIGH",
   FILTER_FIRED: "HIGH",
   FILTER_COUNTDOWN: "HIGH",
@@ -32,7 +50,11 @@ const PRIORITY_BY_TYPE: Record<DetectedEvent["type"], EventPriority> = {
 };
 
 export function priorityOf(d: DetectedEvent): EventPriority {
-  return d.priorityOverride ?? PRIORITY_BY_TYPE[d.type];
+  if (d.priorityOverride) return d.priorityOverride;
+  // Detectors only ever emit `DetectableEvent` types; a SLOT_*/SEASON_* event
+  // arriving here would mean a wiring bug. Default to MEDIUM rather than throw.
+  const p = (PRIORITY_BY_TYPE as Record<string, EventPriority | undefined>)[d.type];
+  return p ?? "MEDIUM";
 }
 
 export interface RendererClock {

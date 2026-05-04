@@ -1,0 +1,179 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "launcher_",
+        "type": "address",
+        "internalType": "contract IFilterLauncherLensView"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "MAX_LAUNCHES",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "canReserve",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "expectedSurvivorCount",
+    "inputs": [
+      {
+        "name": "reservationCount_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "getLaunchSlots",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokens",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "slotIndexes",
+        "type": "uint64[]",
+        "internalType": "uint64[]"
+      },
+      {
+        "name": "creators",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getLaunchStatus",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "s",
+        "type": "tuple",
+        "internalType": "struct IFilterLauncher.LaunchStatus",
+        "components": [
+          {
+            "name": "launchCount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxLaunches",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "timeRemaining",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "nextLaunchCost",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "launchCost",
+    "inputs": [
+      {
+        "name": "slotIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "launcher",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IFilterLauncherLensView"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "reservationCount",
+    "inputs": [
+      {
+        "name": "seasonId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  }
+]

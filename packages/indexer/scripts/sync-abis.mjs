@@ -22,6 +22,10 @@ const targets = [
   "BonusDistributor",
   "TournamentRegistry",
   "CreatorCommitments",
+  // Epic 1.15a — deferred-activation reservation lifecycle.
+  "LaunchEscrow",
+  "LauncherStakeAdmin",
+  "LauncherLens",
 ];
 
 for (const name of targets) {

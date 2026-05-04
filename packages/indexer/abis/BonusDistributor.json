@@ -318,17 +318,27 @@
   },
   {
     "type": "error",
+    "name": "NotLauncher",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotOracle",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "NotUnlocked",
+    "name": "NotVaultOf",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "NotVaultOf",
+    "name": "NotYetUnlocked",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
   {
