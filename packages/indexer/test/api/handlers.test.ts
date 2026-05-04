@@ -82,6 +82,10 @@ function fixtureQueries(opts: {
     // Epic 1.16 — fixture queries default to "no creator-earnings rollup yet"; tests
     // that need to assert against the rollup will override this in their own builders.
     creatorEarningsForToken: async () => null,
+    // Epic 1.22b — empty projections by default; component scores all collapse
+    // to zero, which is what the legacy tests already assert against (they were
+    // written under the genesis stub).
+    projectionInputsForCohort: async () => new Map(),
   };
 }
 
@@ -370,7 +374,7 @@ describe("HP component shape", () => {
       {id: addr(1), liquidationProceeds: null, createdAt: 0n},
       {id: addr(2), liquidationProceeds: null, createdAt: 0n},
     ];
-    const scored = scoreCohort(rows, "competition", 0n);
+    const scored = scoreCohort(rows, "competition", 0n, new Map());
     expect(scored.size).toBe(2);
     const first = scored.get(addr(1).toLowerCase())!;
     expect(first).toBeDefined();
@@ -397,7 +401,7 @@ describe("HP component shape", () => {
 
   it("finals phase resolves to the same locked weight set under v4", () => {
     const rows = [{id: addr(1), liquidationProceeds: null, createdAt: 0n}];
-    const scored = scoreCohort(rows, "finals", 0n);
+    const scored = scoreCohort(rows, "finals", 0n, new Map());
     const c = scored.get(addr(1).toLowerCase())!.components;
     // v4 lock collapses per-phase differentiation — finals === preFilter.
     expect(c.velocity.weight).toBeCloseTo(0.30);

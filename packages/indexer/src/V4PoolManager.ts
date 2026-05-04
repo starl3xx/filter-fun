@@ -26,11 +26,18 @@ import {broadcastHpUpdated} from "./api/events/hpBroadcast.js";
 /// We don't hard-code the assumption — `wethIsToken0` is determined per-token-pair
 /// below.
 ///
-/// `taker`: V4 emits `sender` = the address that called `unlock()`. With the
-/// universal router that's the router itself, not the EOA. We surface `sender` here
-/// because it's what the contract emits — `/profile.stats.lifetimeTradeVolumeWei`
-/// ultimately wants the EOA, so when we wire up router decoding (Track D — out of
-/// scope for this PR) we can backfill the EOA without changing the schema.
+/// `taker` (Epic 1.22b): we use `event.transaction.from` — the EOA that signed
+/// and submitted the transaction — instead of `event.args.sender` (the address
+/// that called `unlock()`, typically the universal router under V4). The
+/// HP scoring projection's velocity / effective-buyers components key off
+/// per-wallet attribution, and using the router's address would bucket every
+/// trader into the same hot wallet and zero out the per-wallet signal.
+///
+/// `tx.from` correctly resolves to the user's wallet for direct + universal-
+/// router calls. The remaining edge case is meta-tx relayers (a third party
+/// pays gas on behalf of a user) — for those, full router decoding is needed
+/// to recover the originating EOA. Out of scope for filter.fun's genesis
+/// flow; can be retrofitted without a schema change when Track D lands.
 
 /// WETH address resolution. Bugbot caught a silent-corruption path: when
 /// `WETH_ADDRESS` was unset the previous implementation fell back to the zero
@@ -105,7 +112,8 @@ ponder.on("V4PoolManager:Swap", async ({event, context}) => {
     id: `${event.transaction.hash}:${event.log.logIndex}`,
     poolId,
     token: poolRow.token,
-    taker: event.args.sender,
+    // Epic 1.22b — see module doc above. `tx.from` is the EOA, not the router.
+    taker: event.transaction.from,
     side,
     wethValue,
     tokenAmount,

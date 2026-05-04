@@ -11,7 +11,7 @@
 
 import {tickerWithDollar} from "../builders.js";
 import {errName, redactErrorMessage} from "./redact.js";
-import {scoreCohort} from "../hp.js";
+import {scoreCohort, type TokenProjectionInputs} from "../hp.js";
 import {nextCutEpochSec, toApiPhase} from "../phase.js";
 
 import {loadConfigFromEnv, type EventsConfig} from "./config.js";
@@ -64,6 +64,13 @@ export interface EventsQueries {
     baselineWindowSec: bigint,
     lockerMap: ReadonlyMap<string, `0x${string}`>,
   ) => Promise<Map<`0x${string}`, bigint>>;
+  /// Pre-fetched HP-scoring projection inputs (Epic 1.22b). Mirrors the
+  /// `ApiQueries.projectionInputsForCohort` adapter — see the docstring there
+  /// for shape semantics.
+  projectionInputsForCohort: (
+    tokens: ReadonlyArray<`0x${string}`>,
+    currentTime: bigint,
+  ) => Promise<Map<string, TokenProjectionInputs>>;
 }
 
 export interface TickEngineOpts {
@@ -120,6 +127,10 @@ export class TickEngine {
       const tokens = await this.opts.queries.tokensForSnapshot(seasonRow.seasonId);
 
       const apiPhase = toApiPhase(seasonRow.phase);
+      const projections = await this.opts.queries.projectionInputsForCohort(
+        tokens.map((t) => t.address),
+        seasonRow.takenAtSec,
+      );
       const scored = scoreCohort(
         // Epic 1.18: plumb `createdAt` through so scoring's tie-break key
         // (`launchedAt`) is populated on this code path too — otherwise the
@@ -131,6 +142,7 @@ export class TickEngine {
         })),
         apiPhase,
         seasonRow.takenAtSec,
+        projections,
       );
 
       const snapshotTokens: TokenSnapshot[] = tokens.map((t) => {

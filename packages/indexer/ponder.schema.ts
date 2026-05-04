@@ -283,12 +283,22 @@ export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
 /// Zero-balance rows are not deleted — keeping them simplifies the diff path
 /// (we always have a row to update) and the holder-snapshot writer ignores
 /// rows below the dust threshold anyway.
+///
+/// `firstSeenAt` (Epic 1.22b) — block timestamp of the first credit that took
+/// this wallet from zero to positive balance. Set once on insert and not
+/// updated afterwards (a wallet that exits to zero and re-enters keeps its
+/// original timestamp; downstream retention treats them as long-term holders
+/// who briefly dipped — the slight over-count is preferred to under-counting
+/// real long-term participants who briefly exited). Used by the scoring
+/// projection's retention component to approximate `holdersAtRetentionAnchor`
+/// = `{w : firstSeenAt(w) ≤ now − 24h}` without a transfer-event log.
 export const holderBalance = onchainTable("holder_balance", (t) => ({
   id: t.text().primaryKey(), // `${token}:${holder}`
   token: t.hex().notNull(),
   holder: t.hex().notNull(),
   balance: t.bigint().notNull().default(0n),
   blockTimestamp: t.bigint().notNull(),
+  firstSeenAt: t.bigint().notNull().default(0n),
 }));
 
 /// Snapshot of `holderBalance` rows above dust at a defined trigger event:

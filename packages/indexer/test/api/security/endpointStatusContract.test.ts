@@ -27,6 +27,8 @@ function emptyQueries(): ApiQueries {
     bagLocksForTokens: async () => [],
     // Epic 1.16 — empty fixture: no creator-earnings rollup yet for any token.
     creatorEarningsForToken: async () => null,
+    // Epic 1.22b — empty projection map.
+    projectionInputsForCohort: async () => new Map(),
   };
 }
 

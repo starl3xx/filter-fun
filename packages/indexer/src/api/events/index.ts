@@ -24,6 +24,8 @@ import {streamSSE} from "hono/streaming";
 
 import {feeAccrual, season, token} from "../../../ponder.schema";
 
+import {fetchProjectionInputsFromDb} from "../hp.js";
+
 import {
   clientIpFromContext,
   releaseEventsConn,
@@ -285,6 +287,12 @@ function buildQueries(db: ApiContext["db"]): EventsQueries {
         .from(feeAccrual)
         .where(and(gte(feeAccrual.blockTimestamp, start), lte(feeAccrual.blockTimestamp, sinceSec)));
       return aggregateFeesByToken(rows, lockerMap);
+    },
+    /// Epic 1.22b — delegates to the shared `fetchProjectionInputsFromDb`
+    /// helper so REST + SSE + writer-side projection paths stay in lockstep.
+    /// Bugbot M (PR #97): consolidated to one query path.
+    projectionInputsForCohort: async (tokens, currentTime) => {
+      return fetchProjectionInputsFromDb(db, tokens, currentTime);
     },
   };
 }

@@ -20,7 +20,7 @@ import {and, desc, eq, gte} from "@ponder/core";
 
 import {hpSnapshot, season, token as tokenTable} from "../../ponder.schema";
 import {tickerWithDollar} from "./builders.js";
-import {scoreCohort} from "./hp.js";
+import {scoreCohortFromContext} from "./hp.js";
 import {
   buildHpSnapshotInsert,
   buildHpUpdatedEvent,
@@ -108,7 +108,8 @@ export async function recomputeAndStampHp(
   if (tokens.length === 0) return [];
 
   const apiPhase = toApiPhase(seasonRow.phase);
-  const scored = scoreCohort(
+  const scored = await scoreCohortFromContext(
+    context,
     tokens.map(
       (t: {id: `0x${string}`; liquidationProceeds: bigint | null; createdAt: bigint}) => ({
         id: t.id,

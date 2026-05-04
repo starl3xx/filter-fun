@@ -36,7 +36,7 @@ import {
   type TokenResponse,
   type TokenRow,
 } from "./builders.js";
-import {scoreCohort} from "./hp.js";
+import {scoreCohort, type TokenProjectionInputs} from "./hp.js";
 import {toApiPhase} from "./phase.js";
 
 export interface TokenDetailRow extends TokenRow {
@@ -85,6 +85,16 @@ export interface ApiQueries {
   /// never accrued (and never been disabled) — the row is created lazily on the first
   /// indexed event.
   creatorEarningsForToken: (addr: `0x${string}`) => Promise<CreatorEarningRow | null>;
+  /// Pre-fetched HP-scoring projection inputs (Epic 1.22b) — one slice per
+  /// token in the cohort, keyed by lowercased token address. The HTTP path
+  /// builds this from a single bulk query against `swap` + `holderBalance`;
+  /// tests can inject synthetic Maps to drive deterministic cohort shapes.
+  /// Tokens absent from the result map score against an empty projection
+  /// (zero-signal — same as a freshly-launched token with no trades).
+  projectionInputsForCohort: (
+    tokens: ReadonlyArray<`0x${string}`>,
+    currentTime: bigint,
+  ) => Promise<Map<string, TokenProjectionInputs>>;
 }
 
 export interface ApiResult<T> {
@@ -140,6 +150,10 @@ export async function getTokensHandler(
   }
   const apiPhase = toApiPhase(seasonRow.phase);
   const tokenRows = await q.tokensInSeason(seasonRow.id);
+  const projections = await q.projectionInputsForCohort(
+    tokenRows.map((r) => r.id),
+    nowSec,
+  );
   const scored = scoreCohort(
     // Epic 1.18: feed `createdAt` so scoring's tie-break key is populated.
     tokenRows.map((r) => ({
@@ -149,6 +163,7 @@ export async function getTokensHandler(
     })),
     apiPhase,
     nowSec,
+    projections,
   );
   // Bag-lock surface: one bulk fetch keyed by all token ids in the cohort, mapped down
   // to the lowercased-token-address index the builder consumes. We pass the request

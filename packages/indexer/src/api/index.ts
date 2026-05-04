@@ -76,6 +76,7 @@ import {
   type CreatorEarningRow,
   type TokenDetailRow,
 } from "./handlers.js";
+import {fetchProjectionInputsFromDb} from "./hp.js";
 import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
 import {buildScoringWeightsResponse} from "./scoringWeights.js";
 import {getTokenHistoryHandler, type HistoryQueries, type HpSnapshotRow} from "./history.js";
@@ -606,6 +607,12 @@ function buildQueries(db: ApiDb): ApiQueries {
         unlockTimestamp: r.unlockTimestamp,
       }));
       return out;
+    },
+    /// Epic 1.22b — delegates to the shared `fetchProjectionInputsFromDb`
+    /// helper so the REST, SSE, and writer-side projection fetches stay in
+    /// lockstep. Bugbot M (PR #97): consolidated to one query path.
+    projectionInputsForCohort: async (tokens, currentTime) => {
+      return fetchProjectionInputsFromDb(db, tokens, currentTime);
     },
   };
 }

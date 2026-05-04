@@ -51,6 +51,7 @@ ponder.on("FilterToken:Transfer", async ({event, context}) => {
         holder: event.args.from,
         balance: next,
         blockTimestamp: ts,
+        firstSeenAt: ts,
       });
     }
   }
@@ -59,6 +60,10 @@ ponder.on("FilterToken:Transfer", async ({event, context}) => {
     const toKey = `${tokenAddr}:${event.args.to}`.toLowerCase();
     const existing = await context.db.find(holderBalance, {id: toKey});
     if (existing) {
+      // Epic 1.22b — leave `firstSeenAt` untouched on subsequent credits so the
+      // retention projection sees the original entry timestamp. A wallet that
+      // exits to zero and later re-enters keeps the original; retention treats
+      // them as a long-term holder who briefly dipped (intentional — see schema).
       await context.db.update(holderBalance, {id: toKey}).set({
         balance: existing.balance + value,
         blockTimestamp: ts,
@@ -70,6 +75,7 @@ ponder.on("FilterToken:Transfer", async ({event, context}) => {
         holder: event.args.to,
         balance: value,
         blockTimestamp: ts,
+        firstSeenAt: ts,
       });
     }
   }
