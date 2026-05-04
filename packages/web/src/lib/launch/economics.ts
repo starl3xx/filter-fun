@@ -174,15 +174,15 @@ export function calculateOutcomes(input: CalcInputs): CalcOutputs {
   const creatorFeesUsd = input.weeklyVolumeUsd * feeShare * accrualFactor;
 
   // Epic 1.16 (spec §10.3 + §10.6): post-settlement perpetual long-tail. For wins, sum
-  // a 12-week geometric series of decaying weekly volume at 50% w/w decay. The launch-
-  // week revenue (`creatorFeesUsd`) is the FIRST week; the long-tail captures weeks 2..N
-  // as ADDITIONAL revenue past settlement. Survives/filtered cases are null — only the
-  // winning pool survives past settlement to keep generating fees.
+  // POST_SETTLEMENT_LONGTAIL_WEEKS decaying weeks at 50% w/w. The launch-week revenue
+  // is captured separately by `creatorFeesUsd`; this is ADDITIONAL revenue past
+  // settlement (weeks N+1..N+12 of the pool's life). Survives/filtered cases are null —
+  // only the winning pool keeps trading past settlement.
   let postSettlementLongTailUsd: number | null = null;
   if (input.outcome === "wins") {
     let cumulative = 0;
     let weekVolume = input.weeklyVolumeUsd;
-    for (let week = 1; week < POST_SETTLEMENT_LONGTAIL_WEEKS; week++) {
+    for (let week = 1; week <= POST_SETTLEMENT_LONGTAIL_WEEKS; week++) {
       weekVolume *= POST_SETTLEMENT_WEEKLY_DECAY;
       cumulative += weekVolume * feeShare;
     }

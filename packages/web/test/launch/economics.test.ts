@@ -165,14 +165,14 @@ describe("calculateOutcomes — spec §45.3 formulas", () => {
   });
 
   /// Epic 1.16 (spec §10.3 + §10.6): perpetual long-tail. For wins, the projection sums
-  /// 11 weeks of decaying post-settlement volume at 50% w/w decay (week 1 is launch
-  /// week, captured separately by `creatorFeesUsd`). Geometric series:
-  ///   $100k × 0.0020 × Σ(0.5^w for w in 1..11) = $200 × (1 - 0.5^11) ≈ $199.90
-  it("wins: postSettlementLongTailUsd projects 11 weeks of decaying volume", () => {
+  /// 12 decaying weeks at 50% w/w past settlement (the launch week is captured
+  /// separately by `creatorFeesUsd`). Geometric series:
+  ///   $100k × 0.0020 × Σ(0.5^w for w in 1..12) = $200 × (1 - 0.5^12) ≈ $199.95
+  it("wins: postSettlementLongTailUsd projects 12 weeks of decaying volume", () => {
     const out = calculateOutcomes({...baseInput, outcome: "wins"});
     expect(out.postSettlementLongTailUsd).not.toBeNull();
-    // Sum of 0.5^1 + 0.5^2 + ... + 0.5^11 = 1 - 0.5^11 ≈ 0.9995
-    const expected = 100_000 * 0.002 * (1 - Math.pow(0.5, 11));
+    // Sum of 0.5^1 + 0.5^2 + ... + 0.5^12 = 1 - 0.5^12 ≈ 0.99976
+    const expected = 100_000 * 0.002 * (1 - Math.pow(0.5, 12));
     expect(out.postSettlementLongTailUsd!).toBeCloseTo(expected, 2);
     // The win-case netUsd MUST fold in the long-tail — pre-Epic-1.16 it didn't, and the
     // calculator under-stated winner ROI by ~1× the launch-week revenue.
