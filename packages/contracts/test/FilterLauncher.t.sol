@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {FilterLauncher} from "../src/FilterLauncher.sol";
 import {LaunchEscrow} from "../src/LaunchEscrow.sol";
@@ -358,6 +359,36 @@ contract FilterLauncherTest is Test {
         launcher.launchProtocolToken("X", "XXX", "");
     }
 
+    /// @notice Audit: bugbot M PR #88. Protocol-launch ticker must be normalised through
+    ///         TickerLib before being hashed into `seasonTickers` so the same canonical hash
+    ///         is reachable from a community `reserve("FILTER")` in a future season. Pre-fix
+    ///         a protocol launch with `"$Filter"` produced a non-canonical hash, leaving a
+    ///         hole in the cross-season uniqueness guarantee.
+    function test_ProtocolLaunchNormalisesTicker() public {
+        _openSeason();
+        // Pass non-canonical "$Filter" — TickerLib drops the leading `$` and uppercases.
+        (address token,) = launcher.launchProtocolToken("filter.fun", "$Filter", "ipfs://filter");
+
+        // Deployed token's symbol IS canonical so `SeasonVault.submitWinner`'s
+        // `keccak256(token.symbol())` matches the launcher's stored ticker hash.
+        assertEq(IERC20Metadata(token).symbol(), "FILTER", "deployed symbol is canonical");
+
+        // A community attempt to also reserve "FILTER" in the same season (via raw "filter")
+        // must collide on the canonical hash.
+        vm.prank(aliceCreator);
+        vm.deal(aliceCreator, 10 ether);
+        vm.expectRevert();
+        launcher.reserve{value: _slotCost(0)}("filter", "ipfs://collide");
+    }
+
+    /// @notice An invalid protocol-launch symbol must revert at the TickerLib boundary,
+    ///         matching the community `reserve` path's format gate.
+    function test_ProtocolLaunchRejectsInvalidTicker() public {
+        _openSeason();
+        vm.expectRevert();
+        launcher.launchProtocolToken("X", "X!", ""); // "!" is not [A-Z0-9]
+    }
+
     // ============================================================ Pricing
 
     function test_DynamicPricingMonotonic() public view {
@@ -397,6 +428,27 @@ contract FilterLauncherTest is Test {
         vm.prank(oracle);
         launcher.advancePhase(sid, IFilterLauncher.Phase.Filter);
         assertEq(uint8(launcher.phaseOf(sid)), uint8(IFilterLauncher.Phase.Filter));
+    }
+
+    /// @notice Audit: bugbot H PR #88. An aborted season is a TERMINAL state per spec — it
+    ///         must NEVER advance into Filter / Finals / Settlement / Closed because there
+    ///         are zero deployed tokens to filter on, and downstream vault state would be
+    ///         undefined. Pre-fix the guard `!activated && !aborted` evaluated to false for
+    ///         aborted seasons, allowing advancement.
+    function test_AdvancePhaseRejectsAbortedSeason() public {
+        uint256 sid = _openSeason();
+        // Open a sparse season (no reservations) and abort it.
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(oracle);
+        launcher.abortSeason(sid);
+        assertEq(launcher.aborted(sid), true);
+        assertEq(launcher.activated(sid), false);
+
+        // advancePhase out of Launch must revert even though the season is now aborted.
+        vm.prank(oracle);
+        vm.expectRevert(FilterLauncher.SeasonNotActivated.selector);
+        launcher.advancePhase(sid, IFilterLauncher.Phase.Filter);
+        assertEq(uint8(launcher.phaseOf(sid)), uint8(IFilterLauncher.Phase.Launch));
     }
 
     function test_PauseBlocksReserve() public {

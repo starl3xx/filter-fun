@@ -432,12 +432,13 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     function advancePhase(uint256 seasonId, Phase target) external onlyOracle whenNotPaused {
         Phase cur = phaseOf[seasonId];
         if (uint8(target) != uint8(cur) + 1) revert BadTransition();
-        // Refuse to leave Launch on a season that never activated and hasn't been formally
-        // aborted — that would silently bury the abort path. Operator runbook: if the season
-        // is sparse, call `abortSeason` first; THEN advance.
-        if (cur == Phase.Launch && !activated[seasonId] && !aborted[seasonId]) {
-            revert SeasonNotActivated();
-        }
+        // Audit: bugbot H PR #88. Block leaving Launch unless the season is activated.
+        // This single guard rejects BOTH sparse-still-open seasons (operator must abort
+        // first) AND aborted seasons (terminal per spec — an aborted season has zero
+        // deployed tokens, so advancing into Filter/Finals/Settlement is meaningless and
+        // could leave downstream vault state in an undefined shape). Pre-fix the guard was
+        // `!activated && !aborted` which allowed aborted seasons through.
+        if (cur == Phase.Launch && !activated[seasonId]) revert SeasonNotActivated();
         phaseOf[seasonId] = target;
         if (cur == Phase.Launch && !_launchClosedEmitted[seasonId]) {
             _launchClosedEmitted[seasonId] = true;
@@ -659,17 +660,11 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
 
         launchEscrow.refundAll(seasonId);
 
-        // The launch window already ended (window-still-open check above); fire LaunchClosed
-        // exactly once if it hasn't yet. `launchCount` is 0 here by construction (no token
-        // deployed), so the close fires with count = 0.
-        if (!_launchClosedEmitted[seasonId]) {
-            _launchClosedEmitted[seasonId] = true;
-            emit LaunchClosed(seasonId, 0);
-        }
-
-        // Drop any queued pending entries — they're refunded above; this just frees storage.
-        delete _pending[seasonId];
-
+        // !activated (guarded above) implies _drainPending never ran, which is the only path
+        // that sets `_launchClosedEmitted`. So we know the flag is false and can emit
+        // unconditionally. We also DON'T set the flag — `advancePhase` is now blocked on any
+        // !activated season (bugbot H PR #88), so nothing else will read it.
+        emit LaunchClosed(seasonId, 0);
         emit SeasonAborted(seasonId);
     }
 
@@ -689,7 +684,15 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     {
         uint256 sid = currentSeasonId;
         if (phaseOf[sid] != Phase.Launch) revert WrongPhase();
-        bytes32 tickerHash = keccak256(bytes(symbol_));
+        // Audit: bugbot M PR #88. Normalise via TickerLib so the protocol path produces
+        // the SAME canonical hash as the community `reserve` path (which always normalises).
+        // Pre-fix `keccak256(bytes(symbol_))` on raw `"Filter"` would not collide with
+        // community `keccak256(bytes("FILTER"))`, leaving a community re-launch of the same
+        // ticker possible; SeasonVault.submitWinner reads `token.symbol()` directly, so we
+        // also pass the canonical form into the factory deploy so the deployed ERC-20's
+        // symbol IS the canonical pre-image.
+        string memory canonicalSymbol = TickerLib.normalize(symbol_);
+        bytes32 tickerHash = keccak256(bytes(canonicalSymbol));
         // Protocol launch is allowed to use a blocklisted ticker (e.g. FILTER itself) but is
         // still subject to the per-season uniqueness check — two protocol tokens with the
         // same symbol in one season would be a configuration error.
@@ -698,7 +701,7 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
         (token, locker,) = factory.deployToken(
             IFilterFactory.DeployArgs({
                 name: name_,
-                symbol: symbol_,
+                symbol: canonicalSymbol,
                 metadataURI: metadataURI_,
                 creator: msg.sender,
                 seasonVault: vaultOf[sid],
