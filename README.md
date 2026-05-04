@@ -13,7 +13,7 @@ This README is a developer entry point. It does not retell the product. Read the
 
 **Phase 1 in flight — Base Sepolia testnet live, mainnet pending audit.**
 
-Capped launches, tournament series contracts, indexer HTTP API, Arena leaderboard, ticker, launch page, creator admin console, and creator bag-lock contracts have all merged. Filter-moment overlay (Epic 1.9) and the bag-lock web surface (Epic 1.13 web) are the remaining Phase 1 items.
+Genesis surfaces are all merged: capped launches, tournament-series contracts, deferred-activation reservation flow, indexer HTTP API + SSE, Arena leaderboard with list/tile views + live HP overlay, ticker, launch page, creator admin console, creator bag-lock contracts + web surface, perpetual creator fees + post-settlement POL routing, Filter Fund rename, Operator Admin Console, and the HP formula lock with named parameter constants + reorg-safe settlement finality (Epic 1.22).
 
 ## Architecture
 
@@ -24,11 +24,13 @@ A 6-package npm workspace plus a small `cadence` library that the scheduler and 
 | `contracts` | Foundry · Solidity 0.8.26          | Uniswap V4 hook-native launcher, factory, locker, season vault, POL, bonus, tournament registry. |
 | `oracle`    | TypeScript                         | Merkle + pro-rata payload builders for filter events, settlement, and the 14-day bonus.          |
 | `scheduler` | viem                               | On-chain driver — phase, settlement, and bonus arcs against the deployed contracts.              |
-| `indexer`   | Ponder + HTTP API                  | `/season` · `/tokens` · `/events` (SSE) · `/profile`, with caching + per-IP rate limit.          |
-| `scoring`   | TypeScript                         | HP engine — velocity, effective buyers, sticky liquidity, retention, momentum.                    |
-| `web`       | Next.js 14 + wagmi v2              | Arena, `/launch`, `/token/[address]/admin`, claim flows. Brand kit ▼ glyph throughout.            |
+| `indexer`   | Ponder + HTTP API                  | `/season` · `/tokens` · `/events` (SSE) · `/profile` · `/scoring/weights`, with caching + per-IP rate limit. Holds the HP recompute writer + finality advancer. |
+| `scoring`   | TypeScript                         | HP engine — velocity, effective buyers, sticky liquidity, retention, momentum, holder concentration. Locked formulas + named parameter constants (Epic 1.22, spec §6.4.x + §6.7). |
+| `web`       | Next.js 14 + wagmi v2              | Arena (list + tile views), `/launch`, `/token/[address]/admin`, claim flows. Brand kit ▼ glyph throughout.            |
 
 V4 hook gating restricts add/remove-liquidity to the factory (seed) and locker (post-seed); swaps stay open so filtered tokens remain tradable forever (the "zombie" surface is intentional). All settlement-side accounting is WETH.
+
+HP scoring is a pure function of the indexer's input bundle: 6 components, off-chain weights (`HP_WEIGHTS_VERSION = "2026-05-04-v4-locked-int10k-formulas"`), fixed-reference normalization (§6.7), three-tier deterministic tie-break (HP DESC → launchedAt ASC → token address ASC). Settlement-tagged `hpSnapshot` rows are reorg-immune by construction (≥12-block wait); the periodic `HpFinalityAdvancer` progresses non-settlement rows tip → soft → final on a 6-block cadence. See [`docs/scoring-weights.md`](docs/scoring-weights.md), [`packages/scoring/README.md`](packages/scoring/README.md), and [`docs/protocol/hp-methodology.mdx`](docs/protocol/hp-methodology.mdx).
 
 ## Build & dev
 
