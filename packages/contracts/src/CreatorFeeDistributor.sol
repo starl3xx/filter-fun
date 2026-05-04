@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {CreatorRegistry} from "./CreatorRegistry.sol";
 
@@ -13,22 +14,21 @@ interface ILauncherView {
 
 /// @title CreatorFeeDistributor
 /// @notice Singleton sink for the 0.20% creator slice of every swap. Accrues per-token,
-///         claimable by the registered creator. Eligibility is time-and-state gated:
+///         claimable by the registered creator. Per spec §10.3 (locked 2026-05-02), creator-fee
+///         accrual is PERPETUAL — there is no time cap and no settlement cap.
 ///
-///         - First 72 hours after launch (Days 1–3, recorded by `CreatorRegistry`). This
-///           window is intentionally distinct from the Day 4 hard cut at hour 96: creator
-///           fees flow during the warm-up days only, not into the cut window itself.
-///         - Token has not yet been filtered (vault calls `markFiltered` at filter time).
-///
-///         When a fee arrives outside the eligibility window, it is redirected to the
-///         treasury rather than credited — preserves the protocol BPS invariants without
-///         leaking value to creators of already-filtered tokens.
+///         The fee stream stops naturally for any pool whose LP is unwound (filtered tokens at
+///         h96, non-winning finalists at h168) because the pool no longer trades. Winner pools
+///         keep trading forever, so their creators keep earning forever. The cap is implicit in
+///         the pool lifecycle, not enforced in this contract.
 ///
 ///         Auth model:
 ///         - `notifyFee` is callable only by the active `FilterLpLocker` for that token
 ///           (verified via `launcher.lockerOf`).
-///         - `markFiltered` is callable only by the active `SeasonVault` for that token's
-///           season (verified via `launcher.vaultOf`).
+///         - `disableCreatorFee` is callable only by the launcher's owner (the deployer
+///           multisig). Reserved for emergency use — sanctioned/compromised recipient address.
+///           Once disabled, further accrual redirects to treasury until re-enabled by upgrade
+///           (this iteration deliberately omits a re-enable path; emergency means emergency).
 ///         - `claim` is callable only by the registered creator.
 contract CreatorFeeDistributor {
     using SafeERC20 for IERC20;
@@ -37,21 +37,12 @@ contract CreatorFeeDistributor {
     address public immutable weth;
     address public immutable treasury;
     CreatorRegistry public immutable registry;
-    /// @notice Window during which swap-fee accrual is credited to the creator. Per spec §10.3
-    ///         "creator fees accrue until the earliest of: 72 hours after launch, token is
-    ///         filtered, final settlement." Implemented as a hard 72h post-launch cap because
-    ///         the launch window is 48h and the main cut fires at hour 96 — so the eligible
-    ///         range is `[launchedAt, launchedAt + 72h)` regardless of the cut. Filtered + the
-    ///         cut close out earlier via `markFiltered` and `eligible()` respectively.
-    ///         Audit M-Contracts-4 (Phase 1, 2026-05-01): pinned the spec rationale here so a
-    ///         future tweak that detunes 72h has the §10.3 anchor in front of the editor.
-    uint256 public constant ELIGIBILITY_WINDOW = 72 hours;
 
-    /// @notice Tracks per-token accrual state. `seasonId` lets `notifyFee` and
-    ///         `markFiltered` verify their callers without re-reading the launcher each time.
+    /// @notice Tracks per-token accrual state. `seasonId` lets `notifyFee` verify its caller
+    ///         without re-reading the launcher each time.
     struct TokenInfo {
         uint256 seasonId;
-        bool filtered;
+        bool disabled; // emergency multisig flag; see `disableCreatorFee`
         uint256 accrued; // total credited (across history, never decreases)
         uint256 claimed; // total withdrawn
     }
@@ -61,9 +52,9 @@ contract CreatorFeeDistributor {
 
     /// @notice Tracks last-seen WETH balance so `notifyFee` can verify the locker actually
     ///         transferred the WETH in this tx (vs. faking a bookkeeping call).
-    /// @dev    Audit I-Contracts-5 (Phase 1, 2026-05-01): the `currentBalance < lastSeenBalance + amount`
-    ///         check assumes sequential, single-locker calls per token — which holds today
-    ///         because (a) every token has exactly one `FilterLpLocker` (factory-deployed,
+    /// @dev    Audit I-Contracts-5 (Phase 1, 2026-05-01): the `currentBalance < lastSeenBalance
+    ///         + amount` check assumes sequential, single-locker calls per token — which holds
+    ///         today because (a) every token has exactly one `FilterLpLocker` (factory-deployed,
     ///         immutable) and (b) every notify is gated to that locker. If a future iteration
     ///         introduces a second contract that pushes WETH directly to this distributor
     ///         (e.g., a sponsor-fee router), or splits a single locker into a multi-caller
@@ -76,15 +67,20 @@ contract CreatorFeeDistributor {
     event CreatorFeeAccrued(address indexed token, address indexed creator, uint256 amount);
     event CreatorFeeRedirected(address indexed token, uint256 amount);
     event CreatorFeeClaimed(address indexed token, address indexed recipient, uint256 amount);
+    /// @notice Emitted when the multisig disables the creator stream for a token. Reserved for
+    ///         emergency use (sanctioned/compromised recipient). Not part of the normal token
+    ///         lifecycle — filtered + non-winning tokens lose their fee stream by virtue of LP
+    ///         unwind, not by emitting this event.
     event CreatorFeeDisabled(address indexed token);
 
     error NotLauncher();
     error NotRegisteredLocker();
-    error NotRegisteredVault();
+    error NotMultisig();
     error NotCreator();
     error AlreadyRegistered();
     error UnknownToken();
     error UnverifiedTransfer();
+    error Disabled();
 
     modifier onlyLauncher() {
         if (msg.sender != launcher) revert NotLauncher();
@@ -102,23 +98,21 @@ contract CreatorFeeDistributor {
         return _info[token];
     }
 
-    function eligible(address token) public view returns (bool) {
-        if (!registered[token]) return false;
-        if (_info[token].filtered) return false;
-        uint256 ts = registry.launchedAt(token);
-        if (ts == 0) return false;
-        if (block.timestamp > ts + ELIGIBILITY_WINDOW) return false;
-        return true;
-    }
-
     function pendingClaim(address token) external view returns (uint256) {
         TokenInfo storage i = _info[token];
         return i.accrued - i.claimed;
     }
 
-    /// @notice Launcher records the (token, seasonId) at launch time. The creator and
-    ///         launchedAt are read from the registry; we just stash the seasonId so the
-    ///         per-token auth checks below can verify their callers.
+    /// @notice Convenience view: a token is currently earning unless it's been emergency-
+    ///         disabled. Pool-lifecycle termination (LP unwind) is observable off-chain via the
+    ///         locker's `liquidated` flag — this view doesn't conflate the two.
+    function isDisabled(address token) external view returns (bool) {
+        return _info[token].disabled;
+    }
+
+    /// @notice Launcher records the (token, seasonId) at launch time. The creator is read from
+    ///         the registry; we just stash the seasonId so the per-token auth check in
+    ///         `notifyFee` can verify its caller.
     function registerToken(address token, uint256 seasonId) external onlyLauncher {
         if (registered[token]) revert AlreadyRegistered();
         registered[token] = true;
@@ -126,12 +120,10 @@ contract CreatorFeeDistributor {
         emit TokenRegistered(token, seasonId);
     }
 
-    /// @notice Locker calls after `poolManager.take`-ing the WETH directly into this
-    ///         contract. We verify the balance grew by the claimed amount, then either
-    ///         credit the creator or redirect to treasury based on eligibility.
-    ///
-    ///         The caller-is-locker check prevents arbitrary callers from crediting
-    ///         creators for WETH the protocol owns elsewhere.
+    /// @notice Locker calls after `poolManager.take`-ing the WETH directly into this contract.
+    ///         We verify the balance grew by the claimed amount, then either credit the creator
+    ///         (the normal path, perpetual per spec §10.3) or — if the multisig has disabled
+    ///         this token — redirect to treasury so the BPS invariants stay honest.
     function notifyFee(address token, uint256 amount) external {
         TokenInfo storage info = _info[token];
         if (!registered[token]) revert UnknownToken();
@@ -142,30 +134,44 @@ contract CreatorFeeDistributor {
         if (currentBalance < lastSeenBalance + amount) revert UnverifiedTransfer();
         lastSeenBalance = currentBalance;
 
-        if (eligible(token)) {
-            address creator = registry.creatorOf(token);
-            info.accrued += amount;
-            emit CreatorFeeAccrued(token, creator, amount);
-        } else {
-            // Past the 72h window or already filtered — redirect to treasury so the BPS
-            // invariants stay honest (the protocol still collects the slice; the creator
-            // just doesn't, because they no longer pass the alignment check).
+        if (info.disabled) {
+            // Multisig-disabled (emergency): protocol still collects the slice; the creator
+            // doesn't, because the recipient address is sanctioned/compromised.
             lastSeenBalance -= amount;
             IERC20(weth).safeTransfer(treasury, amount);
             emit CreatorFeeRedirected(token, amount);
+        } else {
+            address creator = registry.creatorOf(token);
+            info.accrued += amount;
+            emit CreatorFeeAccrued(token, creator, amount);
         }
     }
 
-    /// @notice Vault calls when a token is filtered, freezing creator-fee accrual for it.
-    ///         Idempotent — repeated calls are no-ops.
-    function markFiltered(address token) external {
-        TokenInfo storage info = _info[token];
+    /// @notice Multisig-only emergency disable. Redirects future fees to treasury AND sweeps any
+    ///         already-accrued pending balance to treasury so a sanctioned recipient cannot pull
+    ///         pre-disable funds via `claim`. Use case: the registered recipient is sanctioned,
+    ///         compromised, or otherwise disqualified. Idempotent (the second call has no
+    ///         pending balance to sweep because notifyFee redirects directly when disabled).
+    /// @dev    Authority is read live from `Ownable(launcher).owner()` — same pattern as the
+    ///         vault's live-oracle read (audit H-2). An ownership transfer on the launcher
+    ///         takes effect on this gate immediately, no per-distributor wire.
+    function disableCreatorFee(address token) external {
+        if (msg.sender != Ownable(launcher).owner()) revert NotMultisig();
         if (!registered[token]) revert UnknownToken();
-        address expectedVault = ILauncherView(launcher).vaultOf(info.seasonId);
-        if (msg.sender != expectedVault) revert NotRegisteredVault();
-        if (!info.filtered) {
-            info.filtered = true;
-            emit CreatorFeeDisabled(token);
+        TokenInfo storage info = _info[token];
+        if (info.disabled) return;
+        info.disabled = true;
+        emit CreatorFeeDisabled(token);
+
+        // Sweep pending: closes the gap where a sanctioned recipient could still call
+        // `claim` and drain pre-disable accrual to the very address the disable was meant
+        // to lock out. Treasury captures it instead, mirroring the disabled `notifyFee` path.
+        uint256 pending = info.accrued - info.claimed;
+        if (pending > 0) {
+            info.claimed = info.accrued;
+            lastSeenBalance -= pending;
+            IERC20(weth).safeTransfer(treasury, pending);
+            emit CreatorFeeRedirected(token, pending);
         }
     }
 
@@ -177,9 +183,13 @@ contract CreatorFeeDistributor {
     ///         (defaults to the creator). This is the integration point for the Epic 1.12
     ///         `setCreatorRecipient` admin function — the creator triggers the claim, but
     ///         WETH lands at whatever address the admin most recently routed to.
+    ///
+    ///         Per spec §10.3 + §10.6: there is NO claim cap and NO max payout per token. A
+    ///         winning creator keeps pulling claims forever as their pool keeps trading.
     function claim(address token) external returns (uint256 amount) {
         TokenInfo storage info = _info[token];
         if (!registered[token]) revert UnknownToken();
+        if (info.disabled) revert Disabled();
         address creator = registry.creatorOf(token);
         if (msg.sender != creator) revert NotCreator();
         address recipient = registry.recipientOf(token);

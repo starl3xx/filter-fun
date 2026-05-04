@@ -320,20 +320,6 @@ contract SeasonVaultTest is Test {
 
     // ============================================================ Champion bounty
 
-    /// @notice Each loser triggers a markFiltered call into the distributor — a single bool
-    ///         flip in the real contract, a counter increment in our mock.
-    function test_FilterEvent_CallsMarkFiltered() public {
-        address[] memory cohort = new address[](2);
-        cohort[0] = loserA;
-        cohort[1] = loserB;
-        _filter(cohort);
-        assertEq(creatorFeeDistributor.markFilteredCount(loserA), 1);
-        assertEq(creatorFeeDistributor.markFilteredCount(loserB), 1);
-        // Other tokens never touched.
-        assertEq(creatorFeeDistributor.markFilteredCount(loserC), 0);
-        assertEq(creatorFeeDistributor.markFilteredCount(winnerToken), 0);
-    }
-
     /// @notice Tournament registry is notified on every filter event (status → FILTERED) and
     ///         on submitWinner (status → WEEKLY_WINNER). Pins the multi-timescale qualification
     ///         hook into the existing weekly settlement path.

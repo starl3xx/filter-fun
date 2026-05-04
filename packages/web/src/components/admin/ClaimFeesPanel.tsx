@@ -40,14 +40,20 @@ export function ClaimFeesPanel({token, creator, recipient, auth}: ClaimFeesPanel
   const recipientLabel = recipient ? shortAddr(recipient) : "—";
   const isDelegated = creator && recipient && !addrEq(creator, recipient);
 
+  // `fees.disabled` is the multisig emergency flag — the on-chain `claim()` reverts with
+  // `Disabled()` in this state, so the button must be inert and the label must call it out.
+  // Bundled into the disable cascade so a stale `pending > 0` read can't make the button
+  // briefly clickable during a refetch race.
   const disabled =
-    !isCreator || fees.pending === 0n || fees.isSubmitting || fees.isMining;
+    !isCreator || fees.disabled || fees.pending === 0n || fees.isSubmitting || fees.isMining;
 
   let label: string;
   if (auth.state === "DISCONNECTED") {
     label = "Connect to claim";
   } else if (!isCreator) {
     label = "Only the creator can claim";
+  } else if (fees.disabled) {
+    label = "Claim disabled (multisig)";
   } else if (fees.isSubmitting) {
     label = "Sign in wallet…";
   } else if (fees.isMining) {
@@ -62,13 +68,21 @@ export function ClaimFeesPanel({token, creator, recipient, auth}: ClaimFeesPanel
     <Card label="Creator fees">
       <Field k="Pending" v={fmtEthShort(fees.pending)} />
       <Field k="Recipient" v={recipientLabel} />
+      {/*
+        Epic 1.16 (spec §10.3 + §10.6): creator-fee accrual is perpetual. The pre-1.16
+        72h "eligibility window" is gone — winners earn 0.20% of every swap forever, and
+        filtered/non-winning tokens stop earning only because their LP is unwound, not
+        because the contract caps accrual. The on-chain `disableCreatorFee` is multisig-
+        only emergency surface for sanctioned/compromised recipients; the "Status" line
+        renders "earning" by default and "disabled (multisig)" only on the rare path.
+      */}
       <Field
-        k="Eligibility"
+        k="Status"
         v={
-          fees.eligible ? (
-            <span style={{color: C.green}}>active</span>
+          fees.disabled ? (
+            <span style={{color: C.faint}}>disabled (multisig)</span>
           ) : (
-            <span style={{color: C.faint}}>window closed</span>
+            <span style={{color: C.green}}>still earning</span>
           )
         }
       />

@@ -11,9 +11,9 @@ import {CreatorFeeDistributorAbi} from "@/lib/token/abis";
 /// Live creator-fee state + claim transaction driver.
 ///
 /// Reads `pendingClaim(token)` (returns wei accrued but not yet claimed) and
-/// `eligible(token)` (whether the 72h Days-1–3 window is still active and the
-/// token hasn't been filtered). Both refresh on a 15s tick — mid-window
-/// accrual is what users come here to watch.
+/// `isDisabled(token)` (Epic 1.16: true only after the multisig emergency-disabled
+/// the recipient — accrual is perpetual otherwise per spec §10.3). Both refresh
+/// on a 15 s tick — long-tail accrual is what winning creators come here to watch.
 ///
 /// The `claim()` function fires a real wagmi `useWriteContract` and tracks
 /// the receipt. After the tx confirms, the read cache is invalidated so
@@ -22,9 +22,10 @@ import {CreatorFeeDistributorAbi} from "@/lib/token/abis";
 export type UseCreatorFeesResult = {
   /// Pending balance in wei. `0n` is a valid empty state.
   pending: bigint;
-  /// Whether the 72-hour creator-fee window is still active. Once false, new
-  /// trade fees redirect to treasury instead of accruing here.
-  eligible: boolean;
+  /// True if the multisig has invoked `disableCreatorFee` for this token. Future
+  /// fees redirect to treasury until the row is reset by upgrade. The default
+  /// (perpetual accrual per spec §10.3) is `disabled === false`.
+  disabled: boolean;
   isLoading: boolean;
   error: Error | null;
   /// Submit a `claim(token)` tx. Resolves the moment the transaction is sent;
@@ -56,10 +57,10 @@ export function useCreatorFees(token: Address | null): UseCreatorFeesResult {
     args: token ? [token] : undefined,
     query: {enabled, refetchInterval: 15_000, staleTime: 15_000},
   });
-  const eligible = useReadContract({
+  const disabled = useReadContract({
     address: DISTRIBUTOR_ADDRESS,
     abi: CreatorFeeDistributorAbi,
-    functionName: "eligible",
+    functionName: "isDisabled",
     args: token ? [token] : undefined,
     query: {enabled, refetchInterval: 15_000, staleTime: 15_000},
   });
@@ -85,9 +86,9 @@ export function useCreatorFees(token: Address | null): UseCreatorFeesResult {
 
   return {
     pending: (pending.data as bigint | undefined) ?? 0n,
-    eligible: (eligible.data as boolean | undefined) ?? false,
-    isLoading: enabled && (pending.isLoading || eligible.isLoading),
-    error: pending.error ?? eligible.error ?? null,
+    disabled: (disabled.data as boolean | undefined) ?? false,
+    isLoading: enabled && (pending.isLoading || disabled.isLoading),
+    error: pending.error ?? disabled.error ?? null,
     claim: () => {
       if (!token) return;
       writeContract({

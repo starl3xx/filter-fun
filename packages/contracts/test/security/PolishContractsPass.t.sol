@@ -72,23 +72,31 @@ contract PolishContractsPassTest is Test {
 
     // M-Contracts-4 ------------------------------------------------------------------
     //
-    // ELIGIBILITY_WINDOW = 72 hours per spec §10.3. Pre-fix the constant carried no
-    // NatSpec, so a future maintainer detuning the value (e.g., "fold into 96h cut")
-    // had no spec anchor in front of them. Pinning the §10.3 reference + the rationale
-    // here means a reviewer who tries to change 72h sees the spec anchor in the diff
-    // and must justify the change in the same patch.
-    function test_MContracts4_EligibilityWindowNatSpec_PinsSpec103() public view {
+    // Epic 1.16 (spec §10.3 lock 2026-05-02) made creator-fee accrual perpetual. The pre-
+    // Epic-1.16 ELIGIBILITY_WINDOW (= 72h) was a *cap* the audit asked to anchor against
+    // accidental detuning; that cap is now intentionally removed, so the pin shifts from
+    // "the cap value still matches the spec" to "the spec authority for removing the cap is
+    // still present in the source AND the cap constant has not silently re-entered". A
+    // future regression that wires ELIGIBILITY_WINDOW back in without also restoring its
+    // §10.3 anchor — i.e., resurrecting the cap without spec authority — fails this test.
+    function test_MContracts4_PerpetualAccrual_PinsSpec103() public view {
         string memory src = vm.readFile("src/CreatorFeeDistributor.sol");
         assertTrue(_contains(src, "spec "), "source missing 'spec' tokens entirely");
-        // Match the canonical §10.3 reference and the literal value we expect a
-        // detuning regression to have to justify.
         assertTrue(
             _contains(src, unicode"§10.3"),
-            "M-Contracts-4 regression: ELIGIBILITY_WINDOW NatSpec dropped the spec anchor"
+            unicode"M-Contracts-4 regression: spec §10.3 anchor dropped from CreatorFeeDistributor"
         );
+        // The cap constant itself must NOT be present — if it has come back, the lock has
+        // drifted away from spec §10.3 (which now codifies perpetual accrual).
+        assertFalse(
+            _contains(src, "ELIGIBILITY_WINDOW"),
+            "M-Contracts-4 regression: ELIGIBILITY_WINDOW resurfaced after Epic 1.16 removal"
+        );
+        // The perpetual rationale must remain anchored next to the §10.3 reference so a
+        // reader scanning for "why no cap?" finds the spec-authorized answer in source.
         assertTrue(
-            _contains(src, "ELIGIBILITY_WINDOW = 72 hours"),
-            "M-Contracts-4 regression: ELIGIBILITY_WINDOW value drifted from spec lock"
+            _contains(src, "perpetual") || _contains(src, "PERPETUAL"),
+            "M-Contracts-4 regression: perpetual-accrual rationale dropped from source"
         );
     }
 

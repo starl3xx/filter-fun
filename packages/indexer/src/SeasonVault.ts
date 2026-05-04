@@ -24,6 +24,11 @@ ponder.on("SeasonVault:WinnerSubmitted", async ({event, context}) => {
     winner: event.args.winner,
     rolloverRoot: event.args.rolloverRoot,
     totalRolloverShares: event.args.totalRolloverShares,
+    // Epic 1.16 (spec §9.4): mirror the on-chain `SeasonVault.winnerSettledAt` here so
+    // the `/season` response can resolve "is post-settlement fee routing in effect?" in
+    // a single read. The contract sets it inside the same `submitWinner` tx that emits
+    // this event, so `event.block.timestamp` is exactly what the on-chain field stores.
+    winnerSettledAt: event.block.timestamp,
   });
 });
 

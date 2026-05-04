@@ -3,6 +3,7 @@ import {http, parseAbiItem} from "viem";
 
 import {BonusDistributorAbi} from "./abis/BonusDistributor";
 import {CreatorCommitmentsAbi} from "./abis/CreatorCommitments";
+import {CreatorFeeDistributorAbi} from "./abis/CreatorFeeDistributor";
 import {FilterFactoryAbi} from "./abis/FilterFactory";
 import {FilterLauncherAbi} from "./abis/FilterLauncher";
 import {FilterLpLockerAbi} from "./abis/FilterLpLocker";
@@ -29,6 +30,7 @@ const creatorCommitmentsAddrEnv = process.env.CREATOR_COMMITMENTS_ADDRESS as
   | `0x${string}`
   | undefined;
 const v4PoolManagerAddr = deployment.addresses.v4PoolManager;
+const creatorFeeDistributorAddr = deployment.addresses.creatorFeeDistributor;
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 // Epic 1.15a — companion contracts deployed by `FilterLauncher`'s constructor. Manifest
 // path is canonical (DeploySepolia reads them off the launcher and writes to manifest);
@@ -204,6 +206,16 @@ export default createConfig({
       network,
       abi: TournamentRegistryAbi,
       address: tournamentRegistryAddr,
+      startBlock,
+    },
+    /// Singleton creator-fee distributor (Epic 1.16). Indexes per-token Accrued / Redirected
+    /// / Claimed events so the indexer can resolve `lifetimeAccrued`, `claimable`, and
+    /// `lastClaimAt` for any token in O(1) (table lookup) instead of summing the
+    /// per-event `feeAccrual.toCreator` slice in the request path.
+    CreatorFeeDistributor: {
+      network,
+      abi: CreatorFeeDistributorAbi,
+      address: creatorFeeDistributorAddr,
       startBlock,
     },
     /// V4 PoolManager is the singleton emitter for every `Swap` on Base. We index ALL its

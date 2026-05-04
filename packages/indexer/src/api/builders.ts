@@ -20,6 +20,11 @@ export interface SeasonRow {
   // is the running tally of liquidations recorded as the season progresses.
   totalPot: bigint;
   bonusReserve: bigint;
+  /// Epic 1.16 (spec §9.4): Unix-seconds the winner was committed via `submitWinner`. Null
+  /// while the season is still active. Surfaced so the web app can resolve "is the winner
+  /// pool routing fees to POL now?" in a single read against `/season` instead of poking
+  /// the locker directly.
+  winnerSettledAt: bigint | null;
 }
 
 export interface SeasonResponse {
@@ -31,6 +36,10 @@ export interface SeasonResponse {
   finalSettlementAt: string;
   championPool: string;
   polReserve: string;
+  /// Epic 1.16: see `SeasonRow.winnerSettledAt`. Number (Unix-seconds) post-settlement;
+  /// `null` while the season is still active. Frontend gates the "POL slice" copy on
+  /// `winnerSettledAt != null`.
+  winnerSettledAt: number | null;
 }
 
 export const MAX_LAUNCHES = 12 as const;
@@ -64,6 +73,7 @@ export function buildSeasonResponse(
     finalSettlementAt: finalSettlementAtIso(season.startedAt),
     championPool: weiToDecimalEther(championPotWei),
     polReserve: weiToDecimalEther(0n),
+    winnerSettledAt: season.winnerSettledAt === null ? null : Number(season.winnerSettledAt),
   };
 }
 

@@ -17,6 +17,14 @@
 /// outcome state. Today the admin console is wired to currentSeasonId only;
 /// past-season detection is a v2 follow-up once we surface a per-token
 /// `seasonId` from the indexer or registry view.
+///
+/// Epic 1.16 (spec §10.3 + §10.6, locked 2026-05-02): the ClaimFeesPanel works
+/// for ANY token the wallet created, regardless of season — the underlying
+/// `CreatorFeeDistributor.claim()` is no longer time- or filter-gated, so winning
+/// creators of past tokens can navigate to `/token/<addr>/admin` and pull
+/// long-tail accrual indefinitely. The "still earning" badge on the panel
+/// reflects this; the only path that surfaces "disabled" is the multisig
+/// emergency override (sanctioned/compromised recipient).
 
 import {useEffect, useMemo, useRef, useState} from "react";
 import {useParams} from "next/navigation";

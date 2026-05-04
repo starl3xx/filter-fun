@@ -22,6 +22,7 @@ const targets = [
   "BonusDistributor",
   "TournamentRegistry",
   "CreatorCommitments",
+  "CreatorFeeDistributor",
   // Epic 1.15a — deferred-activation reservation lifecycle.
   "LaunchEscrow",
   "LauncherStakeAdmin",

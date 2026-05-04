@@ -9,6 +9,7 @@ import "./FilterLpLocker";
 import "./FilterToken";
 import "./BonusDistributor";
 import "./CreatorCommitments";
+import "./CreatorFeeDistributor";
 import "./TournamentRegistry";
 import "./V4PoolManager";
 import "./HpSnapshot";

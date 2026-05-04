@@ -1,0 +1,95 @@
+---
+title: Creator Incentives
+description: How creators earn on filter.fun — perpetual fees, champion bounty, and the long-tail economics of winning a season.
+---
+
+# Creator Incentives
+
+When you launch a token on filter.fun you sign up for a fixed economic model. This page explains the
+three streams that flow to the token's creator address — and, importantly, when each one stops.
+
+## The 0.20% trading-fee stream
+
+Every trade on your pool pays a 2% protocol fee. **0.20% of that** routes to the creator
+fee distributor and accrues to your address. No claim window, no week limit, no minimum balance.
+
+You pull accrued fees by signing a `claim(token)` transaction from the address that launched the
+token. The funds land at the creator-recipient address (defaults to your launching wallet; you can
+delegate to a multisig or splitter via the admin console at `/token/<address>/admin`).
+
+## When fees stop accruing
+
+This is the section that matters most. Per spec §10.3 (locked 2026-05-02, Epic 1.16) the answer
+depends entirely on what happens to your token's pool — there is no time cap and no settlement
+cap in the contract:
+
+- **For winners (the token wins its season):** fees accrue **forever**. Your pool keeps trading
+  past settlement, and every trade keeps paying you 0.20%. There is no day-N cap, no
+  settlement cap, and no maximum payout per token. A year out, ten years out, you keep earning
+  if your pool keeps trading.
+
+- **For filtered tokens:** fees stop because the pool's LP is unwound at the cut. No LP
+  means no trades, no trades means no fees. The cap is implicit in the pool lifecycle, not
+  enforced in code. Anything you accrued before the cut stays claimable forever.
+
+- **For non-winning finalists:** same as filtered. The LP is unwound at final settlement
+  (h168). Anything you earned across the week stays claimable; no new accrual after that.
+
+The only way the contract redirects your fees away from you is if the deployer multisig invokes
+the emergency-disable path (`disableCreatorFee`) — reserved for sanctioned or compromised
+recipient addresses. This is a public on-chain action emitting `CreatorFeeDisabled` and is not
+part of the normal lifecycle.
+
+## The 2.5% champion bounty (winners only)
+
+If your token wins its season, you also receive 2.5% of the losers pot at the moment the winner
+is committed. This is a one-shot transfer at settlement, separate from the trading-fee stream.
+Spec §10.4.
+
+## Post-settlement routing — what changes
+
+For winning pools, the fee split flips at settlement (spec §9.4). Pre-settlement the WETH-leg
+breaks down as:
+
+| Slice | BPS | Destination |
+| --- | --- | --- |
+| Prize pool | 90 | Season vault |
+| Treasury | 65 | Treasury |
+| Mechanics | 25 | Mechanics |
+| **Creator** | **20** | **You** |
+
+Post-settlement (after the winner is committed):
+
+| Slice | BPS | Destination |
+| --- | --- | --- |
+| POL | 90 | POLVault (compounds your pool's backing) |
+| Treasury | 65 | Treasury |
+| Mechanics | 25 | Mechanics |
+| **Creator** | **20** | **You** |
+
+Same 0.20% to you in both regimes. The slice that used to feed the prize pool now compounds
+into permanent backing for your pool — see [`/protocol/post-settlement-fees`](../protocol/post-settlement-fees)
+for the rationale.
+
+## Practical implications
+
+- **The cost calculator on `/launch` shows a "Perpetual long-tail" number when you select
+  the "wins" outcome.** That projection sums 12 weeks of decaying post-settlement volume at the
+  current 0.20% creator slice. Over multi-month horizons this is the dominant ROI term — bigger
+  than the launch-week revenue or the champion bounty.
+
+- **Your admin console (`/token/<address>/admin`) shows lifetime accrual and a "still earning"
+  badge for every token you've ever launched** that hasn't been emergency-disabled. The Claim
+  button works for past tokens too — there's no "this week" filter.
+
+- **Indexer transparency:** the `/tokens/<address>/creator-earnings` endpoint exposes
+  `lifetimeAccrued`, `claimed`, `claimable`, `lastClaimAt`, and the multisig-disabled flag for
+  any token. This is what the admin console reads; downstream tools (splitters, dashboards,
+  taxes) can hit it directly.
+
+## What didn't change
+
+- Total trading fee = 200 bps = 2% of swap volume (unchanged across the boundary).
+- Your slice = 20 bps = 0.20% (unchanged).
+- The 2.5% champion bounty mechanic (§10.4) — still paid one-shot at settlement, still separate
+  from the trading-fee stream.
