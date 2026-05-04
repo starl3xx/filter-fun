@@ -34,14 +34,17 @@ import {useAccount} from "wagmi";
 import {ArenaActivityFeed} from "@/components/arena/ArenaActivityFeed";
 import {ArenaFilterMechanic} from "@/components/arena/ArenaFilterMechanic";
 import {ArenaLeaderboard} from "@/components/arena/ArenaLeaderboard";
+import {ArenaSortDropdown, useArenaSortMode, useSortedTileTokens} from "@/components/arena/ArenaSortDropdown";
 import {ArenaTicker} from "@/components/arena/ArenaTicker";
+import {ArenaTileGrid} from "@/components/arena/ArenaTileGrid";
 import {ArenaTokenDetail} from "@/components/arena/ArenaTokenDetail";
 import {ArenaTopBar} from "@/components/arena/ArenaTopBar";
 import {FilterMomentOverlay} from "@/components/arena/filterMoment/FilterMomentOverlay";
+import {useArenaViewMode, ViewToggle} from "@/components/arena/ViewToggle";
 import {DataErrorBanner} from "@/components/DataErrorBanner";
 import {Stars} from "@/components/Stars";
 import {useFilterMoment} from "@/hooks/arena/useFilterMoment";
-import {freshHpUpdateSeqByAddress, mergeHpUpdates, useHpUpdates} from "@/hooks/arena/useHpUpdates";
+import {freshHpUpdateSeqByAddress, type HpUpdate, mergeHpUpdates, useHpUpdates} from "@/hooks/arena/useHpUpdates";
 import {useSeason} from "@/hooks/arena/useSeason";
 import {useTickerEvents} from "@/hooks/arena/useTickerEvents";
 import {useTokens} from "@/hooks/arena/useTokens";
@@ -83,6 +86,19 @@ export default function HomePage() {
   // "is-fresh" flag would leave the className unchanged across consecutive
   // updates within the same recency window, suppressing the second pulse.
   const freshHpSeq = useMemo(() => freshHpUpdateSeqByAddress(hpByAddress, 3_000), [hpByAddress]);
+
+  // ============================================================ Epic 1.19
+  // View mode + tile sort (persisted in localStorage). The toggle hides on
+  // mobile via CSS, but a user who saved "tile" then resized down would
+  // still trigger the tile path — `isNarrow` below force-falls back to
+  // list at <700px so the small-screen layout is always coherent.
+  const [viewMode, setViewMode] = useArenaViewMode();
+  const [sortMode, setSortMode] = useArenaSortMode();
+  const isNarrow = useIsNarrow();
+  const effectiveViewMode = isNarrow ? "list" : viewMode;
+  const tileSortMeta = useTileSortMeta(cohort, hpByAddress);
+  const tileSorted = useSortedTileTokens(cohort, sortMode, tileSortMeta);
+
   const [selected, setSelected] = useState<`0x${string}` | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -259,18 +275,51 @@ export default function HomePage() {
         </div>
 
         <div className="ff-arena-col-center" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>
-          <ArenaLeaderboard
-            tokens={firingMode ? cohortSnapshot : cohort}
-            trendBuffers={trendBuffers}
-            selectedAddress={selected}
-            onSelect={onSelect}
-            hideCutLine={hideCutLine}
-            isLoading={tokensLoading}
-            urgentCutline={urgentCutline}
-            firingMode={firingMode}
-            recentlyFilteredAddresses={filterMoment.filteredAddresses}
-            freshHpUpdateSeqByAddress={firingMode ? undefined : freshHpSeq}
-          />
+          {/* Epic 1.19 — view-mode toggle + (when in tile mode) sort dropdown.
+              The toggle hides via CSS on mobile so users on a phone don't see
+              an unreachable affordance; the `effectiveViewMode` JS gate
+              forces list view at <700px regardless of the persisted choice. */}
+          <div
+            className="ff-arena-view-controls"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 10,
+            }}
+          >
+            {effectiveViewMode === "tile" && (
+              <ArenaSortDropdown value={sortMode} onChange={setSortMode} />
+            )}
+            <ViewToggle value={viewMode} onChange={setViewMode} />
+          </div>
+          {effectiveViewMode === "list" || firingMode ? (
+            // Filter-moment firing animations only target the row layout; in
+            // tile mode we fall back to the row view during the firing /
+            // recap stages so the recap card's drama isn't lost. Once the
+            // overlay returns to idle the user's preferred view restores.
+            <ArenaLeaderboard
+              tokens={firingMode ? cohortSnapshot : cohort}
+              trendBuffers={trendBuffers}
+              selectedAddress={selected}
+              onSelect={onSelect}
+              hideCutLine={hideCutLine}
+              isLoading={tokensLoading}
+              urgentCutline={urgentCutline}
+              firingMode={firingMode}
+              recentlyFilteredAddresses={filterMoment.filteredAddresses}
+              freshHpUpdateSeqByAddress={firingMode ? undefined : freshHpSeq}
+            />
+          ) : (
+            <ArenaTileGrid
+              tokens={tileSorted}
+              hpByAddress={hpByAddress}
+              freshHpUpdateSeqByAddress={freshHpSeq}
+              selectedAddress={selected}
+              onSelect={onSelect}
+              chain={chain}
+            />
+          )}
           <ArenaActivityFeed events={events} liveStatus={liveStatus} />
         </div>
 
@@ -327,6 +376,62 @@ export default function HomePage() {
       )}
     </div>
   );
+}
+
+/// `useIsNarrow` — Epic 1.19 mobile force-fallback gate.
+///
+/// matchMedia (max-width: 700px). SSR-safe (returns false until mount),
+/// listens for resize so a user dragging the window across the breakpoint
+/// flips views without a refresh.
+function useIsNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 700px)");
+    const onChange = () => setNarrow(mq.matches);
+    onChange();
+    // Older Safari versions exposed `addListener` not `addEventListener`;
+    // this codebase already polyfills the older API in its setup tests, so
+    // we use the modern path here without a fallback.
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
+
+/// `useTileSortMeta` — derives the {computedAt, prevHp} map the tile sort
+/// dropdown's "activity" / "delta" modes consume. Tracks previous HP per
+/// address in a ref across renders so the next render's delta-comparator
+/// can compute |hp - prev|. Updates the ref AFTER deriving the map, so a
+/// fresh poll's HP becomes the next render's "previous".
+function useTileSortMeta(
+  cohort: ReadonlyArray<TokenResponse>,
+  hpByAddress: ReadonlyMap<string, HpUpdate>,
+): ReadonlyMap<string, {computedAt: number; prevHp: number}> {
+  const prevRef = useRef<Map<string, number>>(new Map());
+  const meta = useMemo(() => {
+    const m = new Map<string, {computedAt: number; prevHp: number}>();
+    for (const t of cohort) {
+      const key = t.token.toLowerCase();
+      const live = hpByAddress.get(key);
+      const prev = prevRef.current.get(key) ?? t.hp;
+      m.set(key, {
+        computedAt: live?.computedAt ?? 0,
+        prevHp: prev,
+      });
+    }
+    return m;
+    // We DON'T include prevRef.current in the deps — refs aren't reactive
+    // by design, and including them would either re-fire every render or
+    // produce stale closures.
+  }, [cohort, hpByAddress]);
+
+  // Commit current HP into the ref so next render's `prevHp` reflects it.
+  useEffect(() => {
+    for (const t of cohort) prevRef.current.set(t.token.toLowerCase(), t.hp);
+  }, [cohort]);
+
+  return meta;
 }
 
 /// Small "pools at a glance" card — repeats the top bar's pool figures with
