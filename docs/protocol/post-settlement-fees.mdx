@@ -27,14 +27,17 @@ no longer feeding a season that has already been settled, so it routes to POL in
 
 ## The contract-side mechanism
 
-Two flags do the work:
+The canonical flag is on the per-token locker:
 
-1. `SeasonVault.winnerSettledAt` — Unix-seconds at which the winner was committed via
-   `submitWinner`. Zero while the season is still active.
+`FilterLpLocker.winnerSettledAt` — Unix-seconds at which the winner was committed, set on
+the WINNER's locker only by SeasonVault inside the same `submitWinner` transaction. Zero on
+every other locker (filtered tokens + non-winning finalists never reach this call).
 
-2. `FilterLpLocker.winnerSettledAt` — same value, set on the WINNER's locker only by
-   SeasonVault inside the same `submitWinner` transaction. Zero on every other locker
-   (filtered tokens + non-winning finalists never reach this call).
+Off-chain consumers that need the per-season "is post-settlement?" answer read it from the
+`SeasonVault.WinnerSubmitted` event's block timestamp — the indexer's
+`/season/:id` route exposes this as `winnerSettledAt`. There is intentionally no on-chain
+mirror on the vault itself (it costs ~11 bytes of FilterLauncher init-code budget that the
+launcher needs to stay under EIP-170 after the deferred-activation refactor in PR #88).
 
 The locker's `_takeAndSplit` reads its own `winnerSettledAt` on every fee collection:
 

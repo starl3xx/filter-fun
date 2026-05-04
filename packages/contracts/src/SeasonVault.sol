@@ -158,12 +158,13 @@ contract SeasonVault is ReentrancyGuard {
 
     // Winner / claim state, populated at submitWinner.
     address public winner;
-    /// @notice Block timestamp at which the winner was committed via `submitWinner`. Zero while
-    ///         the season is still active. Mirrors the per-locker `winnerSettledAt` flag the
-    ///         vault sets on the winner's locker (spec §9.4) so indexer + UI consumers can
-    ///         resolve "is post-settlement routing in effect?" in a single read against the
-    ///         vault without dereferencing the locker.
-    uint256 public winnerSettledAt;
+    // NOTE: there is intentionally no on-chain `winnerSettledAt` mirror on the vault. The
+    // canonical settlement timestamp lives on the winner's `FilterLpLocker.winnerSettledAt`
+    // (set inside `submitWinner` below). Off-chain consumers read it from the
+    // `WinnerSubmitted` event's block timestamp — that's what the indexer writes into its
+    // `season.winnerSettledAt` row. Adding a storage mirror here costs ~11+ bytes of
+    // FilterLauncher init-code budget (the vault is CREATE'd from `startSeason`), which the
+    // launcher is hard up against EIP-170 after PR #88.
     bytes32 public rolloverRoot;
     uint256 public totalRolloverShares;
     uint256 public rolloverWinnerTokens;
@@ -373,7 +374,6 @@ contract SeasonVault is ReentrancyGuard {
         if (totalRolloverShares_ == 0) revert ZeroShares();
 
         winner = winner_;
-        winnerSettledAt = block.timestamp;
         rolloverRoot = rolloverRoot_;
         totalRolloverShares = totalRolloverShares_;
         emit WinnerSubmitted(winner_, rolloverRoot_, totalRolloverShares_);
