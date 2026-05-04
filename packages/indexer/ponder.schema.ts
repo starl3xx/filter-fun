@@ -269,6 +269,135 @@ export const tournamentStatus = onchainTable("tournament_status", (t) => ({
   lastUpdatedAt: t.bigint().notNull(),
 }));
 
+// ============================================================ Reservation lifecycle (Epic 1.15a)
+//
+// Deferred-activation launch model: creators reserve a slot via `LaunchEscrow.reserve`
+// (paying creation cost into escrow, locking ticker in `seasonTickers`). The launcher
+// activates a season once `ACTIVATION_THRESHOLD` slots fill — only then does the
+// reservation normalize into a launched token. If the season aborts (insufficient
+// reservations, oracle abort), escrow refunds the cost to creators; failed pushes go
+// to `pendingRefund` for explicit-claim by the creator.
+//
+// Surface contract: the Arena UI uses `reservation` to render the live slot grid
+// + per-creator "claim refund" CTA, and `launchEscrowSummary` for the season-level
+// totals. `tickerBlocklist` and `winnerTickerReservation` back the launch-form
+// pre-flight ticker-availability check.
+
+/// One row per (seasonId, creator) reservation. The `status` column drives the
+/// Arena UI's slot-grid badge ("RESERVED" → "LAUNCHED" / "REFUNDED" / "AWAITING CLAIM").
+///
+/// Status transitions (reservation):
+///   PENDING — creator escrowed, slot held, season not activated yet
+///     → RELEASED         (`launchProtocolToken` settled the slot — token deployed)
+///     → REFUNDED         (`abortSeason` push refund succeeded — eth back in creator wallet)
+///     → REFUND_PENDING   (`abortSeason` push refund failed — `pendingRefund` row exists)
+///   REFUND_PENDING
+///     → REFUND_CLAIMED   (creator called `claimPendingRefund`)
+///   RELEASED
+///     → FORFEITED        (post-activation, slot did not normalize — `StakeForfeited`)
+///     → REFUNDED         (post-activation, slot normalized + soft-filtered — `StakeRefunded`)
+///
+/// `reservedAt` is the block timestamp of `SlotReserved`; `resolvedAt` is the
+/// timestamp of the most recent state-changing event (release / refund / claim /
+/// forfeit). Same-tx writes for ordering: a reservation that lands and immediately
+/// resolves in the same block keeps both timestamps equal.
+export const reservation = onchainTable("reservation", (t) => ({
+  id: t.text().primaryKey(), // `${seasonId}:${creator}`
+  seasonId: t.bigint().notNull(),
+  creator: t.hex().notNull(),
+  slotIndex: t.bigint().notNull(),
+  tickerHash: t.hex().notNull(),
+  metadataHash: t.hex().notNull(),
+  /// Escrow amount at reservation time (in wei). The creation cost paid into
+  /// `LaunchEscrow`. Refund amount on abort = this; on a refund-after-soft-filter
+  /// the `StakeRefunded.amount` may differ (partial), tracked in events not here.
+  escrowAmount: t.bigint().notNull(),
+  /// PENDING | RELEASED | REFUNDED | REFUND_PENDING | REFUND_CLAIMED | FORFEITED
+  status: t.text().notNull().default("PENDING"),
+  reservedAt: t.bigint().notNull(),
+  resolvedAt: t.bigint(),
+  /// Token address once `RELEASED` (the launched FilterToken). Null until release.
+  /// Lets the Arena UI link from the slot card to the token's leaderboard entry
+  /// without joining `token` on `(seasonId, creator)`.
+  token: t.hex(),
+}));
+
+/// One row per (seasonId, creator) where a refund push failed. Mirrors
+/// `LaunchEscrow.pendingRefunds[seasonId][creator]` exactly so the UI can render
+/// "Claim refund" without a contract read. Cleared on `PendingRefundClaimed`.
+export const pendingRefund = onchainTable("pending_refund", (t) => ({
+  id: t.text().primaryKey(), // `${seasonId}:${creator}`
+  seasonId: t.bigint().notNull(),
+  creator: t.hex().notNull(),
+  amount: t.bigint().notNull(),
+  /// Block timestamp of the originating `RefundFailed`. Lets the UI sort the
+  /// "Claim" surface by oldest pending first.
+  failedAt: t.bigint().notNull(),
+  /// True once `PendingRefundClaimed` has fired — keeps a historical row for
+  /// audits without violating the (seasonId, creator) primary-key uniqueness.
+  /// The active-claim filter on the API is `claimed = false`.
+  claimed: t.boolean().notNull().default(false),
+  claimedAt: t.bigint(),
+}));
+
+/// Per-season escrow aggregates. Updated incrementally on every reservation /
+/// release / refund / claim. Lets `/season/:id/launch-status` answer
+/// "how many slots filled, how much eth held, how much refunded" without
+/// scanning every reservation row.
+export const launchEscrowSummary = onchainTable("launch_escrow_summary", (t) => ({
+  id: t.bigint().primaryKey(), // seasonId
+  reservationCount: t.integer().notNull().default(0),
+  totalEscrowed: t.bigint().notNull().default(0n),
+  totalReleased: t.bigint().notNull().default(0n),
+  totalRefunded: t.bigint().notNull().default(0n),
+  totalRefundPending: t.bigint().notNull().default(0n),
+  totalForfeited: t.bigint().notNull().default(0n),
+  /// True once the launcher activated this season (≥ACTIVATION_THRESHOLD slots filled).
+  activated: t.boolean().notNull().default(false),
+  activatedAt: t.bigint(),
+  /// True once the launcher aborted this season. Mutually exclusive with `activated`.
+  aborted: t.boolean().notNull().default(false),
+  abortedAt: t.bigint(),
+}));
+
+/// Per-season ticker reservations — one row per (seasonId, tickerHash). Mirrors
+/// `FilterLauncher.seasonTickers[seasonId][hash]`. Used by the launch-form
+/// pre-flight check `/season/:id/tickers/check?ticker=PEPE`. Cleared on abort.
+export const seasonTickerReservation = onchainTable("season_ticker_reservation", (t) => ({
+  id: t.text().primaryKey(), // `${seasonId}:${tickerHash}`
+  seasonId: t.bigint().notNull(),
+  tickerHash: t.hex().notNull(),
+  creator: t.hex().notNull(),
+  reservedAt: t.bigint().notNull(),
+}));
+
+/// Cross-season winner ticker reservations — one row per `tickerHash`. Mirrors
+/// `FilterLauncher.winnerTickers[hash]`. Once a ticker wins a season, no future
+/// season can launch under it. Used by the same pre-flight check above.
+export const winnerTickerReservation = onchainTable("winner_ticker_reservation", (t) => ({
+  id: t.hex().primaryKey(), // tickerHash
+  seasonId: t.bigint().notNull(), // season that produced the winner
+  winnerToken: t.hex().notNull(),
+  reservedAt: t.bigint().notNull(),
+}));
+
+/// Protocol-blocklisted ticker hashes. Mirrors `FilterLauncher.tickerBlocklist`.
+/// Seeded with FILTER/WETH/ETH/USDC/USDT/DAI at construction; the multisig adds
+/// more via `addTickerToBlocklist`. The launch-form pre-flight check consults
+/// this table for the rejection reason.
+///
+/// CRITICAL: the consuming contract stores the raw `bytes32` and does NOT
+/// canonicalise — operators MUST pass `keccak256(bytes(TickerLib.normalize(s)))`.
+/// The TS port of `TickerLib.normalize` (this same package, `src/api/ticker.ts`)
+/// MUST match Solidity byte-for-byte. See `TickerValidationTest.test_NonCanonicalHashSilentlyStoresWrongSlot`
+/// for the documented failure mode if a non-canonical hash is added.
+export const tickerBlocklist = onchainTable("ticker_blocklist", (t) => ({
+  id: t.hex().primaryKey(), // tickerHash
+  blockedAt: t.bigint().notNull(),
+}));
+
+// ============================================================ Tournament tables (PR #45)
+
 /// Per-(year, quarter) quarterly Filter Bowl finalist memberships. One row per
 /// (year, quarter, token). Used for badge derivation: a wallet that ever held
 /// any QUARTERLY_FINALIST token earns the QUARTERLY_FINALIST badge.

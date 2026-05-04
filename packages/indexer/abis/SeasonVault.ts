@@ -19,11 +19,6 @@ export const SeasonVaultAbi = [
         "internalType": "address"
       },
       {
-        "name": "oracle_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "treasury_",
         "type": "address",
         "internalType": "address"
@@ -385,19 +380,6 @@ export const SeasonVaultAbi = [
   {
     "type": "function",
     "name": "mechanics",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "oracle",
     "inputs": [],
     "outputs": [
       {

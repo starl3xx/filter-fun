@@ -35,6 +35,7 @@ import {loadConfigFromEnv} from "./config.js";
 import {aggregateFeesByToken, lockerToTokenMap, translateFeeRows} from "./feeAdapter.js";
 import {setHpBroadcastHub, setHpBroadcastNextId} from "./hpBroadcast.js";
 import {Hub} from "./hub.js";
+import {getLaunchHub} from "./launchBroadcast.js";
 import {TickEngine, type EventsQueries} from "./tick.js";
 
 const cfg = loadConfigFromEnv();
@@ -125,6 +126,82 @@ ponder.get("/events", (c) => {
   } catch (err) {
     // ensureEngineStarted (or streamSSE itself) threw before the SSE callback ran. The
     // streamSSE callback's `finally` will never execute, so we own the release here.
+    releaseEventsConn(ip);
+    throw err;
+  }
+  return stream;
+});
+
+/// Epic 1.15a — `/season/:id/launch/stream` is a season-scoped SSE feed of reservation
+/// lifecycle events. Subscribes to the dedicated `launchHub` (separate from the main
+/// `/events` market-signal hub) and filters in-stream to the requested seasonId so a
+/// single client only sees its own season's slot churn.
+///
+/// Per-IP connection cap is reused — same Retry-After contract as `/events`. The
+/// engine bootstrap is NOT triggered here: launch events come from Ponder handlers
+/// directly (no tick engine in this path). A client connecting to /launch/stream
+/// while the indexer hasn't yet ingested its first `SeasonStarted` will get an
+/// empty stream + heartbeats; that's correct behaviour.
+ponder.get("/season/:id/launch/stream", (c) => {
+  const seasonIdRaw = c.req.param("id") ?? "";
+  let seasonId: bigint;
+  try {
+    seasonId = BigInt(seasonIdRaw);
+    if (seasonId < 0n) throw new Error("negative");
+  } catch {
+    return c.json({error: "invalid season id", raw: seasonIdRaw}, 400);
+  }
+
+  const ip = clientIpFromContext(c as unknown as MwContext);
+  const claim = tryClaimEventsConn(ip);
+  if (!claim.allowed) {
+    (c as unknown as MwContext).header("Retry-After", String(claim.retryAfterSec));
+    return c.json(
+      {error: "events connection limit reached", retryAfterSec: claim.retryAfterSec},
+      429,
+    );
+  }
+
+  const wantedSeasonId = seasonId.toString();
+
+  let stream: Response;
+  try {
+    stream = streamSSE(c as unknown as Context, async (stream) => {
+      const sub = getLaunchHub().connect();
+      let heartbeatHandle: ReturnType<typeof setInterval> | null = null;
+      try {
+        let pendingHeartbeat = false;
+        heartbeatHandle = setInterval(() => {
+          pendingHeartbeat = true;
+        }, cfg.heartbeatMs);
+        if (heartbeatHandle && "unref" in heartbeatHandle) {
+          (heartbeatHandle as {unref: () => void}).unref();
+        }
+        while (!stream.aborted && !stream.closed) {
+          if (pendingHeartbeat) {
+            await stream.writeln(":hb");
+            pendingHeartbeat = false;
+          }
+          const next = await sub.next(1_000);
+          if (next === null) continue;
+          // Filter: skip events for other seasons. The hub fans EVERY launch event
+          // out to EVERY subscriber (it's not season-aware), so the per-stream
+          // filter happens here. seasonId is encoded as a string in `data.seasonId`
+          // (set by `broadcastReservationEvent` / `broadcastSeasonStateEvent`).
+          if (next.data?.seasonId !== wantedSeasonId) continue;
+          await stream.writeSSE({
+            id: String(next.id),
+            event: "launch",
+            data: JSON.stringify(next),
+          });
+        }
+      } finally {
+        if (heartbeatHandle) clearInterval(heartbeatHandle);
+        sub.close();
+        releaseEventsConn(ip);
+      }
+    });
+  } catch (err) {
     releaseEventsConn(ip);
     throw err;
   }

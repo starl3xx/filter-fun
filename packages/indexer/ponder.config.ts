@@ -7,6 +7,8 @@ import {FilterFactoryAbi} from "./abis/FilterFactory";
 import {FilterLauncherAbi} from "./abis/FilterLauncher";
 import {FilterLpLockerAbi} from "./abis/FilterLpLocker";
 import {FilterTokenAbi} from "./abis/FilterToken";
+import {LaunchEscrowAbi} from "./abis/LaunchEscrow";
+import {LauncherStakeAdminAbi} from "./abis/LauncherStakeAdmin";
 import {SeasonVaultAbi} from "./abis/SeasonVault";
 import {TournamentRegistryAbi} from "./abis/TournamentRegistry";
 import {V4PoolManagerAbi} from "./abis/V4PoolManager";
@@ -27,6 +29,18 @@ const creatorCommitmentsAddrEnv = process.env.CREATOR_COMMITMENTS_ADDRESS as
   | `0x${string}`
   | undefined;
 const v4PoolManagerAddr = deployment.addresses.v4PoolManager;
+// Epic 1.15a — companion contracts deployed by `FilterLauncher`'s constructor. Manifest
+// path is canonical (DeploySepolia reads them off the launcher and writes to manifest);
+// env vars `LAUNCH_ESCROW_ADDRESS` / `LAUNCHER_STAKE_ADMIN_ADDRESS` work for env-only
+// production deploys without a manifest on disk.
+const launchEscrowAddrEnv = process.env.LAUNCH_ESCROW_ADDRESS as `0x${string}` | undefined;
+const launcherStakeAdminAddrEnv = process.env.LAUNCHER_STAKE_ADMIN_ADDRESS as
+  | `0x${string}`
+  | undefined;
+const launchEscrowAddr =
+  launchEscrowAddrEnv ?? deployment.addresses.launchEscrow ?? launcherAddr;
+const launcherStakeAdminAddr =
+  launcherStakeAdminAddrEnv ?? deployment.addresses.launcherStakeAdmin ?? launcherAddr;
 
 console.log(
   `[ponder] indexing ${network} from block ${startBlock} (commit ${deployment.deployCommitHash})`,
@@ -35,6 +49,18 @@ console.log(`[ponder]   launcher: ${launcherAddr}`);
 console.log(`[ponder]   factory:  ${factoryAddr}`);
 console.log(`[ponder]   tournament registry: ${tournamentRegistryAddr}`);
 console.log(`[ponder]   v4 pool manager:     ${v4PoolManagerAddr}`);
+console.log(`[ponder]   launch escrow:       ${launchEscrowAddr}`);
+console.log(`[ponder]   stake admin:         ${launcherStakeAdminAddr}`);
+if (launchEscrowAddr === launcherAddr) {
+  console.warn(
+    `[ponder]   launch escrow: <unset in manifest + env> — using launcher addr as a no-op sentinel. Set LAUNCH_ESCROW_ADDRESS or supply a manifest with addresses.launchEscrow populated.`,
+  );
+}
+if (launcherStakeAdminAddr === launcherAddr) {
+  console.warn(
+    `[ponder]   stake admin: <unset in manifest + env> — using launcher addr as a no-op sentinel. Set LAUNCHER_STAKE_ADMIN_ADDRESS or supply a manifest with addresses.launcherStakeAdmin populated.`,
+  );
+}
 
 /// `CreatorCommitments` is deployed by `FilterLauncher` in its constructor (the launcher
 /// owns it for `setUnlock` / `transferGate` calls). The deploy script reads it back off
@@ -90,6 +116,24 @@ export default createConfig({
       network,
       abi: BonusDistributorAbi,
       address: bonusAddr,
+      startBlock,
+    },
+    /// Epic 1.15a — escrow holds creator slot stakes between reservation and activation.
+    /// Emits SlotReserved / ReservationReleased / ReservationRefunded / RefundFailed /
+    /// PendingRefundClaimed / SeasonAborted. We index all six to drive the Arena
+    /// reservation lifecycle UI + per-creator pending-refund claim flow.
+    LaunchEscrow: {
+      network,
+      abi: LaunchEscrowAbi,
+      address: launchEscrowAddr,
+      startBlock,
+    },
+    /// Epic 1.15a — stake admin holds soft-filter / activation accounting and emits
+    /// StakeRefunded / StakeForfeited when slots clear after activation.
+    LauncherStakeAdmin: {
+      network,
+      abi: LauncherStakeAdminAbi,
+      address: launcherStakeAdminAddr,
       startBlock,
     },
     SeasonVault: {

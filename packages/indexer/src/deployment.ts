@@ -26,6 +26,14 @@ export interface DeploymentAddresses {
   bonusDistributor: `0x${string}`;
   polVault: `0x${string}`;
   filterLauncher: `0x${string}`;
+  /// Epic 1.15a — `LaunchEscrow` is deployed by `FilterLauncher`'s constructor (immutable
+  /// `launcher.launchEscrow()`). `DeploySepolia.s.sol` reads it back off the launcher and
+  /// writes it into the manifest's flat `addresses` block.
+  launchEscrow: `0x${string}`;
+  /// Epic 1.15a — `LauncherStakeAdmin` is also deployed by `FilterLauncher`'s constructor
+  /// (immutable `launcher.stakeAdmin()`). Holds soft-filter / forfeit accounting + emits
+  /// the `StakeRefunded` / `StakeForfeited` events the indexer needs.
+  launcherStakeAdmin: `0x${string}`;
   polManager: `0x${string}`;
   filterHook: `0x${string}`;
   filterFactory: `0x${string}`;
@@ -138,6 +146,8 @@ function loadFromEnv(network: ChainNetwork): Deployment {
       bonusDistributor: bonus,
       polVault: ZERO,
       filterLauncher: launcher,
+      launchEscrow: (process.env.LAUNCH_ESCROW_ADDRESS ?? ZERO) as `0x${string}`,
+      launcherStakeAdmin: (process.env.LAUNCHER_STAKE_ADMIN_ADDRESS ?? ZERO) as `0x${string}`,
       polManager: ZERO,
       filterHook: ZERO,
       filterFactory: factory,

@@ -44,13 +44,19 @@ import {
   creatorLock,
   holderSnapshot,
   hpSnapshot,
+  launchEscrowSummary,
+  pendingRefund,
+  reservation,
   rolloverClaim,
   season,
+  seasonTickerReservation,
   swap,
+  tickerBlocklist,
   token,
   tournamentAnnualEntrant,
   tournamentQuarterEntrant,
   tournamentStatus,
+  winnerTickerReservation,
 } from "../../ponder.schema";
 
 import {isAddressLike} from "./builders.js";
@@ -243,6 +249,225 @@ ponder.get("/scoring/weights", async (c) => {
   const limited = applyGetRateLimit(mw);
   if (limited) return limited;
   return c.json(buildScoringWeightsResponse(process.env), 200);
+});
+
+/// Epic 1.15a — pre-flight ticker availability check for the launch form.
+///
+/// Off-chain reproduction of the contract's `reserve` validation cascade:
+///   1. `normalizeTicker(t)` rejects format errors (length, punctuation, non-ASCII)
+///   2. `tickerBlocklist[hash]`              → `blocklisted`
+///   3. `winnerTickers[hash]`                → `winner_taken`
+///   4. `seasonTickers[seasonId][hash]`      → `season_taken`
+///   5. otherwise                            → `available`
+///
+/// The `:id` path param is the SEASON id (a uint), not a token address.
+/// Query: `?ticker=PEPE` (or `?t=PEPE`). The handler accepts either name to
+/// match the launch form's URL builder.
+///
+/// Response shape:
+///   200 { ok: "available", canonical: "PEPE", hash: "0x..." }
+///   200 { ok: "blocklisted", canonical: "FILTER", hash: "0x..." }
+///   200 { ok: "winner_taken", canonical: "PEPEWIN", hash: "0x...", reservedSeasonId: "1" }
+///   200 { ok: "season_taken", canonical: "PEPE", hash: "0x...", reservedBy: "0x..." }
+///   400 { error: "invalid format", raw: "PE-PE" }
+///   400 { error: "missing ticker" }
+///
+/// Always 200 on a known-status answer (including blocked/taken) so a UI doesn't
+/// have to distinguish between "ticker is bad" and "request was bad" — caller
+/// branches on the body's `ok` enum. 400 is reserved for malformed REQUESTS.
+ponder.get("/season/:id/tickers/check", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyGetRateLimit(mw);
+  if (limited) return limited;
+
+  const seasonIdRaw = c.req.param("id") ?? "";
+  let seasonId: bigint;
+  try {
+    seasonId = BigInt(seasonIdRaw);
+    if (seasonId < 0n) throw new Error("negative");
+  } catch {
+    return c.json({error: "invalid season id", raw: seasonIdRaw}, 400);
+  }
+
+  const url = new URL(mw.req.url);
+  const rawTicker = url.searchParams.get("ticker") ?? url.searchParams.get("t") ?? "";
+  if (rawTicker.length === 0) return c.json({error: "missing ticker"}, 400);
+
+  // Lazy-import to keep the tickeralib's keccak/toBytes off the API module's hot path
+  // when /season/:id/tickers/check isn't being hit.
+  const {tryNormalizeTicker, hashTicker} = await import("./ticker.js");
+  const norm = tryNormalizeTicker(rawTicker);
+  if (!norm.ok) {
+    return c.json({error: "invalid format", raw: rawTicker}, 400);
+  }
+  const canonical = norm.canonical;
+  const hash = hashTicker(rawTicker); // identical to keccak256(bytes(canonical))
+
+  // 1. Protocol blocklist — same hash space as winnerTickers (single bytes32 key per
+  //    contract). The `tickerBlocklist` row is canonical because it was written by
+  //    the indexer from a `TickerBlocked` event; the multisig's off-chain pipeline
+  //    is responsible for ensuring the hash they passed in IS canonical (see the
+  //    `addTickerToBlocklist` consumer-contract NatSpec).
+  const blocked = await c.db
+    .select()
+    .from(tickerBlocklist)
+    .where(eq(tickerBlocklist.id, hash))
+    .limit(1);
+  if (blocked[0]) {
+    return c.json({ok: "blocklisted", canonical, hash}, 200);
+  }
+
+  // 2. Cross-season winner reservation.
+  const winner = await c.db
+    .select()
+    .from(winnerTickerReservation)
+    .where(eq(winnerTickerReservation.id, hash))
+    .limit(1);
+  if (winner[0]) {
+    return c.json(
+      {
+        ok: "winner_taken",
+        canonical,
+        hash,
+        reservedSeasonId: winner[0].seasonId.toString(),
+      },
+      200,
+    );
+  }
+
+  // 3. Per-season reservation.
+  const reservedRow = await c.db
+    .select()
+    .from(seasonTickerReservation)
+    .where(eq(seasonTickerReservation.id, `${seasonId.toString()}:${hash}`))
+    .limit(1);
+  if (reservedRow[0]) {
+    return c.json(
+      {ok: "season_taken", canonical, hash, reservedBy: reservedRow[0].creator},
+      200,
+    );
+  }
+
+  return c.json({ok: "available", canonical, hash}, 200);
+});
+
+/// Epic 1.15a — per-season escrow + reservation rollup for the Arena UI's
+/// "Reservation lifecycle" surface. Reads `launchEscrowSummary` for aggregates
+/// and joins `reservation` for the slot grid; `pendingRefund` for any wallet's
+/// claim CTAs is fetched via the wallet-scoped `/profile/:address` (already
+/// shipped in Epic 1.3) — this endpoint is season-scoped and excludes per-wallet
+/// PII (no creator addresses on summary, just counts).
+///
+/// Response shape:
+///   200 {
+///     seasonId: "1",
+///     activated: false,
+///     aborted: false,
+///     activatedAt: null,
+///     abortedAt: null,
+///     reservationCount: 3,
+///     totalEscrowedWei: "150000000000000000",
+///     totalReleasedWei: "0",
+///     totalRefundedWei: "0",
+///     totalRefundPendingWei: "0",
+///     totalForfeitedWei: "0",
+///     reservations: [
+///       { creator: "0x...", slotIndex: "0", tickerHash: "0x...", status: "PENDING",
+///         escrowAmountWei: "50000000000000000", reservedAt: "1715000000",
+///         resolvedAt: null, token: null }
+///     ]
+///   }
+///   404 if no `launchEscrowSummary` row exists for the season (i.e. season hasn't
+///   been started, or the indexer hasn't ingested the SeasonStarted yet).
+ponder.get("/season/:id/launch-status", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyGetRateLimit(mw);
+  if (limited) return limited;
+
+  const seasonIdRaw = c.req.param("id") ?? "";
+  let seasonId: bigint;
+  try {
+    seasonId = BigInt(seasonIdRaw);
+    if (seasonId < 0n) throw new Error("negative");
+  } catch {
+    return c.json({error: "invalid season id", raw: seasonIdRaw}, 400);
+  }
+
+  const summaryRow = await c.db
+    .select()
+    .from(launchEscrowSummary)
+    .where(eq(launchEscrowSummary.id, seasonId))
+    .limit(1);
+  const summary = summaryRow[0];
+  if (!summary) return c.json({error: "season not found"}, 404);
+
+  const reservations = await c.db
+    .select()
+    .from(reservation)
+    .where(eq(reservation.seasonId, seasonId))
+    .orderBy(reservation.slotIndex);
+
+  return c.json(
+    {
+      seasonId: seasonId.toString(),
+      activated: summary.activated,
+      aborted: summary.aborted,
+      activatedAt: summary.activatedAt !== null ? summary.activatedAt.toString() : null,
+      abortedAt: summary.abortedAt !== null ? summary.abortedAt.toString() : null,
+      reservationCount: summary.reservationCount,
+      totalEscrowedWei: summary.totalEscrowed.toString(),
+      totalReleasedWei: summary.totalReleased.toString(),
+      totalRefundedWei: summary.totalRefunded.toString(),
+      totalRefundPendingWei: summary.totalRefundPending.toString(),
+      totalForfeitedWei: summary.totalForfeited.toString(),
+      reservations: reservations.map((r) => ({
+        creator: r.creator,
+        slotIndex: r.slotIndex.toString(),
+        tickerHash: r.tickerHash,
+        metadataHash: r.metadataHash,
+        status: r.status,
+        escrowAmountWei: r.escrowAmount.toString(),
+        reservedAt: r.reservedAt.toString(),
+        resolvedAt: r.resolvedAt !== null ? r.resolvedAt.toString() : null,
+        token: r.token,
+      })),
+    },
+    200,
+  );
+});
+
+/// Epic 1.15a — per-wallet pending refund query. Used by the Arena's "you have
+/// X ETH waiting" banner. Returns ALL unclaimed `pendingRefund` rows for a wallet
+/// across every season (creators may have failed pushes from multiple aborted
+/// seasons piled up).
+ponder.get("/wallet/:address/pending-refunds", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyGetRateLimit(mw);
+  if (limited) return limited;
+
+  const raw = c.req.param("address") ?? "";
+  const normalized = raw.toLowerCase();
+  if (!isAddressLike(normalized)) {
+    return c.json({error: "invalid address"}, 400);
+  }
+
+  const rows = await c.db
+    .select()
+    .from(pendingRefund)
+    .where(and(eq(pendingRefund.creator, normalized as `0x${string}`), eq(pendingRefund.claimed, false)))
+    .orderBy(pendingRefund.failedAt);
+
+  return c.json(
+    {
+      wallet: normalized,
+      pending: rows.map((r) => ({
+        seasonId: r.seasonId.toString(),
+        amountWei: r.amount.toString(),
+        failedAt: r.failedAt.toString(),
+      })),
+    },
+    200,
+  );
 });
 
 ponder.get("/profile/:address", async (c) => {
