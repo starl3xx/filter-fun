@@ -57,13 +57,19 @@ ponder.on("FilterLauncher:SeasonStarted", async ({event, context}) => {
 });
 
 ponder.on("FilterLauncher:TokenLaunched", async ({event, context}) => {
+  // Audit: bugbot M PR #92. Lowercase `creator` at write time so cross-table joins
+  // against `reservation.creator` (already lowercased) compare equal, and so
+  // `/profile/:address` queries — which lowercase the URL param — match. Same
+  // bug class as the round-5 pendingRefund fix; applying it here rounds out the
+  // canonical-address invariant across every Epic 1.15a-touched table.
+  const creator = event.args.creator.toLowerCase() as `0x${string}`;
   await context.db.insert(token).values({
     id: event.args.token,
     seasonId: event.args.seasonId,
     symbol: event.args.symbol,
     name: event.args.name,
     metadataUri: event.args.metadataURI,
-    creator: event.args.creator,
+    creator,
     locker: event.args.locker,
     isProtocolLaunched: event.args.isProtocolLaunched,
     createdAt: event.block.timestamp,
@@ -74,7 +80,7 @@ ponder.on("FilterLauncher:TokenLaunched", async ({event, context}) => {
   // have a matching reservation (FILTER bypasses the escrow), so the upsert
   // is conditional on whether a row exists — `update` would fail silently
   // otherwise. We use `find` first to avoid the upsert path for protocol launches.
-  const reservationId = `${event.args.seasonId.toString()}:${event.args.creator.toLowerCase()}`;
+  const reservationId = `${event.args.seasonId.toString()}:${creator}`;
   const existing = await context.db.find(reservation, {id: reservationId});
   if (existing) {
     await context.db
