@@ -3,6 +3,7 @@
 import {formatEther} from "viem";
 
 import {OperatorCard} from "./Card";
+import {CUT_INDEX} from "@/components/arena/ArenaLeaderboard";
 import type {SeasonResponse} from "@/lib/arena/api";
 import type {TokenResponse} from "@/lib/arena/api";
 import type {FinancialOverview, OperatorActionRow, SettlementHistoryEntry} from "@/lib/operator/api";
@@ -56,15 +57,21 @@ export function SeasonStateCard({
                   color: C.dim,
                   padding: "4px 8px",
                   borderRadius: 6,
-                  background: i < 6 ? "rgba(82, 255, 139, 0.04)" : "rgba(255, 45, 85, 0.03)",
+                  // Bugbot PR #95 round 15 (Low): cut-line is a protocol
+                  // parameter (see FilterLauncher.setFinalists) — `CUT_INDEX`
+                  // is the single source of truth, exported by the public
+                  // arena leaderboard. Pre-fix this row hardcoded `i < 6`,
+                  // which would silently lie if the finalist count ever
+                  // changed.
+                  background: i < CUT_INDEX ? "rgba(82, 255, 139, 0.04)" : "rgba(255, 45, 85, 0.03)",
                 }}
               >
                 <span style={{color: C.text}}>#{i + 1}</span>
                 <span style={{color: C.text}}>{t.ticker}</span>
                 <span>HP {t.hp}</span>
                 <span>{t.status.toLowerCase()}</span>
-                <span style={{color: i < 6 ? C.green : C.red}}>
-                  {i < 6 ? "above cut" : "below cut"}
+                <span style={{color: i < CUT_INDEX ? C.green : C.red}}>
+                  {i < CUT_INDEX ? "above cut" : "below cut"}
                 </span>
               </div>
             ))}

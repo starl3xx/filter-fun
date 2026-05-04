@@ -234,6 +234,15 @@ export function parseOperatorMessage(b64: string | undefined): string | undefine
 /// commas) and malformed addresses are dropped silently — operators reading the
 /// boot log see the resolved list, so a typo lands as "address X dropped from
 /// allow-list" rather than a hard fail at startup.
+///
+/// SIBLING (bugbot PR #95 round 15, Low): `parseOperatorAllowlist` in
+/// `packages/web/src/lib/operator/config.ts` implements the SAME parsing for the
+/// `NEXT_PUBLIC_OPERATOR_WALLETS` build-time env. Any change to one MUST be
+/// mirrored in the other or the two allow-lists will silently drift (the
+/// indexer would 403 a wallet the web bundle thinks is authorised, or vice
+/// versa). A shared workspace package would dedupe but adds plumbing that's
+/// outsized for ~5 lines of code; the cross-reference here flags drift in code
+/// review instead.
 export function parseOperatorWallets(raw: string | undefined): `0x${string}`[] {
   if (!raw) return [];
   return raw

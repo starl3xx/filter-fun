@@ -16,6 +16,10 @@ import {getAddress, isAddress} from "viem";
 
 export type OperatorAllowlist = `0x${string}`[];
 
+/// SIBLING (bugbot PR #95 round 15, Low): `parseOperatorWallets` in
+/// `packages/indexer/src/api/operatorAuth.ts` implements the SAME parsing for
+/// the indexer-side `OPERATOR_WALLETS` env. Any change here MUST be mirrored
+/// in the indexer or the two allow-lists will silently drift.
 export function parseOperatorAllowlist(raw: string | undefined): OperatorAllowlist {
   if (!raw) return [];
   return raw
