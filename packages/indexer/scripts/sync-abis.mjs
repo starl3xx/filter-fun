@@ -26,6 +26,10 @@ const targets = [
   "LaunchEscrow",
   "LauncherStakeAdmin",
   "LauncherLens",
+  // Epic 1.21 / spec §47.4 — operator audit trail. CreatorFeeDistributor emits
+  // `OperatorActionEmitted` from `disableCreatorFee`; the indexer subscribes to that
+  // single event and mirrors rows into `OperatorActionLog`.
+  "CreatorFeeDistributor",
 ];
 
 for (const name of targets) {

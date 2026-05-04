@@ -25,6 +25,7 @@ import {decodeFunctionData} from "viem";
 import {broadcastSeasonStateEvent} from "./api/events/launchBroadcast.js";
 import {
   launchEscrowSummary,
+  operatorActionLog,
   phaseChange,
   reservation,
   season,
@@ -280,6 +281,22 @@ ponder.on("FilterLauncher:TickerBlocked", async ({event, context}) => {
   await context.db
     .insert(tickerBlocklist)
     .values({id: event.args.tickerHash, blockedAt: event.block.timestamp});
+
+  // Epic 1.21 / spec §47.4 — derive an `operatorActionLog` row. The launcher is
+  // byte-budget-excluded from emitting `OperatorActionEmitted` directly (see the
+  // natspec on `addTickerToBlocklist`), so the indexer reconstructs the audit row
+  // from the existing `TickerBlocked` event + the tx `from` address (the multisig
+  // caller). `params` is the raw 32-byte tickerHash hex; the operator console
+  // decodes for display.
+  await context.db.insert(operatorActionLog).values({
+    id: `${event.transaction.hash}:${event.log.logIndex}`,
+    actor: event.transaction.from,
+    action: "addTickerToBlocklist",
+    params: event.args.tickerHash,
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+  });
 });
 
 /// Epic 1.15a — winner ticker is reserved cross-season. Once a ticker wins a season,

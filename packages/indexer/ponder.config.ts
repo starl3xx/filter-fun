@@ -3,6 +3,7 @@ import {http, parseAbiItem} from "viem";
 
 import {BonusDistributorAbi} from "./abis/BonusDistributor";
 import {CreatorCommitmentsAbi} from "./abis/CreatorCommitments";
+import {CreatorFeeDistributorAbi} from "./abis/CreatorFeeDistributor";
 import {FilterFactoryAbi} from "./abis/FilterFactory";
 import {FilterLauncherAbi} from "./abis/FilterLauncher";
 import {FilterLpLockerAbi} from "./abis/FilterLpLocker";
@@ -97,6 +98,23 @@ if (creatorCommitmentsAddr === launcherAddr) {
   );
 } else {
   console.log(`[ponder]   creator commitments: ${creatorCommitmentsAddr}`);
+}
+
+/// Epic 1.21 / spec §47.4 — CreatorFeeDistributor emits `OperatorActionEmitted` from
+/// `disableCreatorFee`. The address is in the manifest at `addresses.creatorFeeDistributor`;
+/// fall back to the launcher address as a no-op sentinel when unset (mirrors the
+/// CreatorCommitments pattern above).
+const creatorFeeDistributorFromManifest = deployment.addresses.creatorFeeDistributor;
+const creatorFeeDistributorAddr =
+  creatorFeeDistributorFromManifest && creatorFeeDistributorFromManifest !== ZERO_ADDR
+    ? creatorFeeDistributorFromManifest
+    : launcherAddr;
+if (creatorFeeDistributorAddr === launcherAddr) {
+  console.warn(
+    `[ponder]   creator fee distributor: <unset in manifest> — falling back to ${creatorFeeDistributorAddr} (no events will match). Supply a manifest with addresses.creatorFeeDistributor populated.`,
+  );
+} else {
+  console.log(`[ponder]   creator fee distributor: ${creatorFeeDistributorAddr}`);
 }
 
 /// Indexes the canonical filter.fun deployment. `SeasonVault`, `FilterLpLocker`, and
@@ -198,6 +216,17 @@ export default createConfig({
       network,
       abi: CreatorCommitmentsAbi,
       address: creatorCommitmentsAddr,
+      startBlock,
+    },
+    /// Epic 1.21 — operator audit-trail subscription. Only the
+    /// `OperatorActionEmitted` event is consumed (handler in
+    /// `src/CreatorFeeDistributor.ts`); the rest of the contract's events
+    /// (`CreatorFeeAccrued` / `CreatorFeeRedirected` / `CreatorFeeClaimed`) are
+    /// not currently indexed because there's no UI surface for them yet.
+    CreatorFeeDistributor: {
+      network,
+      abi: CreatorFeeDistributorAbi,
+      address: creatorFeeDistributorAddr,
       startBlock,
     },
     TournamentRegistry: {

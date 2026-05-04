@@ -9,6 +9,7 @@ import {CreatorRegistry} from "./CreatorRegistry.sol";
 interface ILauncherView {
     function lockerOf(uint256 seasonId, address token) external view returns (address);
     function vaultOf(uint256 seasonId) external view returns (address);
+    function owner() external view returns (address);
 }
 
 /// @title CreatorFeeDistributor
@@ -77,14 +78,20 @@ contract CreatorFeeDistributor {
     event CreatorFeeRedirected(address indexed token, uint256 amount);
     event CreatorFeeClaimed(address indexed token, address indexed recipient, uint256 amount);
     event CreatorFeeDisabled(address indexed token);
+    /// @notice Operator audit-trail signal (Epic 1.21 / spec §47.4). Emitted from
+    ///         operator-callable functions so the indexer's `OperatorActionLog` table
+    ///         captures actor + decoded params without per-event schemas.
+    event OperatorActionEmitted(address indexed actor, string action, bytes params);
 
     error NotLauncher();
     error NotRegisteredLocker();
     error NotRegisteredVault();
     error NotCreator();
+    error NotMultisig();
     error AlreadyRegistered();
     error UnknownToken();
     error UnverifiedTransfer();
+    error EmptyReason();
 
     modifier onlyLauncher() {
         if (msg.sender != launcher) revert NotLauncher();
@@ -154,6 +161,32 @@ contract CreatorFeeDistributor {
             IERC20(weth).safeTransfer(treasury, amount);
             emit CreatorFeeRedirected(token, amount);
         }
+    }
+
+    /// @notice Operator-only emergency disable (spec §10.6, Epic 1.21 §47.4.2). Freezes
+    ///         creator-fee accrual for `token` outside the normal `markFiltered` path —
+    ///         used when the registered creator becomes sanctioned / compromised /
+    ///         legally precluded from receiving funds. Re-routes any further accrual to
+    ///         the treasury via the same `eligible()` check that already flips false on
+    ///         `info.filtered == true`.
+    ///
+    ///         Caller is the launcher's owner (the multisig in production). Adding a
+    ///         distinct multisig immutable would duplicate auth state; the launcher's
+    ///         owner is already the canonical operator key per spec §47.2.
+    ///
+    ///         A free-text `reason` is required (logged on the audit-trail event) so
+    ///         post-hoc forensics can attribute the disable; an empty reason reverts
+    ///         with `EmptyReason()` to keep the audit log meaningful.
+    function disableCreatorFee(address token, string calldata reason) external {
+        if (msg.sender != ILauncherView(launcher).owner()) revert NotMultisig();
+        if (bytes(reason).length == 0) revert EmptyReason();
+        TokenInfo storage info = _info[token];
+        if (!registered[token]) revert UnknownToken();
+        if (!info.filtered) {
+            info.filtered = true;
+            emit CreatorFeeDisabled(token);
+        }
+        emit OperatorActionEmitted(msg.sender, "disableCreatorFee", abi.encode(token, reason));
     }
 
     /// @notice Vault calls when a token is filtered, freezing creator-fee accrual for it.

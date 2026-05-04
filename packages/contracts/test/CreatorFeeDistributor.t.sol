@@ -277,4 +277,79 @@ contract CreatorFeeDistributorTest is Test {
         vm.warp(block.timestamp + 1);
         assertFalse(distributor.eligible(tokenA), "ineligible 1s after");
     }
+
+    // ============================================================ Operator: disableCreatorFee
+    //
+    // Epic 1.21 / spec §47.4.2 — emergency disable surface for sanctioned / compromised
+    // creator addresses. Reuses the launcher's `owner()` as the operator key (the
+    // multisig in production); a free-text `reason` is required to keep the audit trail
+    // meaningful and is logged via `OperatorActionEmitted` for the indexer's
+    // OperatorActionLog table.
+
+    address constant OPERATOR = address(0xDEAD0011BEEF);
+
+    function test_DisableCreatorFee_RejectsNonOperator() public {
+        _registerToken(tokenA, creatorA);
+        launcher.setOwner(OPERATOR);
+        vm.prank(attacker);
+        vm.expectRevert(CreatorFeeDistributor.NotMultisig.selector);
+        distributor.disableCreatorFee(tokenA, "compromised");
+    }
+
+    function test_DisableCreatorFee_RejectsEmptyReason() public {
+        _registerToken(tokenA, creatorA);
+        launcher.setOwner(OPERATOR);
+        vm.prank(OPERATOR);
+        vm.expectRevert(CreatorFeeDistributor.EmptyReason.selector);
+        distributor.disableCreatorFee(tokenA, "");
+    }
+
+    function test_DisableCreatorFee_RejectsUnknownToken() public {
+        launcher.setOwner(OPERATOR);
+        vm.prank(OPERATOR);
+        vm.expectRevert(CreatorFeeDistributor.UnknownToken.selector);
+        distributor.disableCreatorFee(tokenA, "compromised");
+    }
+
+    function test_DisableCreatorFee_FlipsFilteredAndEmitsAudit() public {
+        _registerToken(tokenA, creatorA);
+        launcher.setOwner(OPERATOR);
+
+        vm.expectEmit(true, false, false, true);
+        emit CreatorFeeDistributor.CreatorFeeDisabled(tokenA);
+        vm.expectEmit(true, false, false, true);
+        emit CreatorFeeDistributor.OperatorActionEmitted(
+            OPERATOR,
+            "disableCreatorFee",
+            abi.encode(tokenA, "compromised")
+        );
+        vm.prank(OPERATOR);
+        distributor.disableCreatorFee(tokenA, "compromised");
+
+        // Subsequent fee notifications now redirect to treasury (eligibility flipped to
+        // false because info.filtered = true).
+        weth.mint(address(distributor), 1 ether);
+        vm.prank(locker);
+        distributor.notifyFee(tokenA, 1 ether);
+        assertEq(weth.balanceOf(treasury), 1 ether, "post-disable fee redirected to treasury");
+    }
+
+    function test_DisableCreatorFee_IdempotentReEmitsAudit() public {
+        _registerToken(tokenA, creatorA);
+        launcher.setOwner(OPERATOR);
+        vm.prank(OPERATOR);
+        distributor.disableCreatorFee(tokenA, "compromised");
+
+        // Second call: state is already filtered=true, but the audit event MUST still
+        // fire so every operator call lands a row in the indexer's OperatorActionLog.
+        // The CreatorFeeDisabled event does NOT re-fire (idempotent state guard).
+        vm.expectEmit(true, false, false, true);
+        emit CreatorFeeDistributor.OperatorActionEmitted(
+            OPERATOR,
+            "disableCreatorFee",
+            abi.encode(tokenA, "follow-up audit")
+        );
+        vm.prank(OPERATOR);
+        distributor.disableCreatorFee(tokenA, "follow-up audit");
+    }
 }
