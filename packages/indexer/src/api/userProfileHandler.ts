@@ -212,20 +212,30 @@ export async function setUsernameHandler(args: {
     now(),
   );
   if ("error" in verdict) {
-    if (verdict.error === "blocklisted") {
-      return {status: 400, body: {error: "blocklisted username"}};
-    }
-    if (verdict.error === "invalid-format") {
-      return {status: 400, body: {error: "invalid username format", detail: verdict.detail}};
-    }
-    if (verdict.error === "taken") {
-      return {status: 409, body: {error: "taken"}};
-    }
-    if (verdict.error === "cooldown-active") {
-      return {
-        status: 409,
-        body: {error: "cooldown-active", nextEligibleAt: verdict.nextEligibleAt.toISOString()},
-      };
+    // Bugbot M PR #102: exhaustive switch over the rejection union. The
+    // previous version was a chain of `if ... return` branches followed by
+    // an unreachable fall-through to `store.upsertUsername` — fragile,
+    // because adding a new rejection variant to `SetUsernameRejection`
+    // would silently bypass validation and write to the store. The
+    // `_exhaustive: never` assignment makes TS fail the build the moment
+    // a future variant is forgotten.
+    switch (verdict.error) {
+      case "blocklisted":
+        return {status: 400, body: {error: "blocklisted username"}};
+      case "invalid-format":
+        return {status: 400, body: {error: "invalid username format", detail: verdict.detail}};
+      case "taken":
+        return {status: 409, body: {error: "taken"}};
+      case "cooldown-active":
+        return {
+          status: 409,
+          body: {error: "cooldown-active", nextEligibleAt: verdict.nextEligibleAt.toISOString()},
+        };
+      default: {
+        const _exhaustive: never = verdict;
+        void _exhaustive;
+        return {status: 500, body: {error: "internal error"}};
+      }
     }
   }
 
@@ -240,9 +250,17 @@ export async function setUsernameHandler(args: {
     now: now(),
     cooldownMs,
   });
-  if (!result.ok) {
-    if (result.error === "taken") return {status: 409, body: {error: "taken"}};
-    if (result.error === "cooldown-active") {
+  if (result.ok) {
+    return {status: 200, body: {profile: userProfileBlockFromRow(address, result.row)}};
+  }
+  // Same exhaustive-switch pattern as the verdict block above. If a future
+  // `UpsertUsernameError` variant is added without a branch here, TS's
+  // `_exhaustive: never` assignment fails the build instead of silently
+  // returning a generic 500.
+  switch (result.error) {
+    case "taken":
+      return {status: 409, body: {error: "taken"}};
+    case "cooldown-active": {
       // We lost the race against ourselves — odd but possible if the same
       // wallet posts two different usernames within milliseconds. Recompute
       // nextEligibleAt from the freshly-read row.
@@ -253,15 +271,14 @@ export async function setUsernameHandler(args: {
           : undefined;
       return {status: 409, body: {error: "cooldown-active", nextEligibleAt}};
     }
-    if (result.error === "blocklisted-operator") {
+    case "blocklisted-operator":
       return {status: 400, body: {error: "blocklisted username"}};
+    default: {
+      const _exhaustive: never = result.error;
+      void _exhaustive;
+      return {status: 500, body: {error: "internal error"}};
     }
-  } else {
-    return {status: 200, body: {profile: userProfileBlockFromRow(address, result.row)}};
   }
-  // Unreachable: every branch above is `ok: true` or returns. The
-  // exhaustive structure means TS knows we never get here.
-  return {status: 500, body: {error: "internal error"}};
 }
 
 // ============================================================ Identifier resolution

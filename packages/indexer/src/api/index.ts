@@ -181,31 +181,50 @@ ponder.use(
 /// surface a 503 ("identity layer unavailable"), GET /profile/:identifier
 /// degrades to address-only (the username path is unreachable, but address
 /// lookups continue to work as before via the existing handler).
-let userProfileStoreSingleton: UserProfileStore | null = null;
-let userProfileStoreError: Error | null = null;
+/// Bugbot L PR #102: cache the in-flight `Promise`, not the resolved store,
+/// so two concurrent first requests share the same boot work. Pre-fix, the
+/// guard was `if (singleton !== null) return singleton` — both racers see
+/// `null`, both `import("pg")`, both `new Pool()`, both `ensureSchema()`,
+/// and the second-to-resolve overwrites the singleton. The first pool (up
+/// to 4 connections) leaks for the lifetime of the process. Caching the
+/// promise turns the second caller into an `await` of the first.
+let userProfileStorePromise: Promise<UserProfileStore> | null = null;
 
 async function getUserProfileStore(): Promise<UserProfileStore> {
-  if (userProfileStoreSingleton !== null) return userProfileStoreSingleton;
-  if (userProfileStoreError !== null) throw userProfileStoreError;
+  if (userProfileStorePromise !== null) return userProfileStorePromise;
   const url = process.env.DATABASE_URL;
   if (!url) {
-    userProfileStoreError = new Error(
+    // Don't cache the failure — env can be set after process boot in some
+    // dev workflows (loaded later by a wrapper). Each call will re-check
+    // until DATABASE_URL appears, then transition to the cached-promise
+    // path. The error itself is identity-stable so callers branching on
+    // it produce stable HTTP responses.
+    throw new Error(
       "userProfile store requires DATABASE_URL — identity layer unavailable",
     );
-    throw userProfileStoreError;
   }
-  // Dynamic import avoids loading `pg` until a route actually needs it.
-  // We don't carry @types/pg — cast through `unknown` to the minimal shape
-  // `userProfileStore.ts` consumes (a `Pool.query` method).
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore -- no @types/pg installed; runtime types verified at boundary.
-  const pgModule = await import("pg");
-  const PoolCtor = (pgModule as {Pool: new (cfg: unknown) => unknown}).Pool;
-  const pool = new PoolCtor({connectionString: url, max: 4});
-  const store = createPgUserProfileStore(pool as import("./userProfileStore.js").Pool);
-  await store.ensureSchema();
-  userProfileStoreSingleton = store;
-  return store;
+  userProfileStorePromise = (async () => {
+    // Dynamic import avoids loading `pg` until a route actually needs it.
+    // We don't carry @types/pg — cast through `unknown` to the minimal shape
+    // `userProfileStore.ts` consumes (a `Pool.query` method).
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore -- no @types/pg installed; runtime types verified at boundary.
+    const pgModule = await import("pg");
+    const PoolCtor = (pgModule as {Pool: new (cfg: unknown) => unknown}).Pool;
+    const pool = new PoolCtor({connectionString: url, max: 4});
+    const store = createPgUserProfileStore(pool as import("./userProfileStore.js").Pool);
+    await store.ensureSchema();
+    return store;
+  })().catch((err) => {
+    // A construction failure (e.g. ensureSchema rejection on a malformed
+    // DATABASE_URL) MUST clear the cached promise — otherwise every future
+    // request resolves a permanently-rejected promise even after the
+    // operator fixes the env. Setting back to null lets the next call
+    // attempt boot fresh.
+    userProfileStorePromise = null;
+    throw err;
+  });
+  return userProfileStorePromise;
 }
 
 ponder.get("/season", async (c) => {
