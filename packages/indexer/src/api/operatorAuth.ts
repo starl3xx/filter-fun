@@ -23,6 +23,7 @@
 ///   - "no_allowlist"      — `OPERATOR_WALLETS` env unset (server misconfig).
 ///   - "missing_headers"   — request didn't carry the four required headers.
 ///   - "stale_message"     — `issuedAt` > 5 min in the past (or in the future).
+///   - "action_mismatch"   — signed `action:` field ≠ actual HTTP request endpoint.
 ///   - "bad_signature"     — recovered signer ≠ `X-Operator-Address`.
 ///   - "not_authorized"    — signer not in the allow-list.
 
@@ -72,6 +73,16 @@ export async function decideOperatorAuth(input: {
   issuedAt: string | undefined;
   allowlistRaw: string | undefined;
   nowMs?: number;
+  /// Expected `action:` value the signed message body must contain. Bound to
+  /// the actual HTTP request (`${method} ${path}`, no query string) so that a
+  /// signature scoped to one endpoint can't be replayed against another within
+  /// the staleness window. Bugbot PR #95 round 5 (Medium): pre-fix the server
+  /// parsed `issuedAt:` from the body but ignored `action:` entirely, so a
+  /// replay-window-fresh signature for `GET /operator/alerts` could be reused
+  /// to authenticate `GET /operator/actions`. Optional only for backwards-
+  /// compat with the test surface — production callers via `applyOperatorAuth`
+  /// always pass it.
+  expectedAction?: string;
   /// Override for testing. Defaults to the EOA-only fallback when omitted —
   /// production callers should use `applyOperatorAuth` (below), which wires
   /// in the public-client verifier so EIP-1271 multisig flows work.
@@ -122,6 +133,21 @@ export async function decideOperatorAuth(input: {
   const now = input.nowMs ?? Date.now();
   if (now - issuedAtMs > STALENESS_WINDOW_MS || issuedAtMs - now > STALENESS_WINDOW_MS) {
     return {authorized: false, reason: "stale_message"};
+  }
+
+  // Action binding (bugbot PR #95 round 5, Medium): the signed message body
+  // contains an `action:` line that scopes the signature to ONE endpoint. The
+  // server must verify the request is actually hitting that endpoint —
+  // otherwise an operator who signs `GET /operator/alerts` could have that
+  // signature replayed (within the 5-min window) against `/operator/actions`
+  // or any other operator route. We compare exactly: `${METHOD} ${path}`,
+  // no query string. Path-level binding (not URL-level) lets the operator
+  // change query filters without re-signing, but holds the endpoint identity.
+  if (input.expectedAction !== undefined) {
+    const signedAction = parseSignedField(input.message, "action");
+    if (!signedAction || signedAction !== input.expectedAction) {
+      return {authorized: false, reason: "action_mismatch"};
+    }
   }
 
   // EIP-191 personal_sign + EIP-1271 smart-contract-account verification. The
@@ -261,12 +287,18 @@ export function __resetVerifierForTests(): void {
 /// On success, attaches the signer to a shared header so handlers that audit-log
 /// the action can read it back without re-parsing.
 export async function applyOperatorAuth(c: MwContext): Promise<{response: Response | null; signer?: `0x${string}`}> {
+  // Bind the signature to the requested endpoint (method + path, no query
+  // string). The web client signs `${method} /operator${pathWithoutQuery}`,
+  // and Hono's `c.req.path` returns the same shape (no query) — so a
+  // direct equality check is sufficient.
+  const expectedAction = `${c.req.method.toUpperCase()} ${c.req.path}`;
   const decision = await decideOperatorAuth({
     authorization: c.req.header("authorization"),
     address: c.req.header("x-operator-address"),
     message: c.req.header("x-operator-message"),
     issuedAt: c.req.header("x-operator-issued-at"),
     allowlistRaw: process.env.OPERATOR_WALLETS,
+    expectedAction,
     verifier: getOperatorVerifier(),
   });
   if (!decision.authorized) {

@@ -19,6 +19,14 @@
 export interface MwContext {
   req: {
     url: string;
+    /// HTTP method, e.g. `"GET"` (Hono uppercases). Used by `applyOperatorAuth`
+    /// to bind a signed message to the requested endpoint.
+    method: string;
+    /// Request path WITHOUT query string, e.g. `"/operator/alerts"`. Used by
+    /// `applyOperatorAuth` for the same binding — the operator console signs
+    /// `${method} ${path}` (no query) so query-only changes don't force a
+    /// re-sign.
+    path: string;
     header: (name: string) => string | undefined;
   };
   header: (name: string, value: string) => void;

@@ -150,6 +150,8 @@ describe("M-Indexer-5: IP fallback uses fingerprint headers, no longer collapses
     const mkCtx = (ua: string, al: string): MwContext => ({
       req: {
         url: "http://localhost/season",
+        method: "GET",
+        path: "/season",
         header: (name: string) => {
           const lower = name.toLowerCase();
           if (lower === "user-agent") return ua;

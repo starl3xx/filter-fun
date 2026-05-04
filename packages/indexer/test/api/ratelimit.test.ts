@@ -184,6 +184,8 @@ describe("clientIpFromContext", () => {
     return {
       req: {
         url: "http://localhost/",
+        method: "GET",
+        path: "/",
         header: (name) => (name.toLowerCase() === "x-forwarded-for" ? opts.xff : undefined),
       },
       header: () => {},

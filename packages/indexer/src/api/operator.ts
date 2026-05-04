@@ -287,8 +287,20 @@ ponder.get("/operator/alerts", async (c) => {
 // ============================================================ /operator/alerts/stream
 
 /// SSE push stream of alert state. The indexer recomputes alerts every 30s and emits a
-/// frame whenever the active alert set changes (or on reconnect). The operator console
-/// `EventSource` consumes these to drive the red banner without polling.
+/// frame whenever the active alert set changes (or on reconnect).
+///
+/// Consumer surface (bugbot PR #95 round 5, Low Severity):
+///   - The browser-side operator console deliberately polls `/operator/alerts`
+///     on a 30s cadence rather than consuming this SSE. Browser `EventSource`
+///     can't send custom auth headers (Authorization / X-Operator-*), and a
+///     query-param signature would leak via referrer headers and proxy logs.
+///     A fetch+ReadableStream consumer could pass headers, but the 30s alert
+///     cadence is identical between push and poll — net latency is unchanged
+///     while doubling the auth surface. So the browser uses polling.
+///   - This endpoint serves NON-browser operator clients (ops CLIs, dashboards,
+///     `curl` smoke tests) where setting Authorization is trivial. It's a
+///     parallel surface, not dead code — removing it would force script-based
+///     consumers to fall back to polling on the same /operator/alerts route.
 ///
 /// Per-IP connection cap is reused — same Retry-After contract as `/events`.
 ponder.get("/operator/alerts/stream", async (c) => {

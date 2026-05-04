@@ -146,6 +146,13 @@ function OperatorConsole({
   // by the operator (one wallet sign per refresh keeps the prompt cadence
   // predictable). Alerts run on a 30s tick because they're the time-sensitive
   // signal; everything else is snapshot data.
+  //
+  // Polling vs SSE (bugbot PR #95 round 5, Low): the indexer ships an
+  // `/operator/alerts/stream` SSE endpoint, but browser `EventSource` can't
+  // send the custom auth headers (Authorization / X-Operator-*) the operator
+  // routes require. We deliberately poll here. The SSE endpoint is reserved
+  // for non-browser clients (ops CLIs, scripts) where header passthrough is
+  // trivial — see operator.ts:/operator/alerts/stream for the full rationale.
   useEffect(() => {
     if (!loaded) return;
     const id = window.setInterval(() => {

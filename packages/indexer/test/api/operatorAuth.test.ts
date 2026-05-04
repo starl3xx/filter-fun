@@ -198,6 +198,69 @@ describe("decideOperatorAuth — replay protection (signed body wins over header
   });
 });
 
+describe("decideOperatorAuth — endpoint binding (action_mismatch)", () => {
+  // Bugbot PR #95 round 5 (Medium Severity): the signed message body's
+  // `action:` field must match the actual HTTP request endpoint. Without
+  // this binding, an operator who signs `GET /operator/alerts` could have
+  // that signature replayed within the 5-min window against any other
+  // `/operator/*` endpoint. The server now compares `expectedAction`
+  // (built as `${METHOD} ${path}` by `applyOperatorAuth`) against the
+  // body's `action:` field; mismatch → `action_mismatch`.
+
+  it("authorizes when the signed action matches the expected action", async () => {
+    const headers = await signedHeaders("GET /operator/alerts");
+    const r = await decideOperatorAuth({
+      ...headers,
+      allowlistRaw: SIGNER,
+      expectedAction: "GET /operator/alerts",
+    });
+    expect(r.authorized).toBe(true);
+  });
+
+  it("denies cross-endpoint replay (signed for /alerts, requested /actions)", async () => {
+    const headers = await signedHeaders("GET /operator/alerts");
+    const r = await decideOperatorAuth({
+      ...headers,
+      allowlistRaw: SIGNER,
+      // Attacker captured a valid /alerts signature and tries to use it
+      // against /actions within the 5-min staleness window.
+      expectedAction: "GET /operator/actions",
+    });
+    expect(r.authorized).toBe(false);
+    expect(r.reason).toBe("action_mismatch");
+  });
+
+  it("denies when the signed body has no action: field", async () => {
+    const account = privateKeyToAccount(PK);
+    const issuedAt = new Date().toISOString();
+    const message = `filter.fun operator console\nissuedAt: ${issuedAt}`;
+    const signature = await account.signMessage({message});
+    const r = await decideOperatorAuth({
+      authorization: `Bearer ${signature}`,
+      address: account.address,
+      message,
+      issuedAt,
+      allowlistRaw: SIGNER,
+      expectedAction: "GET /operator/alerts",
+    });
+    expect(r.authorized).toBe(false);
+    expect(r.reason).toBe("action_mismatch");
+  });
+
+  it("authorizes regardless of action when expectedAction is omitted (test surface)", async () => {
+    // Backwards-compat: callers that don't pass expectedAction skip the
+    // binding check. Production callers via `applyOperatorAuth` always
+    // pass it; this branch exists for tests that focus on other failure
+    // modes without having to thread an action through every fixture.
+    const headers = await signedHeaders("GET /operator/alerts");
+    const r = await decideOperatorAuth({
+      ...headers,
+      allowlistRaw: SIGNER,
+    });
+    expect(r.authorized).toBe(true);
+  });
+});
+
 describe("parseSignedField", () => {
   const body = [
     "filter.fun operator console",

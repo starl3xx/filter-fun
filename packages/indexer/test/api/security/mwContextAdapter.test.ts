@@ -15,6 +15,8 @@ function validContext() {
   return {
     req: {
       url: "http://localhost:42069/season",
+      method: "GET",
+      path: "/season",
       header: (_n: string) => undefined,
     },
     header: (_n: string, _v: string) => {},
@@ -50,6 +52,21 @@ describe("toMwContext (Audit H-3)", () => {
     const c = validContext() as Record<string, unknown>;
     (c.req as Record<string, unknown>).url = undefined;
     expect(() => toMwContext(c)).toThrow(/missing \.req\.url/);
+  });
+
+  it("throws when .req.method is missing", () => {
+    // Bugbot PR #95 round 5 (Medium): operator-auth binds the signed
+    // message body's `action:` field to `${method} ${path}`, so the adapter
+    // now requires both fields exist on the underlying Ponder context.
+    const c = validContext() as Record<string, unknown>;
+    (c.req as Record<string, unknown>).method = undefined;
+    expect(() => toMwContext(c)).toThrow(/missing \.req\.method/);
+  });
+
+  it("throws when .req.path is missing", () => {
+    const c = validContext() as Record<string, unknown>;
+    (c.req as Record<string, unknown>).path = undefined;
+    expect(() => toMwContext(c)).toThrow(/missing \.req\.path/);
   });
 
   it("throws when .req.header is missing", () => {

@@ -14,7 +14,16 @@ async function operatorFetch<T>(
   method: "GET",
   opts: OperatorFetchOptions,
 ): Promise<T> {
-  const action = `${method} /operator${path}`;
+  // The signed `action:` field is bound to the endpoint identity (method +
+  // path) — query strings are NOT part of the signature so the operator can
+  // change filters without re-signing. Strip any query before building the
+  // action string; the server's `applyOperatorAuth` does the same with
+  // `c.req.path` (which already excludes the query). See bugbot PR #95
+  // round 5 (Medium): without this binding, a signature for one endpoint
+  // could be replayed against another within the 5-min window.
+  const queryStart = path.indexOf("?");
+  const pathWithoutQuery = queryStart === -1 ? path : path.slice(0, queryStart);
+  const action = `${method} /operator${pathWithoutQuery}`;
   const req = await signOperatorRequest(opts.signer, action);
   const res = await fetch(`${INDEXER_URL}/operator${path}`, {
     method,
