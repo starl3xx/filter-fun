@@ -365,6 +365,11 @@ export const CreatorFeeDistributorAbi = [
   },
   {
     "type": "error",
+    "name": "Disabled",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotCreator",
     "inputs": []
   },
