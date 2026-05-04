@@ -20,7 +20,7 @@ import Link from "next/link";
 import {useAccount} from "wagmi";
 
 import {C, F} from "@/lib/tokens";
-import {fetchProfile, type ProfileResponse, type UserProfileBlock} from "@/lib/arena/api";
+import {fetchJsonErrorStatus, fetchProfile, type ProfileResponse, type UserProfileBlock} from "@/lib/arena/api";
 
 import {CreatedTokensList} from "@/components/profile/CreatedTokensList";
 import {ProfileBadges} from "@/components/profile/ProfileBadges";
@@ -61,7 +61,7 @@ function Profile({identifier}: {identifier: string}) {
       })
       .catch((err) => {
         if (cancelled) return;
-        const status = errorStatus(err);
+        const status = fetchJsonErrorStatus(err);
         if (status === 404) {
           setData({state: "not-found"});
           return;
@@ -314,11 +314,3 @@ function NotFoundPage({identifier}: {identifier: string}) {
   );
 }
 
-/// `fetchProfile` rejects on non-2xx; the underlying `fetchJson` typically
-/// throws an Error whose message includes the status. We probe heuristically
-/// for the 404 case so the page can branch.
-function errorStatus(err: unknown): number | null {
-  if (!(err instanceof Error)) return null;
-  const m = err.message.match(/\b(\d{3})\b/);
-  return m ? Number(m[1]) : null;
-}

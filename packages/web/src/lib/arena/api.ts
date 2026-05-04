@@ -203,6 +203,18 @@ async function fetchJson<T>(url: string, opts: FetchOpts): Promise<T> {
   return (await res.json()) as T;
 }
 
+/// Recover the HTTP status from a `fetchJson` rejection. The thrown Error
+/// has shape `"<url> → <status>"`, so we anchor to the terminal segment —
+/// a naive `\b(\d{3})\b` match would pick up a numeric identifier embedded
+/// in the URL (e.g. a username like `123`) before the actual status code.
+/// (Bugbot M PR #102 pass-7 caught this regression — Epic 1.24 usernames
+/// can be all-digit; hex addresses pre-1.24 could not.)
+export function fetchJsonErrorStatus(err: unknown): number | null {
+  if (!(err instanceof Error)) return null;
+  const m = err.message.match(/→\s*(\d{3})\s*$/);
+  return m ? Number(m[1]) : null;
+}
+
 // ============================================================ /season/:id/tickers/check (Epic 1.15c)
 
 /// Off-chain reproduction of the contract's `reserve` validation cascade. A
