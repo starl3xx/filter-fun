@@ -271,7 +271,7 @@ code {
   .ff-arena-cutline { animation: none !important; }
 }
 
-/* Subtle text-shadow ramp for the Champion Backing Pool when its value grows. */
+/* Subtle text-shadow ramp for the Filter Fund Liquidity Reserve stat when its value grows. */
 @keyframes ff-arena-glow {
   0%   { text-shadow: 0 0 6px rgba(0, 240, 255, 0.4); }
   50%  { text-shadow: 0 0 18px rgba(0, 240, 255, 0.95), 0 0 28px rgba(0, 240, 255, 0.4); }

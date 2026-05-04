@@ -9,7 +9,7 @@
 /// Layout:
 ///
 ///   ┌─────────────────────────────────────────────────────────────┐
-///   │ TopBar (LIVE · Week · Next cut · Champion · Backing)        │
+///   │ TopBar (LIVE · Week · Next cut · Filter Fund · Reserve)     │
 ///   ├─────────────────────────────────────────────────────────────┤
 ///   │ Ticker (5-state SSE marquee)                                │
 ///   ├──────────────┬───────────────────────┬──────────────────────┤
@@ -336,18 +336,18 @@ function PoolsCard({season}: {season: ReturnType<typeof useSeason>["data"]}) {
   return (
     <section aria-label="Prize pools" style={{borderRadius: 14, border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.03)", padding: 14, display: "flex", flexDirection: "column", gap: 10}}>
       <div>
-        <div style={{fontSize: 9, fontFamily: F.mono, color: C.faint, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>Champion Pool ▼</div>
+        <div style={{fontSize: 9, fontFamily: F.mono, color: C.faint, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>Filter Fund ▼</div>
         <div style={{fontSize: 22, fontFamily: F.mono, fontWeight: 800, color: C.yellow, fontVariantNumeric: "tabular-nums"}}>
           {season ? fmtEth(season.championPool) : "Ξ —"}
         </div>
         <div style={{fontSize: 10, color: C.dim, marginTop: 2}}>Winner takes everything.</div>
       </div>
       <div>
-        <div style={{fontSize: 9, fontFamily: F.mono, color: C.faint, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>Champion Backing</div>
+        <div style={{fontSize: 9, fontFamily: F.mono, color: C.faint, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>Filter Fund Liquidity Reserve</div>
         <div style={{fontSize: 22, fontFamily: F.mono, fontWeight: 800, color: C.cyan, fontVariantNumeric: "tabular-nums"}}>
           {season ? fmtEth(season.polReserve) : "Ξ —"}
         </div>
-        <div style={{fontSize: 10, color: C.dim, marginTop: 2}}>Protocol backing for the winner.</div>
+        <div style={{fontSize: 10, color: C.dim, marginTop: 2}}>Permanent liquidity for the winner.</div>
       </div>
     </section>
   );

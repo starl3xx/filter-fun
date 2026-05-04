@@ -1,13 +1,21 @@
 ---
 title: Post-Settlement Fee Routing
-description: How the 90 bps prize-pool slice routes to POL once a season's winner is committed (Epic 1.16, spec §9.4).
+description: How the 90 bps Filter-Fund slice routes to the Filter Fund Liquidity Reserve once a season's winner is committed (Epic 1.16, spec §9.4).
 ---
 
 # Post-Settlement Fee Routing
 
 Once a season's winner is committed via `SeasonVault.submitWinner`, the WETH-leg fee split on
 that winner's pool flips. This page covers the mechanism (`winnerSettledAt` flag), the new
-routing destination (POLVault), and the rationale.
+routing destination (the Filter Fund Liquidity Reserve, deployed via `POLVault` in contract
+code), and the rationale.
+
+> **Naming note (spec §11.0):** the user-facing names are **Filter Fund** (the losers-pot
+> accumulating across the week) and **Filter Fund Liquidity Reserve** (the 10% slice deployed
+> as permanent winner backing, plus the post-settlement 90 bps top-up). Internal contract
+> names — `POLVault`, `POLManager`, `POL_BPS`, `polReserve`, `winnerSettledAt`, etc. — are
+> retained for audit-firm continuity. Where this page references contract identifiers, code
+> blocks, or event/field names it uses the contract names verbatim.
 
 ## The flip
 
@@ -16,14 +24,15 @@ identical pre- and post-settlement EXCEPT for where the prize-pool slice goes:
 
 | Slice | BPS | Pre-settlement (§9.2) | Post-settlement (§9.4) |
 | --- | --- | --- | --- |
-| Prize / POL | 90 | SeasonVault | **POLVault** |
+| Filter Fund / Reserve | 90 | SeasonVault (Filter Fund) | **POLVault** (Filter Fund Liquidity Reserve) |
 | Treasury | 65 | Treasury | Treasury |
 | Mechanics | 25 | Mechanics | Mechanics |
 | Creator | 20 | Creator | Creator |
 | **Total** | **200** | | |
 
 Same totals. Same creator slice. The 90-bps prize slice is the only thing that moves — it's
-no longer feeding a season that has already been settled, so it routes to POL instead.
+no longer feeding a season that has already been settled, so it tops up the winner's
+Filter Fund Liquidity Reserve instead.
 
 ## The contract-side mechanism
 
@@ -52,14 +61,15 @@ if (winnerSettledAt == 0) {
 The transition is atomic — the last fee event before `submitWinner` uses §9.2; the first one
 after uses §9.4. There is no per-token migration step.
 
-## Why POL?
+## Why route to the Reserve?
 
-Per spec §11.7: post-settlement, the season's prize pool is closed (the winner has been picked,
-the rollover/bonus/POL slices have been deployed, the bounty has been paid). A new prize pool
-can't be filled. The natural destination for the 90-bps slice is the singleton POLVault, which
-records the WETH against the winner's pool. A future iteration adds a `compoundIntoPosition`
-function that periodically pulls accumulated POLVault WETH back into the locker's permanent LP
-position — compounding the winner's backing instead of leaving the WETH idle.
+Per spec §11.7: post-settlement, the season's Filter Fund is closed (the winner has been picked,
+the rollover/bonus/Reserve slices have been deployed, the bounty has been paid). A new Filter
+Fund can't be filled. The natural destination for the 90-bps slice is the singleton POLVault,
+which records the WETH against the winner's pool — i.e., the winner's Filter Fund Liquidity
+Reserve. A future iteration adds a `compoundIntoPosition` function that periodically pulls
+accumulated POLVault WETH back into the locker's permanent LP position — compounding the
+winner's Reserve instead of leaving the WETH idle.
 
 The non-winner pools never reach this code path because:
 - Filtered tokens have their LP unwound at h96 → no trades, no fees.

@@ -53,7 +53,7 @@ breaks down as:
 
 | Slice | BPS | Destination |
 | --- | --- | --- |
-| Prize pool | 90 | Season vault |
+| Filter Fund | 90 | Season vault |
 | Treasury | 65 | Treasury |
 | Mechanics | 25 | Mechanics |
 | **Creator** | **20** | **You** |
@@ -62,14 +62,19 @@ Post-settlement (after the winner is committed):
 
 | Slice | BPS | Destination |
 | --- | --- | --- |
-| POL | 90 | POLVault (compounds your pool's backing) |
+| Filter Fund Liquidity Reserve | 90 | Compounds your pool's permanent liquidity |
 | Treasury | 65 | Treasury |
 | Mechanics | 25 | Mechanics |
 | **Creator** | **20** | **You** |
 
-Same 0.20% to you in both regimes. The slice that used to feed the prize pool now compounds
-into permanent backing for your pool — see [`/protocol/post-settlement-fees`](../protocol/post-settlement-fees)
-for the rationale.
+Same 0.20% to you in both regimes. The 90 bps slice that used to feed the Filter Fund pre-settlement
+now flows into your pool's Filter Fund Liquidity Reserve — see
+[`/protocol/post-settlement-fees`](../protocol/post-settlement-fees) for the rationale.
+
+> **Naming note (spec §11.0):** "Filter Fund" is the user-facing name for the losers-pot
+> accumulating across the week; "Filter Fund Liquidity Reserve" (or just "the Reserve") is its
+> 10% slice that becomes permanent winner backing. You may see `POL` / `POLVault` in
+> technical docs and contract code — same concept, retained for audit-firm continuity.
 
 ## Practical implications
 

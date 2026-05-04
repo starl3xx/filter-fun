@@ -37,8 +37,10 @@ export const CREATOR_FEE_BPS = 20; // 0.20%
 /// before the standard settlement split.
 export const CHAMPION_BOUNTY_BPS = 250; // 2.5%
 
-/// Spec §11.1 — 10% of the losers pot is deployed as permanent POL into
-/// the winner's pool. Used for the "POL backing if you win" projection.
+/// Spec §11.1 — 10% of the losers pot (Filter Fund) is deployed as the
+/// Filter Fund Liquidity Reserve into the winner's pool. Used for the
+/// "Filter Fund Liquidity Reserve backing if you win" projection. Internal
+/// `POL_SLICE_BPS` name retained for audit-firm continuity (spec §11.0).
 export const POL_SLICE_BPS = 1000; // 10%
 
 /// Spec §10.3 + §10.6 (Epic 1.16, locked 2026-05-02): creator-fee accrual is perpetual.

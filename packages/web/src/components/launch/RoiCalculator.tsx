@@ -232,7 +232,7 @@ export function RoiCalculator({slotCostWei, stakeWei, ethUsd: ethUsdProp}: RoiCa
 
             {state.outcome === "wins" && out.polBackingEth !== null && (
               <OutputRow
-                label="POL backing"
+                label="Filter Fund Liquidity Reserve backing"
                 value={`~${fmtEth4(out.polBackingEth)} locked LP`}
                 accent={C.purple}
                 hint="Permanent V4 LP — never withdrawn"
