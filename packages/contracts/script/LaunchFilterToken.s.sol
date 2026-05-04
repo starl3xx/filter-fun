@@ -18,7 +18,7 @@ contract LaunchFilterToken is Script {
         address launcherAddr = vm.envAddress("FILTER_LAUNCHER");
         string memory metadata = vm.envString("FILTER_METADATA_URI");
 
-        FilterLauncher launcher = FilterLauncher(launcherAddr);
+        FilterLauncher launcher = FilterLauncher(payable(launcherAddr));
 
         vm.startBroadcast(pk);
         (address token, address locker) = launcher.launchProtocolToken("filter.fun", "FILTER", metadata);

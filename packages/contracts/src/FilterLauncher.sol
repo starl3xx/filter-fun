@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 import {
     SeasonVault,
@@ -19,32 +18,81 @@ import {CreatorRegistry} from "./CreatorRegistry.sol";
 import {CreatorFeeDistributor} from "./CreatorFeeDistributor.sol";
 import {CreatorCommitments} from "./CreatorCommitments.sol";
 import {TournamentRegistry} from "./TournamentRegistry.sol";
-import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "./TournamentVault.sol";
+import {TournamentVault} from "./TournamentVault.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "./interfaces/IFilterLauncher.sol";
+import {LaunchEscrow} from "./LaunchEscrow.sol";
+import {LauncherLens, IFilterLauncherLensView} from "./LauncherLens.sol";
+import {LauncherStakeAdmin, IFilterLauncherForStakeAdmin} from "./LauncherStakeAdmin.sol";
+import {TickerLib} from "./libraries/TickerLib.sol";
 
 /// @title FilterLauncher
-/// @notice Top-level entry point. Owns the season state machine, the capped 12-slot weekly
-///         launch window with dynamic pricing + refundable stake, and the address of the
-///         singleton `IFilterFactory`. Also creates each season's `SeasonVault`. Phase
-///         transitions are oracle-gated.
-contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGuard {
+/// @notice Top-level entry point. Owns the season state machine, the deferred-activation
+///         reservation flow (spec §46), the cross-season ticker uniqueness + blocklist
+///         (spec §4.6.1), and the address of the singleton `IFilterFactory`. Also creates
+///         each season's `SeasonVault`. Phase transitions are oracle-gated.
+///
+///         Deferred-activation lifecycle (spec §46):
+///           - Hour 0 (`startSeason`): Phase = Launch; launch window opens for 48h.
+///           - Hours 0..48 (reservation phase): users call `reserve(ticker, metadataURI)`. ETH
+///             goes to `LaunchEscrow`; tokens are NOT deployed yet.
+///           - Activation moment: when the 4th reservation lands, the season `_activated`
+///             flips true and the FOUR pending reservations deploy atomically in the same tx.
+///             This is the first block in which the cohort is tradeable.
+///           - Hours-of-activation..48 (post-activation): reservations 5..12 deploy on-entry —
+///             same `reserve()` entry point, but the deploy happens in the same tx instead
+///             of waiting.
+///           - Hour 48 if `_activated == false`: oracle calls `abortSeason`; the launch
+///             escrow's `refundAll` returns every reservation's ETH to its creator. Tokens
+///             were never deployed; the season ends without a Filter phase.
+///
+///         OWNERSHIP MODEL (audit: bugbot M PR #88).
+///         This contract uses single-step `Ownable`, NOT `Ownable2Step`. The two-step model
+///         would add ~500 bytes of runtime bytecode and the launcher is hard up against the
+///         EIP-170 24,576-byte limit (currently 24,563 / 24,576 — 13 bytes spare). The
+///         deferred-activation refactor (this PR) already externalised TournamentRegistry,
+///         TournamentVault, LauncherLens, LauncherStakeAdmin, and TickerLib to fit; restoring
+///         Ownable2Step would require additional externalisation that is out of scope here.
+///
+///         OPERATIONAL MITIGATION. The `owner` of this contract MUST be a multisig (e.g.
+///         Safe) in production. Multisigs provide the equivalent of a 2-step transfer flow
+///         off-chain (proposer → confirmers → executor), so a mistyped `transferOwnership`
+///         requires the same multi-party confirmation as any other privileged call. See the
+///         operator runbook (`docs/runbook.md`) for the full ownership-rotation procedure.
+///         Direct EOA ownership is for testnet / genesis bring-up only and MUST be rotated
+///         to the multisig before §10 mainnet listing. The `oracle` address is independent
+///         of `owner` and is rotated via `setOracle(...)` (also single-step, same multisig
+///         constraint).
+contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     using SafeCast for uint256;
 
+    // ============================================================ Errors
+
     error WrongPhase();
-    error LaunchCapReached();
-    error LaunchWindowClosed();
-    error InsufficientPayment();
-    error DuplicateSymbol();
+    error WindowClosed();
+    error WindowStillOpen();
+    error SlotsExhausted();
+    error InsufficientEscrow();
+    error AlreadyReserved();
+    error TickerTaken();
+    error TickerBlocklisted();
+    error TickerWinnerReserved();
     error NotOracle();
+    error NotMultisig();
+    error NotSeasonVault();
     error UnknownToken();
-    error SeasonAlreadyOpen();
+    error SeasonAlreadyAborted();
+    error SeasonAlreadyActivated();
+    error SeasonNotActivated();
     error RefundFailed();
-    error AlreadyResolved();
     error ZeroAddress();
+    error DuplicateSymbol();
     error AlreadySet();
-    error NotSet();
+    error PolManagerUnset();
     error BadTransition();
+    error ActivateBadQueueLength();
+
+    // ============================================================ Events
 
     event SeasonStarted(
         uint256 indexed seasonId, address vault, uint256 launchStartTime, uint256 launchEndTime
@@ -61,41 +109,37 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         string symbol,
         string metadataURI
     );
-    event LaunchSlotFilled(uint256 indexed seasonId, uint64 slotIndex);
     event LaunchClosed(uint256 indexed seasonId, uint256 filledSlots);
-    event StakeRefunded(
-        uint256 indexed seasonId, address indexed token, address indexed creator, uint256 amount
-    );
-    event StakeForfeited(
-        uint256 indexed seasonId, address indexed token, address indexed creator, uint256 amount
-    );
+    /// @notice Emitted when a season's activation threshold is crossed and the cohort deploys.
+    ///         The deployed-token list is reconstructable from the parallel `TokenLaunched`
+    ///         events emitted in the same tx; `activatedAt` is the storage mapping (also
+    ///         readable from `block.timestamp` of the emission). Lean event keeps the
+    ///         launcher under EIP-170.
+    event SeasonActivated(uint256 indexed seasonId);
+    /// @notice Emitted when `abortSeason` sweeps a sparse season's escrow. The reservation
+    ///         count and refunded total are derivable from the parallel `LaunchEscrow`
+    ///         `ReservationRefunded` events emitted in the same tx (one per refund). Lean
+    ///         signature keeps the launcher under EIP-170.
+    event SeasonAborted(uint256 indexed seasonId);
     event PhaseAdvanced(uint256 indexed seasonId, Phase newPhase);
-    event FinalistsSet(uint256 indexed seasonId, address[] finalists);
-    event WinnerSet(uint256 indexed seasonId, address winner);
-    event BaseLaunchCostUpdated(uint256 cost);
-    event RefundableStakeToggled(bool enabled);
-    event ForfeitRecipientUpdated(address recipient);
-    /// @notice Emitted exactly once per launcher deploy when the FilterFactory is wired.
-    ///         Audit M-Contracts-2 (Phase 1, 2026-05-01): the factory is the entrypoint for
-    ///         every token deployment and a one-shot setter; without an event, off-chain
-    ///         indexers + the operator runbook had no on-chain log of when and to which
-    ///         address the factory was wired.
-    event FactorySet(address indexed factory);
+    /// @notice Emitted when the oracle pins survivor finalists. The full list is reconstructable
+    ///         from `_entry[seasonId][token].isFinalist` storage reads via the lens.
+    event FinalistsSet(uint256 indexed seasonId);
+    event TickerBlocked(bytes32 indexed tickerHash);
+    event WinnerTickerReserved(uint256 indexed seasonId, bytes32 indexed tickerHash, address winnerToken);
 
     // ============================================================ Constants
 
-    /// @notice Hard cap on launches per weekly season. The launch window also closes early
-    ///         when this is hit.
+    /// @notice Hard cap on reservations (and therefore deployed tokens) per weekly season.
     uint256 public constant MAX_LAUNCHES = 12;
-    /// @notice Maximum length of the launch window from `startSeason`.
-    uint256 public constant LAUNCH_WINDOW_DURATION = 48 hours;
-    /// @notice Spec §4.6 launch-cap lock (2026-04-30): a wallet may launch at most ONE token
-    ///         per season. The constructor initializes `maxLaunchesPerWallet` from this
-    ///         constant; owner may relax via `setMaxLaunchesPerWallet` for governance, but
-    ///         the constructor default MUST always match this lock so a missing deploy-script
-    ///         env override can never ship a non-spec cap (audit finding C-2, Phase 1 audit
-    ///         2026-05-01).
-    uint256 public constant SPEC_LOCK_MAX_LAUNCHES_PER_WALLET = 1;
+    /// @notice Maximum length of the launch window from `startSeason`. Internal — readers use
+    ///         `launchEndTime[seasonId] - launchStartTime[seasonId]` (always equal to this).
+    uint256 internal constant LAUNCH_WINDOW_DURATION = 48 hours;
+    /// @notice Spec §46: a season activates (deploys all pending tokens + opens trading) the
+    ///         instant the Nth reservation lands. Below this threshold, reservations sit in
+    ///         escrow; if the launch window closes without hitting it, every reservation is
+    ///         refunded.
+    uint256 public constant ACTIVATION_THRESHOLD = 4;
 
     // ============================================================ Wiring
 
@@ -110,65 +154,116 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     IBonusFunding public bonusDistributor;
     address public weth;
 
-    /// @notice Singleton creator contracts. Both deployed inline by this launcher's constructor
-    ///         so `address(this)` resolves cleanly without a chicken-and-egg constructor ordering.
-    ///         The factory reads `creatorFeeDistributor` post-construction to wire each per-token
-    ///         locker.
+    /// @notice Per-season escrow holding reservation funds until activation or abort.
+    LaunchEscrow public immutable launchEscrow;
+
+    /// @notice Read-only companion exposing convenience views (`getLaunchSlots`,
+    ///         `getLaunchStatus`, `canReserve`). Deployed inline; lives outside the launcher's
+    ///         bytecode to keep the launcher under EIP-170. Web + indexer call through
+    ///         `launcher.lens().getX()`.
+    LauncherLens public immutable lens;
+
+    /// @notice Companion that owns post-deploy refundable-stake bookkeeping (and the stake
+    ///         ETH balance). Deployed inline; the oracle calls
+    ///         `stakeAdmin.applySoftFilter(...)` directly. `launchInfoOf` reads through here.
+    LauncherStakeAdmin public immutable stakeAdmin;
+
+    /// @notice Singleton creator contracts. `creatorRegistry`, `creatorFeeDistributor`, and
+    ///         `creatorCommitments` are deployed inline (small init code, plus the registry
+    ///         is needed by other inline deploys). `tournamentRegistry` and `tournamentVault`
+    ///         are externally deployed and wired post-construction (their large init code
+    ///         pushed FilterLauncher past EIP-3860 (49,152 B) when inlined).
     CreatorRegistry public immutable creatorRegistry;
     CreatorFeeDistributor public immutable creatorFeeDistributor;
-    /// @notice Singleton tournament metadata registry. Tracks per-token status across the
-    ///         weekly → quarterly Filter Bowl → annual championship ladder. Deployed inline
-    ///         here so SeasonVault can record weekly winners + filtered tokens without a
-    ///         post-construction wire-up step.
-    TournamentRegistry public immutable tournamentRegistry;
-    /// @notice Singleton bag-lock primitive (Epic 1.13, spec §38.5/§38.8). Reads from the
-    ///         CreatorRegistry above so authorization is sourced from the same identity-of-
-    ///         record table the rest of the protocol uses. Wired into `FilterFactory` at
-    ///         deploy time so every newly-launched FilterToken consults this exact instance
-    ///         on every transfer. NOTE: existing Sepolia tokens deployed before this version
-    ///         do NOT consult `creatorCommitments` — they have a pre-1.13 token bytecode
-    ///         without the gate. Bag-lock applies to tokens launched AFTER the post-1.13
-    ///         FilterFactory redeploy.
     CreatorCommitments public immutable creatorCommitments;
-    /// @notice Singleton quarterly Filter Bowl settlement vault. Per-(year, quarter) escrow
-    ///         + 45/25/10/10/10 + 2.5% bounty distribution + Merkle rollover/bonus claims.
-    ///         Deployed inline here so the registry + vault are wired without a
-    ///         post-construction step. POL deployment for tournament settlements is
-    ///         intentionally not wired here yet (deferred to follow-up).
-    TournamentVault public immutable tournamentVault;
-    uint256 public bonusUnlockDelay = 14 days;
-    uint256 public maxLaunchesPerWallet = SPEC_LOCK_MAX_LAUNCHES_PER_WALLET;
+    TournamentRegistry public tournamentRegistry;
+    TournamentVault public tournamentVault;
+    /// @notice Hold-bonus unlock delay forwarded to every season's `SeasonVault` and the
+    ///         singleton `TournamentVault`. Constant: rotating it would split bonus eligibility
+    ///         across cohorts and isn't supported by the indexer's snapshot model.
+    uint256 public constant bonusUnlockDelay = 14 days;
 
     // ============================================================ Launch-window config
 
     /// @notice Base cost of slot 0 in wei. Slot N is `BASE * (1 + (N/MAX)^2)`.
     uint256 public baseLaunchCost = 0.05 ether;
-    /// @notice When true, `launchToken` retains the cost as a refundable stake until the
-    ///         soft-filter resolves. When false, the cost flows to `treasury` immediately.
+    /// @notice When true, the slot cost released from escrow at deploy time is held by this
+    ///         contract as a refundable stake until the soft-filter resolves; when false, it
+    ///         flows to `forfeitRecipient` immediately as a launch fee.
     bool public refundableStakeEnabled = true;
     /// @notice Recipient of forfeited stakes (and of the launch fee when stake mode is off).
-    ///         Defaults to `treasury`; owner can route to a prize pool or vault.
-    address public forfeitRecipient;
+    ///         Immutable — set to `treasury` at construction. The treasury timelock can route
+    ///         to a separate forfeit recipient downstream if/when accounting splits are needed;
+    ///         on-chain rotation isn't supported (saves bytes; matches v1 mainnet ops model).
+    address public immutable forfeitRecipient;
 
     // ============================================================ Season state
 
     uint256 public override currentSeasonId;
-    mapping(uint256 => Phase) internal _phase;
-    mapping(uint256 => address) internal _vault;
+    mapping(uint256 => Phase) public override phaseOf;
+    mapping(uint256 => address) public override vaultOf;
     mapping(uint256 => address[]) internal _tokens;
     mapping(uint256 => mapping(address => TokenEntry)) internal _entry;
-    mapping(uint256 => mapping(address => LaunchInfo)) internal _launchInfo;
-    mapping(uint256 => mapping(address => uint256)) public launchesByWallet;
-    /// @notice Symbol-collision guard, scoped per season. Hash of `bytes(symbol)`.
-    mapping(uint256 => mapping(bytes32 => bool)) internal _symbolUsed;
 
-    /// @notice Number of public-launch slots filled. Protocol-launched tokens do NOT count.
+    /// @notice Number of public-launch slots actually deployed. Diverges from
+    ///         `reservationCount` only during the pre-activation window: pre-activation
+    ///         `reservationCount` ∈ [1,3] while `launchCount == 0`. At activation moment they
+    ///         re-converge; post-activation they march in lockstep.
     mapping(uint256 => uint64) public launchCount;
     mapping(uint256 => uint256) public launchStartTime;
     mapping(uint256 => uint256) public launchEndTime;
-    /// @notice Set true once a launch window has emitted `LaunchClosed` (via cap-fill or
-    ///         oracle close). Prevents duplicate close events.
+    /// @notice Set true once a launch window has emitted `LaunchClosed` (cap-fill, oracle
+    ///         close, or abort). Prevents duplicate close events.
     mapping(uint256 => bool) internal _launchClosedEmitted;
+
+    /// @notice True once the activation threshold was crossed in `seasonId` and the cohort
+    ///         deployed atomically. Read by `reserve` to switch from "escrow + queue" to
+    ///         "escrow + deploy-on-entry" semantics for slots beyond the threshold.
+    mapping(uint256 => bool) public activated;
+    mapping(uint256 => uint64) public activatedAt;
+    /// @notice True once the launch window closed sparse and `abortSeason` swept refunds.
+    ///         Mutually exclusive with `activated`.
+    mapping(uint256 => bool) public aborted;
+
+    // ============================================================ Ticker uniqueness (spec §4.6.1)
+
+    /// @notice One-way ticker blocklist. Initial set is seeded in the constructor; multisig
+    ///         (= owner) can append via `addTickerToBlocklist`. There is intentionally no
+    ///         removal path — once blocked, always blocked.
+    mapping(bytes32 => bool) public tickerBlocklist;
+
+    /// @notice Cross-season permanent reservation: once a token wins a weekly season, its
+    ///         ticker is reserved across all FUTURE seasons. Populated by
+    ///         `setWinnerTicker`, called by SeasonVault during `submitWinner`.
+    mapping(bytes32 => address) public winnerTickers;
+
+    /// @notice Per-season ticker uniqueness: `tickerHash → creator who reserved it`.
+    ///         Address-typed (rather than bool) so the indexer can read back who owns a given
+    ///         ticker without joining against `_pending`.
+    mapping(uint256 => mapping(bytes32 => address)) public seasonTickers;
+
+    // ============================================================ Pre-activation queue
+
+    /// @notice Reservations pending activation. Slots 0..3 sit here until the 4th reservation
+    ///         crosses the threshold, at which point `_activate` drains and deploys all four
+    ///         atomically. Once activated, this queue is empty and never refilled — slots
+    ///         5..12 deploy on-entry without queuing.
+    /// @dev    Stores the full ticker + metadataURI strings because `_deployToken` needs them
+    ///         as `name`, `symbol`, and `metadataURI` for the factory's `deployToken` call.
+    ///         The escrow's parallel `_escrows` mapping carries the bytes32 hashes for
+    ///         indexer-side lookups; the strings live here for deploy-side reuse.
+    struct PendingReservation {
+        address creator;
+        uint64 slotIndex;
+        bytes32 tickerHash;
+        bytes32 metadataHash;
+        string ticker;
+        string metadataURI;
+    }
+
+    mapping(uint256 => PendingReservation[]) internal _pending;
+
+    // ============================================================ Constructor
 
     constructor(
         address owner_,
@@ -178,16 +273,9 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         IBonusFunding bonusDistributor_,
         address weth_
     ) Ownable(owner_) {
-        // Audit H-4 (Phase 1, 2026-05-01): every immutable/loose-typed address dependency
-        // injected at construction MUST be non-zero. A zero `oracle_` would brick every
-        // privileged operation (every per-season vault would block on its onlyOracle gate);
-        // a zero `treasury_` would silently burn launch fees and forfeitures; zero in any
-        // of the rest would break the wired contracts at first use. Failing closed at
-        // deploy time is cheaper than discovering a bricked deployment post-launch.
-        // `owner_` is validated by Ownable's constructor. We intentionally do NOT validate
-        // `bonusDistributor_` separately because the deploy script wires it as a freshly
-        // deployed BonusDistributor whose address is non-zero by construction; we still
-        // include the check below for defense-in-depth against alternate deploy paths.
+        // Audit H-4 (Phase 1, 2026-05-01): every loose-typed address dependency injected at
+        // construction MUST be non-zero. Zero in any of these would brick downstream paths
+        // at first use; failing at deploy time is cheaper than discovering it post-launch.
         if (oracle_ == address(0)) revert ZeroAddress();
         if (treasury_ == address(0)) revert ZeroAddress();
         if (mechanics_ == address(0)) revert ZeroAddress();
@@ -202,30 +290,58 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         creatorRegistry = new CreatorRegistry(address(this));
         creatorFeeDistributor = new CreatorFeeDistributor(address(this), weth_, treasury_, creatorRegistry);
         creatorCommitments = new CreatorCommitments(creatorRegistry);
-        tournamentRegistry = new TournamentRegistry(address(this));
-        tournamentVault = new TournamentVault(
-            address(this),
-            weth_,
-            treasury_,
-            mechanics_,
-            ITournamentRegistryView(address(tournamentRegistry)),
-            ICreatorRegistryView(address(creatorRegistry)),
-            bonusUnlockDelay
-        );
+        // Spec §46: every reservation routes ETH through this contract until activation or
+        // abort. Deployed inline so the launcher↔escrow handshake is structural — neither can
+        // exist without the other.
+        launchEscrow = new LaunchEscrow(address(this));
+
+        // Convenience views (`getLaunchSlots` etc.) live on this companion to keep the
+        // launcher under EIP-170. Deployed inline so `launcher.lens()` is structural.
+        lens = new LauncherLens(IFilterLauncherLensView(address(this)));
+
+        // Stake bookkeeping (LaunchInfo + applySoftFilter) lives on this companion for the
+        // same reason. Deployed inline so `launcher.stakeAdmin()` is structural.
+        stakeAdmin = new LauncherStakeAdmin(IFilterLauncherForStakeAdmin(address(this)));
+
+        // Spec §4.6.1 protocol-blocklist seed. These are the canonical bait tickers that MUST
+        // never be reservable by a creator (FILTER is the protocol token; the rest are
+        // canonical asset symbols a memecoin shouldn't be allowed to imitate). Seeded here so
+        // genesis already has them; multisig can append via `addTickerToBlocklist` but cannot
+        // remove (one-way).
+        _seedBlocklist();
+    }
+
+    function _seedBlocklist() internal {
+        tickerBlocklist[keccak256(bytes("FILTER"))] = true;
+        tickerBlocklist[keccak256(bytes("WETH"))] = true;
+        tickerBlocklist[keccak256(bytes("ETH"))] = true;
+        tickerBlocklist[keccak256(bytes("USDC"))] = true;
+        tickerBlocklist[keccak256(bytes("USDT"))] = true;
+        tickerBlocklist[keccak256(bytes("DAI"))] = true;
     }
 
     /// @notice One-shot wire of the POLManager. Owner-only; reverts if already set or zero.
-    ///         Required because POLManager wants the launcher's address in its constructor —
-    ///         we deploy POLManager after the launcher and call this to close the loop.
-    /// @dev    Audit H-4 (Phase 1, 2026-05-01): the zero-address gate previously used a
-    ///         string `require` while the rest of the launcher uses the `ZeroAddress()`
-    ///         custom error. Normalised here so all admin-setter zero checks revert with
-    ///         the same selector — important for the off-chain alerter that watches for
-    ///         this selector across the contract surface.
     function setPolManager(IPOLManager polManager_) external onlyOwner {
         if (address(polManager) != address(0)) revert AlreadySet();
         if (address(polManager_) == address(0)) revert ZeroAddress();
         polManager = polManager_;
+    }
+
+    /// @notice One-shot wire of the externally-deployed TournamentRegistry + TournamentVault.
+    ///         Owner-only; reverts if already set or zero. Externalised (rather than
+    ///         inline-deployed) because together they push FilterLauncher's init code past
+    ///         EIP-3860 (49,152 B). DeploySepolia handles the deploy + wire sequence.
+    function setTournament(TournamentRegistry registry_, TournamentVault vault_) external onlyOwner {
+        // Audit: bugbot M+L PR #88. The one-shot guard MUST also reject zero `registry_`
+        // OR zero `vault_` — otherwise a first call with either zero would either bypass
+        // the `AlreadySet` sentinel (zero registry leaves the slot empty so a re-call slips
+        // through) or permanently brick the tournament path (zero vault address fails every
+        // `onlyTournamentVault` check on the registry, with the one-shot guard blocking
+        // re-wire). Combined into a single OR'd revert to keep bytecode under EIP-170.
+        if (address(registry_) == address(0) || address(vault_) == address(0)) revert ZeroAddress();
+        if (address(tournamentRegistry) != address(0)) revert AlreadySet();
+        tournamentRegistry = registry_;
+        tournamentVault = vault_;
     }
 
     modifier onlyOracle() {
@@ -233,62 +349,83 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         _;
     }
 
+    /// @dev Multisig auth label per spec §4.6.1 — production owner is the multisig. This gate
+    ///      reverts with `NotMultisig` rather than OZ's `OwnableUnauthorizedAccount` so the
+    ///      monitoring side can scan for the protocol-blocklist-specific selector.
+    modifier onlyMultisig() {
+        if (msg.sender != owner()) revert NotMultisig();
+        _;
+    }
+
     function setFactory(IFilterFactory factory_) external onlyOwner {
         if (address(factory) != address(0)) revert AlreadySet();
-        // Audit H-4: a zero factory bricks every subsequent `launchToken` call (the call
-        // hits factory.deployToken on a zero address). Failing closed at set-time keeps the
-        // launcher recoverable.
         if (address(factory_) == address(0)) revert ZeroAddress();
         factory = factory_;
-        emit FactorySet(address(factory_));
     }
 
     /// @notice Rotate the oracle authorised to drive season lifecycle + filter events.
-    /// @dev    Audit H-4 (Phase 1, 2026-05-01): a zero oracle would brick every subsequent
-    ///         oracle-gated call (`startSeason`, `processFilterEvent`, `submitWinner`,
-    ///         …). Coupled with H-2's live-read pattern, an accidental zero rotation here
-    ///         would propagate to every existing per-season vault on the very next call —
-    ///         catching it at the setter is the only safe layer.
     function setOracle(address oracle_) external onlyOwner {
         if (oracle_ == address(0)) revert ZeroAddress();
         oracle = oracle_;
     }
 
-    function setBonusUnlockDelay(uint256 delay_) external onlyOwner {
-        bonusUnlockDelay = delay_;
+    /// @notice Owner-only operator setter for the per-launch cost ladder + stake-vs-fee toggle.
+    ///         Combined into one entry point to keep the launcher under EIP-170; operators
+    ///         pass the existing values for the field they don't want to change.
+    function setLaunchConfig(uint256 baseLaunchCost_, bool refundableStakeEnabled_) external onlyOwner {
+        baseLaunchCost = baseLaunchCost_;
+        refundableStakeEnabled = refundableStakeEnabled_;
     }
 
-    function setMaxLaunchesPerWallet(uint256 cap_) external onlyOwner {
-        maxLaunchesPerWallet = cap_;
+    /// @notice Append a ticker hash to the protocol blocklist. One-way — there is no
+    ///         corresponding remove, by design (spec §4.6.1).
+    /// @dev    CALLER CANONICALITY REQUIREMENT (audit: bugbot M PR #88). The multisig
+    ///         caller MUST compute `tickerHash = keccak256(bytes(TickerLib.normalize(s)))`
+    ///         off-chain (or via the reference TS port shipped in 1.15b/c). Passing a
+    ///         raw, non-canonical hash silently stores an unreachable slot — the
+    ///         `reserve` path always normalises before hashing, so a non-canonical
+    ///         entry never fires `TickerBlocklisted`. The constructor's `_seedBlocklist`
+    ///         is the authoritative pattern (`keccak256(bytes("FILTER"))` etc.). On-chain
+    ///         normalisation here was tried but adds ~140 runtime bytes (string param +
+    ///         TickerLib delegatecall) and overflows the EIP-170 budget; the operator
+    ///         runbook + multisig review process is the substitute control.
+    function addTickerToBlocklist(bytes32 tickerHash) external onlyMultisig {
+        tickerBlocklist[tickerHash] = true;
+        emit TickerBlocked(tickerHash);
     }
 
-    function setBaseLaunchCost(uint256 cost_) external onlyOwner {
-        baseLaunchCost = cost_;
-        emit BaseLaunchCostUpdated(cost_);
-    }
-
-    function setRefundableStakeEnabled(bool enabled_) external onlyOwner {
-        refundableStakeEnabled = enabled_;
-        emit RefundableStakeToggled(enabled_);
-    }
-
-    function setForfeitRecipient(address recipient_) external onlyOwner {
-        if (recipient_ == address(0)) revert ZeroAddress();
-        forfeitRecipient = recipient_;
-        emit ForfeitRecipientUpdated(recipient_);
+    /// @notice Permanently reserve a ticker for the cross-season pool. Called by the season's
+    ///         vault from `submitWinner` so the winning ticker is locked before the next
+    ///         season opens. The vault is auth'd by `vaultOf[seasonId] == msg.sender`; the
+    ///         vault itself reads `seasonId` from immutable state, so a stale or third-party
+    ///         caller can't poison the winner table.
+    function setWinnerTicker(uint256 seasonId, bytes32 tickerHash, address winnerToken) external {
+        if (msg.sender != vaultOf[seasonId]) revert NotSeasonVault();
+        // Idempotent: if the same hash is already mapped to the same token, no-op. A different
+        // token-for-same-hash would mean two different winners with the same ticker hash —
+        // structurally impossible because seasonTickers prevents same-season collisions and
+        // the cross-season `winnerTickers` reservation prevents future-season collisions.
+        if (winnerTickers[tickerHash] != address(0) && winnerTickers[tickerHash] != winnerToken) {
+            revert TickerWinnerReserved();
+        }
+        winnerTickers[tickerHash] = winnerToken;
+        emit WinnerTickerReserved(seasonId, tickerHash, winnerToken);
     }
 
     // ============================================================ Season lifecycle
 
     /// @notice Opens a new season. Deploys its `SeasonVault` and starts the 48h launch window.
     function startSeason() external onlyOracle whenNotPaused returns (uint256 seasonId) {
-        if (address(polManager) == address(0)) revert NotSet();
+        if (address(polManager) == address(0)) revert PolManagerUnset();
+        // Audit: bugbot M PR #88. `tournamentRegistry` is now externally wired (post-§46
+        // EIP-3860 split) — if `setTournament` hasn't been called yet, baking
+        // `address(0)` into a fresh `SeasonVault` would brick its `submitWinner` and
+        // `processFilterEvent` paths (both call into the registry).
+        if (address(tournamentRegistry) == address(0)) revert ZeroAddress();
         seasonId = ++currentSeasonId;
-        if (_phase[seasonId] != Phase.Launch && _phase[seasonId] != Phase(0)) revert SeasonAlreadyOpen();
+        // `currentSeasonId` is monotonically incremented, so `phaseOf[seasonId]` is always
+        // the default `Phase.Launch` here — no explicit re-open guard needed.
 
-        // Oracle is NOT passed: SeasonVault.onlyOracle reads `launcher.oracle()` live so an
-        // `setOracle` rotation here takes effect on every existing vault immediately
-        // (audit H-2, spec §42.2.6).
         SeasonVault v = new SeasonVault(
             address(this),
             seasonId,
@@ -302,19 +439,24 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
             ICreatorFeeDistributor(address(creatorFeeDistributor)),
             ITournamentRegistry(address(tournamentRegistry))
         );
-        _vault[seasonId] = address(v);
-        _phase[seasonId] = Phase.Launch;
+        vaultOf[seasonId] = address(v);
+        phaseOf[seasonId] = Phase.Launch;
         launchStartTime[seasonId] = block.timestamp;
         launchEndTime[seasonId] = block.timestamp + LAUNCH_WINDOW_DURATION;
         emit SeasonStarted(seasonId, address(v), launchStartTime[seasonId], launchEndTime[seasonId]);
     }
 
     function advancePhase(uint256 seasonId, Phase target) external onlyOracle whenNotPaused {
-        Phase cur = _phase[seasonId];
-        // Allow only forward, ordered transitions.
+        Phase cur = phaseOf[seasonId];
         if (uint8(target) != uint8(cur) + 1) revert BadTransition();
-        _phase[seasonId] = target;
-        // Leaving Launch: emit LaunchClosed if not already.
+        // Audit: bugbot H PR #88. Block leaving Launch unless the season is activated.
+        // This single guard rejects BOTH sparse-still-open seasons (operator must abort
+        // first) AND aborted seasons (terminal per spec — an aborted season has zero
+        // deployed tokens, so advancing into Filter/Finals/Settlement is meaningless and
+        // could leave downstream vault state in an undefined shape). Pre-fix the guard was
+        // `!activated && !aborted` which allowed aborted seasons through.
+        if (cur == Phase.Launch && !activated[seasonId]) revert SeasonNotActivated();
+        phaseOf[seasonId] = target;
         if (cur == Phase.Launch && !_launchClosedEmitted[seasonId]) {
             _launchClosedEmitted[seasonId] = true;
             emit LaunchClosed(seasonId, launchCount[seasonId]);
@@ -323,212 +465,312 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
     }
 
     function setFinalists(uint256 seasonId, address[] calldata finalists) external onlyOracle whenNotPaused {
-        if (_phase[seasonId] != Phase.Filter) revert WrongPhase();
+        if (phaseOf[seasonId] != Phase.Filter) revert WrongPhase();
+        // Trust the oracle: an unknown-token entry would be a configuration error and is
+        // reproducible off-chain via `tokensInSeason`. Skipping the on-chain guard saves
+        // bytecode for the EIP-170 budget.
         for (uint256 i = 0; i < finalists.length; ++i) {
-            address t = finalists[i];
-            if (_entry[seasonId][t].token == address(0)) revert UnknownToken();
-            _entry[seasonId][t].isFinalist = true;
+            _entry[seasonId][finalists[i]].isFinalist = true;
         }
-        emit FinalistsSet(seasonId, finalists);
+        emit FinalistsSet(seasonId);
     }
 
-    // ============================================================ Token launch
+    // ============================================================ Reservation entry
 
-    /// @notice Permissionless capped launch. Caller must include the dynamic slot cost as
-    ///         `msg.value`; excess is refunded. When `refundableStakeEnabled` is true the
-    ///         cost is held as a stake until the soft-filter resolves (refund or forfeit);
-    ///         otherwise it flows to `treasury` immediately as a launch fee.
-    function launchToken(string calldata name_, string calldata symbol_, string calldata metadataURI_)
+    /// @notice Spec §46.9 public entry: reserve a slot in the current season. Performs the
+    ///         eight contractual validations (each with its own custom error so tests + the
+    ///         indexer can pinpoint exactly which gate fired), records the reservation in
+    ///         `LaunchEscrow`, and either queues the reservation pre-activation or deploys it
+    ///         on-entry post-activation.
+    /// @param  ticker        Raw ticker string. Normalised via TickerLib (strip `$`, trim,
+    ///                       uppercase, validate `^[A-Z0-9]{2,10}$`).
+    /// @param  metadataURI   Off-chain metadata pointer (e.g. `ipfs://...`). The keccak256
+    ///                       hash of this string is stored on-chain; the indexer joins the
+    ///                       full string from event data.
+    function reserve(string calldata ticker, string calldata metadataURI)
         external
         payable
         whenNotPaused
         nonReentrant
-        returns (address token, address locker)
     {
         uint256 sid = currentSeasonId;
-        if (_phase[sid] != Phase.Launch) revert WrongPhase();
-        if (block.timestamp >= launchEndTime[sid]) revert LaunchWindowClosed();
-        if (launchCount[sid] >= MAX_LAUNCHES) revert LaunchCapReached();
-        if (launchesByWallet[sid][msg.sender] >= maxLaunchesPerWallet) revert LaunchCapReached();
+        // The eight steps below mirror spec §46.9 in order; deviating that order would make
+        // the error surface ambiguous (two failing checks could both claim "first to fire").
+        // Step 3 (window-open) intentionally runs FIRST so the abort-path doesn't accept new
+        // reservations into the window.
+        if (phaseOf[sid] != Phase.Launch) revert WrongPhase();
+        if (aborted[sid]) revert SeasonAlreadyAborted();
+        if (block.timestamp >= launchEndTime[sid]) revert WindowClosed();
 
-        uint64 slotIndex = launchCount[sid];
-        uint256 cost = _launchCost(slotIndex);
-        if (msg.value < cost) revert InsufficientPayment();
+        // 1. Per-wallet cap: structural in LaunchEscrow.escrows[sid][creator]. Existence is
+        //    keyed off `reservedAt != 0` (mirrors the escrow's own sentinel) so a zero-cost
+        //    reservation under `baseLaunchCost = 0` is recognised — using `amount != 0` would
+        //    miss the dup, then trip the escrow's guard at extra gas with the same selector.
+        //    Bugbot M, PR #88: keep the launcher and escrow checks in lockstep. Calls the
+        //    scalar `reservedAtOf` view (not the full `escrowOf` struct) to skip the struct
+        //    decode in the launcher's runtime — Epic 1.15a EIP-170 size budget.
+        if (launchEscrow.reservedAtOf(sid, msg.sender) != 0) revert AlreadyReserved();
 
-        bytes32 symHash = keccak256(bytes(symbol_));
-        if (_symbolUsed[sid][symHash]) revert DuplicateSymbol();
-        _symbolUsed[sid][symHash] = true;
+        // 2. Slot availability. Reservation count includes pending + deployed since each
+        //    deploys its own slot.
+        uint256 currentResCount = launchEscrow.reservationCountOf(sid);
+        if (currentResCount >= MAX_LAUNCHES) revert SlotsExhausted();
 
-        ++launchesByWallet[sid][msg.sender];
-        launchCount[sid] = slotIndex + 1;
+        // 4. Ticker normalisation. Reverts `InvalidTickerFormat` on malformed input.
+        //    The CANONICAL form (post-strip-$, post-uppercase, post-trim) becomes the on-chain
+        //    token symbol so `IERC20Metadata(token).symbol()` agrees with `tickerHash`. The
+        //    raw user input (e.g. `$Pepe`) is intentionally discarded after this point.
+        string memory canonicalTicker = TickerLib.normalize(ticker);
+        bytes32 tickerHash = keccak256(bytes(canonicalTicker));
 
-        (token, locker,) = _launch(sid, name_, symbol_, metadataURI_, msg.sender, false);
+        // 5. Protocol blocklist.
+        if (tickerBlocklist[tickerHash]) revert TickerBlocklisted();
 
-        // SafeCast: reverts if cost overflows uint128 (≈3.4e20 ETH — only reachable with a
-        // pathological `baseLaunchCost`, but we'd rather revert than silently truncate).
-        uint128 costAsU128 = cost.toUint128();
-        uint128 stakeAmount;
-        if (refundableStakeEnabled) {
-            stakeAmount = costAsU128;
-        } else {
-            // Fee mode: forward to treasury immediately. Use forfeitRecipient (defaults to
-            // treasury) so the owner can re-route launch fees the same way as forfeitures.
-            (bool ok,) = forfeitRecipient.call{value: cost}("");
-            if (!ok) revert RefundFailed();
-        }
+        // 6. Cross-season winner reservation.
+        if (winnerTickers[tickerHash] != address(0)) revert TickerWinnerReserved();
 
-        _launchInfo[sid][token] = LaunchInfo({
-            slotIndex: slotIndex,
-            costPaid: costAsU128,
-            stakeAmount: stakeAmount,
-            refunded: false,
-            filteredEarly: false
-        });
+        // 7. Per-season uniqueness.
+        if (seasonTickers[sid][tickerHash] != address(0)) revert TickerTaken();
 
-        emit TokenLaunched(
-            sid, token, locker, msg.sender, false, slotIndex, cost, name_, symbol_, metadataURI_
-        );
-        emit LaunchSlotFilled(sid, slotIndex);
+        // 8. Funds attached. Slot cost ladders by current reservation count.
+        uint256 cost = _slotCost(uint64(currentResCount));
+        if (msg.value < cost) revert InsufficientEscrow();
 
-        // Cap-fill auto-closes the window.
-        if (launchCount[sid] == MAX_LAUNCHES && !_launchClosedEmitted[sid]) {
-            _launchClosedEmitted[sid] = true;
-            emit LaunchClosed(sid, MAX_LAUNCHES);
-        }
+        // ---- All eight checks passed. Commit state. ----
 
-        // Refund any excess.
+        seasonTickers[sid][tickerHash] = msg.sender;
+        bytes32 metadataHash = keccak256(bytes(metadataURI));
+        uint64 slotIndex = uint64(currentResCount);
+
+        // Refund excess BEFORE escrow handoff so the escrow only ever holds the cost.
         uint256 excess = msg.value - cost;
         if (excess > 0) {
             (bool ok,) = msg.sender.call{value: excess}("");
             if (!ok) revert RefundFailed();
         }
+
+        // Escrow forwards `cost` and emits `SlotReserved` for indexer ingestion.
+        launchEscrow.reserve{value: cost}(sid, msg.sender, slotIndex, tickerHash, metadataHash);
+
+        PendingReservation memory pr = PendingReservation({
+            creator: msg.sender,
+            slotIndex: slotIndex,
+            tickerHash: tickerHash,
+            metadataHash: metadataHash,
+            ticker: canonicalTicker,
+            metadataURI: metadataURI
+        });
+
+        if (activated[sid]) {
+            // Post-activation slot 4..11: deploy in the same tx, no queuing.
+            _deployToken(sid, pr);
+        } else if (currentResCount + 1 == ACTIVATION_THRESHOLD) {
+            // 4th reservation: include in pending queue then drain it via _activate.
+            _pending[sid].push(pr);
+            _activate(sid);
+        } else {
+            // 1..3: hold pending until activation (or abort).
+            _pending[sid].push(pr);
+        }
+
+        // Cap-fill auto-closes the launch window.
+        if (currentResCount + 1 == MAX_LAUNCHES && !_launchClosedEmitted[sid]) {
+            _launchClosedEmitted[sid] = true;
+            emit LaunchClosed(sid, MAX_LAUNCHES);
+        }
     }
 
-    /// @notice Owner-only path for $FILTER and any other protocol-launched seed tokens. Bypasses
-    ///         the slot cap, the per-wallet cap, and the dynamic cost; otherwise identical to
-    ///         `launchToken`. Protocol launches are NOT counted toward `launchCount`.
-    function launchProtocolToken(string calldata name_, string calldata symbol_, string calldata metadataURI_)
-        external
-        onlyOwner
-        whenNotPaused
-        returns (address token, address locker)
-    {
-        uint256 sid = currentSeasonId;
-        if (_phase[sid] != Phase.Launch) revert WrongPhase();
-        bytes32 symHash = keccak256(bytes(symbol_));
-        if (_symbolUsed[sid][symHash]) revert DuplicateSymbol();
-        _symbolUsed[sid][symHash] = true;
-        (token, locker,) = _launch(sid, name_, symbol_, metadataURI_, msg.sender, true);
+    /// @notice Activation moment — drain the pending queue and deploy all reservations
+    ///         atomically in the same tx as the 4th reservation.
+    /// @dev    `delete _pending[sid]` post-deploy keeps storage tidy; the array is never
+    ///         re-used after activation (slots 5..12 deploy on-entry without queuing).
+    function _activate(uint256 sid) internal {
+        activated[sid] = true;
+        activatedAt[sid] = uint64(block.timestamp);
+
+        PendingReservation[] storage queue = _pending[sid];
+        uint256 n = queue.length;
+        // Defensive — invariant holds because _activate is only called when the queue has
+        // exactly ACTIVATION_THRESHOLD entries (the 4th reservation pushes its own entry
+        // before the call).
+        if (n != ACTIVATION_THRESHOLD) revert ActivateBadQueueLength();
+
+        for (uint256 i = 0; i < n; ++i) {
+            // Copy to memory before _deployToken since the loop will iterate against storage
+            // we don't otherwise mutate, and `_deployToken` doesn't write to `_pending`.
+            PendingReservation memory pr = queue[i];
+            _deployToken(sid, pr);
+        }
+        delete _pending[sid];
+
+        emit SeasonActivated(sid);
+    }
+
+    /// @notice Deploys a single token from a pending reservation. Pulls escrow back, hands
+    ///         the strings to the factory, records token-side bookkeeping, applies the
+    ///         refundable-stake-vs-fee toggle to the recovered ETH, and emits `TokenLaunched`
+    ///         + `LaunchSlotFilled`.
+    function _deployToken(uint256 sid, PendingReservation memory pr) internal returns (address token) {
+        uint256 amount = launchEscrow.releaseToDeploy(sid, pr.creator);
+
+        address locker;
+        (token, locker,) = factory.deployToken(
+            IFilterFactory.DeployArgs({
+                // Memecoin convention (spec §46): the ticker IS the on-chain name. The
+                // metadataURI carries the rich display name + image off-chain. This keeps
+                // the on-chain identity compact and aligned with the `tickerHash` keying.
+                name: pr.ticker,
+                symbol: pr.ticker,
+                metadataURI: pr.metadataURI,
+                creator: pr.creator,
+                seasonVault: vaultOf[sid],
+                treasury: treasury,
+                mechanics: mechanics
+            })
+        );
+
+        _entry[sid][token] = TokenEntry({
+            token: token,
+            pool: address(0),
+            feeSplitter: locker,
+            creator: pr.creator,
+            isProtocolLaunched: false,
+            isFinalist: false
+        });
+        _tokens[sid].push(token);
+
+        creatorRegistry.register(token, pr.creator);
+        creatorFeeDistributor.registerToken(token, sid);
+
+        // Apply the stake-vs-fee toggle to the recovered ETH. In stake mode the stake admin
+        // holds it until soft-filter resolves; in fee mode it flows to forfeitRecipient
+        // immediately (treasury default).
+        uint128 costAsU128 = amount.toUint128();
+        uint128 stakeAmount;
+        if (refundableStakeEnabled) {
+            stakeAmount = costAsU128;
+            stakeAdmin.recordLaunch{value: amount}(sid, token, pr.slotIndex, costAsU128, stakeAmount);
+        } else {
+            stakeAdmin.recordLaunch(sid, token, pr.slotIndex, costAsU128, 0);
+            if (amount > 0) {
+                (bool ok,) = forfeitRecipient.call{value: amount}("");
+                if (!ok) revert RefundFailed();
+            }
+        }
+
+        launchCount[sid] = uint64(uint256(launchCount[sid]) + 1);
+
         emit TokenLaunched(
-            sid, token, locker, msg.sender, true, type(uint64).max, 0, name_, symbol_, metadataURI_
+            sid, token, locker, pr.creator, false, pr.slotIndex, amount, pr.ticker, pr.ticker, pr.metadataURI
         );
     }
 
-    /// @dev `sid` is plumbed through from the caller so every storage write in this call
-    ///      keys off the same season identifier as the caller's pre-flight checks. Reading
-    ///      `currentSeasonId` again here would split state across two access paths if anything
-    ///      ever advances the cursor mid-call.
-    function _launch(
-        uint256 sid,
-        string calldata name_,
-        string calldata symbol_,
-        string calldata metadataURI_,
-        address creator,
-        bool isProtocolLaunched
-    ) internal returns (address token, address locker, PoolKey memory key) {
-        (token, locker, key) = factory.deployToken(
+    /// @notice Abort a sparse season: at h48 with `activated == false`, sweep escrow refunds
+    ///         and mark the season aborted. Oracle-gated — production scheduler EOA is the
+    ///         oracle, so the same lifecycle authority owns this terminal transition.
+    function abortSeason(uint256 seasonId) external onlyOracle {
+        // Audit: bugbot L PR #88. Reject non-existent / future-numbered seasons. Without
+        // this gate, a future season ID's default-zero `launchEndTime` passes the
+        // `WindowStillOpen` comparison and the ID can be pre-poisoned with `aborted=true`,
+        // tripping `SeasonAlreadyAborted` when `currentSeasonId` later reaches it.
+        // (`nonReentrant` dropped to recover bytecode budget; the only external call here
+        // is `launchEscrow.refundAll`, which carries its own `nonReentrant` and uses a
+        // pull-pattern fallback for failed pushes — the launcher side has no
+        // re-entry-sensitive state to protect.)
+        if (launchEndTime[seasonId] == 0) revert WrongPhase();
+        if (block.timestamp < launchEndTime[seasonId]) revert WindowStillOpen();
+        if (activated[seasonId]) revert SeasonAlreadyActivated();
+        if (aborted[seasonId]) revert SeasonAlreadyAborted();
+
+        aborted[seasonId] = true;
+
+        launchEscrow.refundAll(seasonId);
+
+        // !activated (guarded above) implies _drainPending never ran, which is the only path
+        // that sets `_launchClosedEmitted`. So we know the flag is false and can emit
+        // unconditionally. We also DON'T set the flag — `advancePhase` is now blocked on any
+        // !activated season (bugbot H PR #88), so nothing else will read it.
+        emit LaunchClosed(seasonId, 0);
+        emit SeasonAborted(seasonId);
+    }
+
+    // ============================================================ Protocol launch
+
+    /// @notice Owner-only path for $FILTER and any other protocol-launched seed tokens.
+    ///         Bypasses the entire reservation system — no escrow, no slot cap, no per-wallet
+    ///         cap, no ticker blocklist (FILTER is in the blocklist by design, but the
+    ///         protocol must still be able to seed its own token). Protocol launches do NOT
+    ///         count toward `launchCount` or `reservationCount` so they never block a slot
+    ///         that a community creator would otherwise reserve.
+    function launchProtocolToken(string calldata name_, string calldata symbol_, string calldata metadataURI_)
+        external
+        onlyOwner
+        returns (address token, address locker)
+    {
+        // `whenNotPaused` deliberately NOT applied: pause is for community reservation halts;
+        // protocol-launch is an owner-only emergency seed path (e.g. $FILTER on launch day)
+        // that must remain available even with the rest of the system paused. Recovers a
+        // few bytes of the EIP-170 budget consumed by bugbot zero-check fixes.
+        uint256 sid = currentSeasonId;
+        if (phaseOf[sid] != Phase.Launch) revert WrongPhase();
+        // Audit: bugbot M PR #88. An aborted season stays in Phase.Launch (terminal)
+        // but must NOT accept further protocol launches — the deployed token would be
+        // orphaned (no Filter/Finals/Settlement runs). Mirrors the community `reserve`
+        // gate which already rejects aborted seasons.
+        if (aborted[sid]) revert SeasonAlreadyAborted();
+        // Audit: bugbot M PR #88. Normalise via TickerLib so the protocol path produces
+        // the SAME canonical hash as the community `reserve` path (which always normalises).
+        // Pre-fix `keccak256(bytes(symbol_))` on raw `"Filter"` would not collide with
+        // community `keccak256(bytes("FILTER"))`, leaving a community re-launch of the same
+        // ticker possible; SeasonVault.submitWinner reads `token.symbol()` directly, so we
+        // also pass the canonical form into the factory deploy so the deployed ERC-20's
+        // symbol IS the canonical pre-image.
+        string memory canonicalSymbol = TickerLib.normalize(symbol_);
+        bytes32 tickerHash = keccak256(bytes(canonicalSymbol));
+        // Protocol launch is allowed to use a blocklisted ticker (e.g. FILTER itself) but is
+        // still subject to the per-season uniqueness check — two protocol tokens with the
+        // same symbol in one season would be a configuration error.
+        if (seasonTickers[sid][tickerHash] != address(0)) revert DuplicateSymbol();
+        seasonTickers[sid][tickerHash] = msg.sender;
+        (token, locker,) = factory.deployToken(
             IFilterFactory.DeployArgs({
                 name: name_,
-                symbol: symbol_,
+                symbol: canonicalSymbol,
                 metadataURI: metadataURI_,
-                creator: creator,
-                seasonVault: _vault[sid],
+                creator: msg.sender,
+                seasonVault: vaultOf[sid],
                 treasury: treasury,
                 mechanics: mechanics
             })
         );
         _entry[sid][token] = TokenEntry({
             token: token,
-            pool: address(0), // V4 pools are keyed, no address; left zero for compatibility
+            pool: address(0),
             feeSplitter: locker,
-            creator: creator,
-            isProtocolLaunched: isProtocolLaunched,
+            creator: msg.sender,
+            isProtocolLaunched: true,
             isFinalist: false
         });
         _tokens[sid].push(token);
-
-        // Register (token, creator, launchedAt) and the seasonId mapping the distributor
-        // uses for its own auth checks. Both contracts revert on duplicate token, so any
-        // future token-deployment path that reuses the same address is rejected here too.
-        creatorRegistry.register(token, creator);
+        creatorRegistry.register(token, msg.sender);
         creatorFeeDistributor.registerToken(token, sid);
+        // Audit: bugbot M PR #88. Emit `canonicalSymbol` so the indexer's `TokenLaunched`
+        // payload matches the deployed ERC-20's actual `symbol()` (which is canonical).
+        emit TokenLaunched(
+            sid, token, locker, msg.sender, true, type(uint64).max, 0, name_, canonicalSymbol, metadataURI_
+        );
     }
 
     // ============================================================ Soft-filter hook
+    // The post-deploy soft-filter resolution lives on `LauncherStakeAdmin` (deployed inline
+    // and exposed via `launcher.stakeAdmin()`). The oracle calls
+    // `stakeAdmin.applySoftFilter(...)` directly. State + ETH balance for stakes lives there.
 
-    /// @notice Resolve the refundable-stake outcome for a batch of launched tokens. Survivors
-    ///         get their stake refunded to the original creator; forfeitures forward the stake
-    ///         to `forfeitRecipient` and mark `filteredEarly`.
-    /// @dev    Oracle-driven so it composes with the existing phase machine. Idempotent per
-    ///         token: a second resolution attempt reverts. Protocol-launched tokens have no
-    ///         stake, so passing them is a no-op-equivalent revert (`AlreadyResolved` from a
-    ///         zero stake).
-    function applySoftFilter(uint256 seasonId, address[] calldata survivors, address[] calldata forfeited)
-        external
-        onlyOracle
-        nonReentrant
-    {
-        // Soft filter applies once Launch is over — i.e. Filter or beyond.
-        Phase p = _phase[seasonId];
-        if (p == Phase.Launch || p == Phase(0)) revert WrongPhase();
+    // ============================================================ Pricing (internal)
 
-        for (uint256 i = 0; i < survivors.length; ++i) {
-            address t = survivors[i];
-            TokenEntry storage entry = _entry[seasonId][t];
-            // Token must exist in this season AND have come through the public-launch path.
-            // Protocol launches don't carry a stake. Using `entry.token` as the existence
-            // sentinel keeps this resolution sound even if `baseLaunchCost` is set to zero.
-            if (entry.token == address(0) || entry.isProtocolLaunched) revert UnknownToken();
-            LaunchInfo storage info = _launchInfo[seasonId][t];
-            if (info.refunded || info.filteredEarly) revert AlreadyResolved();
-            uint256 amount = info.stakeAmount;
-            info.refunded = true;
-            info.stakeAmount = 0;
-            address creator = entry.creator;
-            if (amount > 0) {
-                (bool ok,) = creator.call{value: amount}("");
-                if (!ok) revert RefundFailed();
-            }
-            emit StakeRefunded(seasonId, t, creator, amount);
-        }
-
-        for (uint256 i = 0; i < forfeited.length; ++i) {
-            address t = forfeited[i];
-            TokenEntry storage entry = _entry[seasonId][t];
-            if (entry.token == address(0) || entry.isProtocolLaunched) revert UnknownToken();
-            LaunchInfo storage info = _launchInfo[seasonId][t];
-            if (info.refunded || info.filteredEarly) revert AlreadyResolved();
-            uint256 amount = info.stakeAmount;
-            info.filteredEarly = true;
-            info.stakeAmount = 0;
-            address creator = entry.creator;
-            if (amount > 0) {
-                (bool ok,) = forfeitRecipient.call{value: amount}("");
-                if (!ok) revert RefundFailed();
-            }
-            emit StakeForfeited(seasonId, t, creator, amount);
-        }
-    }
-
-    // ============================================================ Pricing
-
-    /// @notice Cost of slot `slotIndex` in wei: `BASE * (1 + (slotIndex / MAX_LAUNCHES)^2)`.
-    ///         Computed as `BASE * (MAX^2 + slot^2) / MAX^2` to stay in integer math.
-    function launchCost(uint256 slotIndex) external view returns (uint256) {
-        return _launchCost(uint64(slotIndex));
-    }
-
-    function _launchCost(uint64 slotIndex) internal view returns (uint256) {
+    /// @dev Cost of slot `slotIndex` in wei: `BASE * (1 + (slotIndex / MAX_LAUNCHES)^2)`.
+    ///      External callers use `lens.launchCost(...)`.
+    function _slotCost(uint64 slotIndex) internal view returns (uint256) {
         uint256 m = MAX_LAUNCHES;
         uint256 s = uint256(slotIndex);
         return (baseLaunchCost * (m * m + s * s)) / (m * m);
@@ -536,62 +778,15 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
 
     // ============================================================ Views
 
-    function canLaunch() external view returns (bool) {
-        if (paused()) return false;
-        uint256 sid = currentSeasonId;
-        if (_phase[sid] != Phase.Launch) return false;
-        if (block.timestamp >= launchEndTime[sid]) return false;
-        if (launchCount[sid] >= MAX_LAUNCHES) return false;
-        return true;
-    }
-
-    function getLaunchStatus(uint256 seasonId) external view returns (LaunchStatus memory s) {
-        s.launchCount = launchCount[seasonId];
-        s.maxLaunches = MAX_LAUNCHES;
-        uint256 endT = launchEndTime[seasonId];
-        s.timeRemaining = block.timestamp >= endT ? 0 : endT - block.timestamp;
-        if (s.launchCount < MAX_LAUNCHES) {
-            s.nextLaunchCost = _launchCost(uint64(s.launchCount));
-        } else {
-            s.nextLaunchCost = 0;
-        }
-    }
-
-    /// @notice Returns parallel arrays describing every public-launch slot filled in `seasonId`.
-    ///         Protocol-launched tokens are excluded (they have no slot).
-    function getLaunchSlots(uint256 seasonId)
-        external
-        view
-        returns (address[] memory tokens, uint64[] memory slotIndexes, address[] memory creators)
-    {
-        address[] storage all = _tokens[seasonId];
-        uint256 n = all.length;
-        // Pre-count public launches.
-        uint256 publicCount;
-        for (uint256 i = 0; i < n; ++i) {
-            if (!_entry[seasonId][all[i]].isProtocolLaunched) ++publicCount;
-        }
-        tokens = new address[](publicCount);
-        slotIndexes = new uint64[](publicCount);
-        creators = new address[](publicCount);
-        uint256 j;
-        for (uint256 i = 0; i < n; ++i) {
-            address t = all[i];
-            if (_entry[seasonId][t].isProtocolLaunched) continue;
-            tokens[j] = t;
-            slotIndexes[j] = _launchInfo[seasonId][t].slotIndex;
-            creators[j] = _entry[seasonId][t].creator;
-            ++j;
-        }
-    }
-
-    function phaseOf(uint256 seasonId) external view override returns (Phase) {
-        return _phase[seasonId];
-    }
-
-    function vaultOf(uint256 seasonId) external view override returns (address) {
-        return _vault[seasonId];
-    }
+    /// @notice Spec §46 ticker-availability lookup + composite reservation/launch views are
+    ///         intentionally OFF the launcher. `canReserve`, `getLaunchStatus`, and
+    ///         `getLaunchSlots` live on the inline-deployed `LauncherLens` (call
+    ///         `launcher.lens()` to access them); the indexer's
+    ///         `/season/:id/tickers/check` endpoint (Epic 1.15b) ports `TickerLib.normalize`
+    ///         to TypeScript and reads the launcher's `tickerBlocklist` / `winnerTickers` /
+    ///         `seasonTickers` mappings directly. Replicating this on-chain pushed the
+    ///         launcher past EIP-170; the lens + indexer are the right homes since it's pure
+    ///         convenience for the UX (the contract's `reserve` is always the authority).
 
     function tokensInSeason(uint256 seasonId) external view override returns (address[] memory) {
         return _tokens[seasonId];
@@ -607,7 +802,19 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
         override
         returns (LaunchInfo memory)
     {
-        return _launchInfo[seasonId][token];
+        return stakeAdmin.launchInfoOf(seasonId, token);
+    }
+
+    /// @notice Audit: bugbot L PR #88. The pending queue is NOT cleared on `abortSeason`
+    ///         (both the storage-side `delete _pending[sid]` and the view-side filter
+    ///         overflow the EIP-170 budget — 30+ bytes each over the 24,576 ceiling).
+    ///         CONSUMER CONTRACT: indexers and UIs MUST gate this view on
+    ///         `aborted[seasonId]` first; if true, treat the queue as empty regardless
+    ///         of length. Spec §46 + the pre-deploy invariant guarantee that an aborted
+    ///         season can never transition out of Phase.Launch (see `advancePhase`
+    ///         guard, audit bugbot H PR #88), so the entries here are inert.
+    function pendingReservations(uint256 seasonId) external view returns (PendingReservation[] memory) {
+        return _pending[seasonId];
     }
 
     function lockerOf(uint256 seasonId, address token) external view returns (address) {
@@ -616,11 +823,21 @@ contract FilterLauncher is IFilterLauncher, Ownable2Step, Pausable, ReentrancyGu
 
     // ============================================================ Pause
 
-    function pause() external onlyOwner {
-        _pause();
+    function setPaused(bool paused_) external onlyOwner {
+        if (paused_) _pause();
+        else _unpause();
     }
 
-    function unpause() external onlyOwner {
-        _unpause();
-    }
+    /// @notice Open `receive()` is required for the escrow's `releaseToDeploy` push-back
+    ///         flow (escrow `.call{value}` lands here with empty calldata). Audit: bugbot
+    ///         L PR #88 flagged this as a potential lockup vector, but a `msg.sender ==
+    ///         launchEscrow` guard adds ~48 bytes of runtime that overflows the EIP-170
+    ///         budget (the §46 deferred-activation refactor already extracted four
+    ///         companion contracts to fit). Operational mitigation: the launcher's owner
+    ///         is a production multisig (see §OWNERSHIP MODEL above) which can rotate /
+    ///         redeploy the launcher if a non-zero balance is detected between txs;
+    ///         monitoring should alert on `address(launcher).balance > 0` outside of an
+    ///         active reservation tx, since the deploy path always sweeps released funds
+    ///         to either `stakeAdmin` or `forfeitRecipient` in the same call.
+    receive() external payable {}
 }

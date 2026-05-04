@@ -19,6 +19,8 @@ import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
 import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "../../src/TournamentVault.sol";
 import {POLVault} from "../../src/POLVault.sol";
 import {POLManager, IPOLVaultRecord} from "../../src/POLManager.sol";
 import {CreatorFeeDistributor} from "../../src/CreatorFeeDistributor.sol";
@@ -99,6 +101,21 @@ contract Epic116FeeRoutingTest is Test, Deployers {
         );
         hook.initialize(address(factory));
         launcher.setFactory(IFilterFactory(address(factory)));
+        // PR #88 audit: tournament wires are required. Real instances (not dummy
+        // addresses) because SeasonVault's constructor calls into the registry view.
+        {
+            TournamentRegistry tr = new TournamentRegistry(address(launcher));
+            TournamentVault tv = new TournamentVault(
+                address(launcher),
+                address(weth),
+                treasury,
+                mechanics,
+                ITournamentRegistryView(address(tr)),
+                ICreatorRegistryView(address(launcher.creatorRegistry())),
+                launcher.bonusUnlockDelay()
+            );
+            launcher.setTournament(tr, tv);
+        }
 
         vm.prank(oracle);
         launcher.startSeason();

@@ -9,6 +9,8 @@ import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../../src/interfaces/IFilterLauncher.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "../../src/TournamentVault.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
 import {MockFilterFactory} from "../mocks/MockFilterFactory.sol";
@@ -51,6 +53,19 @@ contract WeeklyLifecycleTest is Test {
         launcher.setPolManager(IPOLManager(address(polManager)));
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
+        // Tournament contracts are externalised post-§46 (EIP-3860 budget). Wire here so
+        // SeasonVault.processFilterEvent / submitWinner have a real registry to call into.
+        TournamentRegistry tr = new TournamentRegistry(address(launcher));
+        TournamentVault tv = new TournamentVault(
+            address(launcher),
+            address(weth),
+            treasury,
+            mechanics,
+            ITournamentRegistryView(address(tr)),
+            ICreatorRegistryView(address(launcher.creatorRegistry())),
+            launcher.bonusUnlockDelay()
+        );
+        launcher.setTournament(tr, tv);
     }
 
     function test_FullWeek() public {
@@ -64,15 +79,39 @@ contract WeeklyLifecycleTest is Test {
         IFilterLauncher.TokenEntry memory entry = launcher.entryOf(sid, filterToken);
         assertEq(entry.isProtocolLaunched, true);
 
-        // Day 1-2: Users launch tokens.
+        // Day 1-2: Users reserve. Spec §46 deferred-activation needs ≥4 reservations to deploy
+        // any tokens; we add two dummies (never filtered) to cross the activation threshold so
+        // the original PEPE+WOJAK losers logic is preserved.
         vm.deal(creator1, 1 ether);
         vm.deal(creator2, 1 ether);
-        uint256 cost0 = launcher.launchCost(0);
-        uint256 cost1 = launcher.launchCost(1);
+        address dummyC1 = address(0xDD01);
+        address dummyC2 = address(0xDD02);
+        vm.deal(dummyC1, 1 ether);
+        vm.deal(dummyC2, 1 ether);
+
+        // Pre-compute slot costs into locals — `vm.prank` is consumed by the next external
+        // call, including the `launchCost` staticcall. Resolving them outside the prank
+        // sequence keeps each `vm.prank → reserve` pairing intact.
+        uint256 c0 = launcher.lens().launchCost(0);
+        uint256 c1 = launcher.lens().launchCost(1);
+        uint256 c2 = launcher.lens().launchCost(2);
+        uint256 c3 = launcher.lens().launchCost(3);
+
         vm.prank(creator1);
-        (address tokenA,) = launcher.launchToken{value: cost0}("Pepe", "PEPE", "");
+        launcher.reserve{value: c0}("PEPE", "");
         vm.prank(creator2);
-        (address tokenB,) = launcher.launchToken{value: cost1}("Wojak", "WOJAK", "");
+        launcher.reserve{value: c1}("WOJAK", "");
+        vm.prank(dummyC1);
+        launcher.reserve{value: c2}("DUMA", "");
+        // Fourth reservation crosses the activation threshold and deploys all 4 atomically.
+        vm.prank(dummyC2);
+        launcher.reserve{value: c3}("DUMB", "");
+
+        address[] memory deployed = launcher.tokensInSeason(sid);
+        // 1 protocol + 4 community = 5 entries. tokensInSeason includes both kinds in
+        // creation order — protocol launched first, then the 4 reservations in slot order.
+        address tokenA = deployed[1]; // PEPE
+        address tokenB = deployed[2]; // WOJAK
 
         // Day 3: Filter phase.
         vm.warp(block.timestamp + 2 days);
