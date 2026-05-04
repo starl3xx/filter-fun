@@ -193,30 +193,51 @@ export function createPgUserProfileStore(pool: Pool): UserProfileStore {
     },
     async upsertUsername({address, canonical, display, now, cooldownMs}) {
       // Single-statement upsert: insert if missing, otherwise update only when
-      // the cooldown gate passes. The `WHERE` clause on UPDATE re-asserts the
-      // time bound so a racing duplicate write can't slip through after the
-      // caller's pre-flight read. Returning row count tells us whether the
-      // update was actually applied.
+      // the cooldown gate passes. Both branches re-assert that the canonical
+      // handle is NOT in the operator blocklist — closing the TOCTOU gap
+      // bugbot L PR #102 pass-8 caught: between `evaluateSetUsername`'s read
+      // of `isOperatorBlocked` and this commit, an operator can add the
+      // username to the blocklist; without the inline gate the write would
+      // still succeed. The `WHERE` clauses on both INSERT-via-SELECT and the
+      // UPDATE re-check the blocklist as part of the same statement.
+      //
+      // 0-row return is now ambiguous (blocklist OR cooldown). Disambiguate
+      // with a follow-up read so the handler's exhaustive switch over
+      // `UpsertUsernameError` gets the right variant.
       const lowerAddress = address.toLowerCase();
+      const lowerCanonical = canonical.toLowerCase();
       const cooldownThreshold = new Date(now.getTime() - cooldownMs);
       try {
         const r = await pool.query<PgUserProfileRow>(
           `INSERT INTO user_profile (address, username, username_display, created_at, updated_at, username_updated_at)
-           VALUES ($1, $2, $3, $4, $4, $4)
+           SELECT $1, $2, $3, $4, $4, $4
+           WHERE NOT EXISTS (
+             SELECT 1 FROM username_operator_blocklist WHERE canonical = $6
+           )
            ON CONFLICT (address) DO UPDATE
              SET username = EXCLUDED.username,
                  username_display = EXCLUDED.username_display,
                  updated_at = EXCLUDED.updated_at,
                  username_updated_at = EXCLUDED.username_updated_at
              WHERE
-               user_profile.username_updated_at IS NULL
-               OR user_profile.username_updated_at <= $5
+               (user_profile.username_updated_at IS NULL
+                OR user_profile.username_updated_at <= $5)
+               AND NOT EXISTS (
+                 SELECT 1 FROM username_operator_blocklist WHERE canonical = $6
+               )
            RETURNING address, username, username_display, created_at, updated_at, username_updated_at`,
-          [lowerAddress, canonical, display, now, cooldownThreshold],
+          [lowerAddress, canonical, display, now, cooldownThreshold, lowerCanonical],
         );
         if (r.rowCount === 0) {
-          // INSERT happened on a no-op path? Only possible if ON CONFLICT
-          // matched + WHERE filtered it out (cooldown still active).
+          // 0 rows means EITHER the blocklist gate fired OR the cooldown
+          // gate fired (on the conflict-update path). Disambiguate.
+          const blockedR = await pool.query(
+            `SELECT 1 FROM username_operator_blocklist WHERE canonical = $1 LIMIT 1`,
+            [lowerCanonical],
+          );
+          if (blockedR.rowCount !== null && blockedR.rowCount > 0) {
+            return {ok: false, error: "blocklisted-operator"};
+          }
           return {ok: false, error: "cooldown-active"};
         }
         return {ok: true, row: rowFromPg(r.rows[0]!)};
@@ -290,12 +311,21 @@ export function createInMemoryUserProfileStore(opts: {
     },
     async upsertUsername({address, canonical, display, now, cooldownMs}) {
       const lowerAddress = address.toLowerCase() as `0x${string}`;
+      const lowerCanonical = canonical.toLowerCase();
+      // Mirror pg: re-assert the operator blocklist atomically with the
+      // commit. Without this, the in-memory fake would silently let a
+      // racing blocklist add slip past, and the handler test exercising
+      // `blocklisted-operator` from the store would have no coverage.
+      // (Bugbot L PR #102 pass-8.)
+      if (operatorBlocked.has(lowerCanonical)) {
+        return {ok: false, error: "blocklisted-operator"};
+      }
       // Mirror pg uniqueness: bail before mutating if a different address
       // owns this handle.
       for (const row of byAddress.values()) {
         if (
           row.username &&
-          row.username.toLowerCase() === canonical.toLowerCase() &&
+          row.username.toLowerCase() === lowerCanonical &&
           row.address.toLowerCase() !== lowerAddress
         ) {
           return {ok: false, error: "taken"};

@@ -277,6 +277,36 @@ describe("setUsernameHandler", () => {
     expect(persisted?.usernameUpdatedAt?.toISOString()).toBe(fifteenDaysAgo.toISOString());
   });
 
+  it("upsert-time blocklist gate catches post-pre-flight blocklist adds (PR #102 pass-8)", async () => {
+    // Bugbot L PR #102 pass-8: the original `upsertUsername` SQL didn't
+    // re-assert the operator blocklist atomically with the commit, so a
+    // request that passed `evaluateSetUsername`'s pre-flight could still
+    // succeed if an operator added the handle to the blocklist between
+    // the read and the write. Simulate the race by giving the handler a
+    // store whose `isOperatorBlocked` reports false (pre-flight passes)
+    // but whose `upsertUsername` returns `blocklisted-operator` (commit
+    // catches the race). Asserts the handler maps the variant to the
+    // wire 400 the user sees.
+    const racingStore = createInMemoryUserProfileStore();
+    const wrapped = {
+      ...racingStore,
+      isOperatorBlocked: async () => false,
+      upsertUsername: async () =>
+        ({ok: false, error: "blocklisted-operator"}) as const,
+    };
+    const r = await setUsernameHandler({
+      store: wrapped,
+      recover: makeRecoverFor(ADDR_A),
+      rawAddress: ADDR_A,
+      body: {username: "starbreaker", signature: ZERO_SIG, nonce: "n-race"},
+      now: fixedNow,
+    });
+    expect(r.status).toBe(400);
+    if (r.status === 400) {
+      expect(r.body.error).toBe("blocklisted username");
+    }
+  });
+
   it("idempotent re-set is REJECTED if operator blocklisted the handle post-claim (PR #102 pass-6)", async () => {
     // The user owned `starbreaker`, then an operator added it to the
     // blocklist. A re-confirm POST must NOT short-circuit to 200 — that
