@@ -575,7 +575,12 @@ function Footer({
         value={marketCap != null ? fmtUSD(marketCap) : "—"}
       />
       <FooterStat
-        label="24h"
+        // Bugbot Low (PR #91, commit 96dcbeb): the slot is bivalent — it
+        // shows the 24h percent-change when there's price movement,
+        // otherwise falls through to "time since last trade" derived
+        // from the last HP recompute. The label needs to flip with the
+        // value so users don't read "24h: 3m" as a 24-hour duration.
+        label={hasChange ? "24h" : "Last trade"}
         value={hasChange ? fmtPctChange(change) : tradeAge}
         valueColor={
           hasChange

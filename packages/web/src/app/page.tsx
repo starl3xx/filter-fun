@@ -459,8 +459,20 @@ function useTileSortMeta(
   // Commit current HP into the ref so next render's `prevHp` reflects it.
   // Skip when disabled — there's no consumer reading the meta, so spending
   // O(N) per cohort change to track a value nobody reads is wasted work.
+  //
+  // **Clear on disable** — bugbot Low (PR #91, commit 96dcbeb). Without
+  // the clear, a user who switches tile→list (or firingMode activates)
+  // leaves the ref populated with HPs from before the switch. Several
+  // polls later the user switches back to tile mode and the "delta"
+  // sort reads `|current - stale|` from the pre-switch values, producing
+  // an inflated and incorrect sort order until the next poll re-seeds
+  // the ref. Clearing the moment `enabled` flips false guarantees a
+  // clean re-seed on the next enable.
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      prevRef.current.clear();
+      return;
+    }
     for (const t of cohort) prevRef.current.set(t.token.toLowerCase(), t.hp);
   }, [cohort, enabled]);
 
