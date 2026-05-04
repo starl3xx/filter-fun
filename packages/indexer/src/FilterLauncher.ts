@@ -20,7 +20,7 @@
 
 import {ponder} from "@/generated";
 import {eq} from "@ponder/core";
-import {decodeFunctionData} from "viem";
+import {decodeFunctionData, encodeAbiParameters} from "viem";
 
 import {broadcastSeasonStateEvent} from "./api/events/launchBroadcast.js";
 import {
@@ -286,13 +286,26 @@ ponder.on("FilterLauncher:TickerBlocked", async ({event, context}) => {
   // byte-budget-excluded from emitting `OperatorActionEmitted` directly (see the
   // natspec on `addTickerToBlocklist`), so the indexer reconstructs the audit row
   // from the existing `TickerBlocked` event + the tx `from` address (the multisig
-  // caller). `params` is the raw 32-byte tickerHash hex; the operator console
-  // decodes for display.
+  // caller).
+  //
+  // Bugbot PR #95 round 4 (Medium): `params` MUST be ABI-encoded to match the
+  // shape of `OperatorActionEmitted`-sourced rows (which carry the raw
+  // `event.args.params` blob from `abi.encode(...)`). Pre-fix this stored
+  // a bare 32-byte tickerHash, which broke the operator console's
+  // ABI decoder (it assumes every row's `params` is decodable per the
+  // `action`'s parameter type). `encodeAbiParameters([{type: "bytes32"}], [hash])`
+  // produces a 32-byte head that decodes back to `bytes32` cleanly, so the
+  // audit-log card can `decodeAbiParameters([{type: "bytes32"}], row.params)`
+  // for every action uniformly.
+  const encodedParams = encodeAbiParameters(
+    [{type: "bytes32"}],
+    [event.args.tickerHash],
+  );
   await context.db.insert(operatorActionLog).values({
     id: `${event.transaction.hash}:${event.log.logIndex}`,
     actor: event.transaction.from,
     action: "addTickerToBlocklist",
-    params: event.args.tickerHash,
+    params: encodedParams,
     txHash: event.transaction.hash,
     blockNumber: event.block.number,
     blockTimestamp: event.block.timestamp,

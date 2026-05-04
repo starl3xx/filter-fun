@@ -18,7 +18,7 @@
 /// enough that an operator-console session never bumps it.
 
 import {ponder, type ApiContext} from "@/generated";
-import {and, desc, eq, gte, lte} from "@ponder/core";
+import {and, desc, eq, gte, inArray, lte} from "@ponder/core";
 import type {Context} from "hono";
 import {streamSSE} from "hono/streaming";
 
@@ -141,23 +141,21 @@ ponder.get("/operator/settlement-history", async (c) => {
     seasonRows = await db.select().from(season).orderBy(desc(season.id)).limit(limit);
   }
 
-  // Pull phase-change rows for the in-scope seasons. `phase_change` rows are keyed
-  // `${seasonId}:${index}`, so we filter by seasonId set.
+  // Pull phase-change rows for the in-scope seasons. Bugbot PR #95 round 4
+  // (Low Severity): pre-fix the query used `gte(seasonId, min(seasonIds))`,
+  // which technically over-fetched any phaseChange row with seasonId ≥ the
+  // smallest in the requested set — including seasons not requested. Using
+  // `inArray` reads exactly the requested set.
   const seasonIds = seasonRows.map((s) => s.id);
   const phaseRows = seasonIds.length
     ? await db
         .select()
         .from(phaseChange)
-        .where(
-          // Drizzle doesn't ship `inArray` on bigint cleanly across versions; for the
-          // small list (up to 50) we filter client-side after a single fetch.
-          gte(phaseChange.seasonId, seasonIds[seasonIds.length - 1]!),
-        )
+        .where(inArray(phaseChange.seasonId, seasonIds))
     : [];
   const phaseBySeason = new Map<string, typeof phaseRows>();
   for (const row of phaseRows) {
     const key = row.seasonId.toString();
-    if (!seasonIds.some((s) => s === row.seasonId)) continue;
     let arr = phaseBySeason.get(key);
     if (!arr) {
       arr = [] as typeof phaseRows;
@@ -306,13 +304,28 @@ ponder.get("/operator/alerts/stream", async (c) => {
   const stream = streamSSE(c as unknown as Context, async (stream) => {
     let lastJson = "";
     while (!stream.aborted && !stream.closed) {
-      const alerts = await computeAlerts(c.db);
-      const next = JSON.stringify(alerts);
-      if (next !== lastJson) {
-        await stream.writeSSE({event: "alerts", data: next});
-        lastJson = next;
-      } else {
-        await stream.writeln(":hb");
+      // Bugbot PR #95 round 4 (Medium Severity): pre-fix a transient DB
+      // failure in `computeAlerts` would throw out of the SSE handler and
+      // tear down the operator's alert stream permanently — the operator
+      // would have to manually reconnect. Wrap each tick so a hiccup just
+      // emits an `error` frame and the loop keeps retrying on cadence.
+      try {
+        const alerts = await computeAlerts(c.db);
+        const next = JSON.stringify(alerts);
+        if (next !== lastJson) {
+          await stream.writeSSE({event: "alerts", data: next});
+          lastJson = next;
+        } else {
+          await stream.writeln(":hb");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "alerts_unavailable";
+        await stream.writeSSE({event: "error", data: JSON.stringify({error: message})});
+        // Reset lastJson so the next successful tick re-emits the current
+        // alert set even if the JSON happens to match what we sent before
+        // the error — the client just got an error frame and may have
+        // dropped the cached state.
+        lastJson = "";
       }
       // 30s cadence: alerts are infra-health signals, not real-time market signals.
       // The web layer also reads /operator/alerts on focus to catch missed updates.
