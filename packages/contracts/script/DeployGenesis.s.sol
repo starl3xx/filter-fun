@@ -13,6 +13,8 @@ import {POLVault} from "../src/POLVault.sol";
 import {POLManager, IPOLVaultRecord} from "../src/POLManager.sol";
 import {IBonusFunding, IPOLManager} from "../src/SeasonVault.sol";
 import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
+import {TournamentRegistry} from "../src/TournamentRegistry.sol";
+import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "../src/TournamentVault.sol";
 
 /// @notice Bootstraps filter.fun on Base. Reads addresses + multisig signers from env.
 ///
@@ -79,6 +81,22 @@ contract DeployGenesis is Script {
         // 6. Wire POLManager into the launcher and POLVault (both one-shot setters).
         launcher.setPolManager(IPOLManager(address(polManager)));
         polVault.setPolManager(address(polManager));
+
+        // 6b. Tournament contracts — externalised post-§46 to fit EIP-3860. Deploy with the
+        //     launcher's address as `launcher_`, then wire via `setTournament`.
+        TournamentRegistry tournamentRegistry = new TournamentRegistry(address(launcher));
+        TournamentVault tournamentVault = new TournamentVault(
+            address(launcher),
+            weth,
+            address(treasury),
+            mechanics,
+            ITournamentRegistryView(address(tournamentRegistry)),
+            ICreatorRegistryView(address(launcher.creatorRegistry())),
+            launcher.bonusUnlockDelay()
+        );
+        launcher.setTournament(tournamentRegistry, tournamentVault);
+        console2.log("TournamentRegistry:", address(tournamentRegistry));
+        console2.log("TournamentVault:", address(tournamentVault));
 
         // 7. FilterHook (deterministic via CREATE2 salt to satisfy hook flag bits).
         //    Constructor takes no args — factory is wired post-construction via initialize().

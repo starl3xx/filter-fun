@@ -55,7 +55,7 @@ contract SeedFilter is Script {
         require(bytes(metadataUri).length > 0, "FILTER_METADATA_URI required");
 
         uint256 pk = ScriptUtils.envPrivateKey();
-        FilterLauncher launcher = FilterLauncher(launcherAddr);
+        FilterLauncher launcher = FilterLauncher(payable(launcherAddr));
 
         // Pre-flight: season must be open and in Launch phase. Catches the "deployed but oracle
         // hasn't called startSeason yet" footgun before we burn gas on a revert.

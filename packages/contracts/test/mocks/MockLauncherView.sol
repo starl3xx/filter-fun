@@ -6,6 +6,7 @@ interface ILauncherView {
     function vaultOf(uint256 seasonId) external view returns (address);
     function oracle() external view returns (address);
     function tournamentVault() external view returns (address);
+    function setWinnerTicker(uint256 seasonId, bytes32 tickerHash, address winnerToken) external;
 }
 
 /// @notice Stand-in for `FilterLauncher` that exposes the lookups `SeasonVault`, `POLVault`,
@@ -16,6 +17,14 @@ contract MockLauncherView is ILauncherView {
     mapping(uint256 => address) internal _vault;
     address internal _oracle;
     address internal _tournamentVault;
+    /// @notice Last setWinnerTicker call captured for assertion. The new SeasonVault path
+    ///         (spec §4.6.1) calls this on the launcher at submitWinner; the mock just
+    ///         records the args so tests can verify the cross-season reservation fired
+    ///         without standing up a real launcher.
+    uint256 public lastSetWinnerSeasonId;
+    bytes32 public lastSetWinnerTickerHash;
+    address public lastSetWinnerToken;
+    uint256 public setWinnerTickerCallCount;
 
     function setLocker(uint256 seasonId, address token, address locker) external {
         _locker[seasonId][token] = locker;
@@ -47,5 +56,12 @@ contract MockLauncherView is ILauncherView {
 
     function tournamentVault() external view override returns (address) {
         return _tournamentVault;
+    }
+
+    function setWinnerTicker(uint256 seasonId, bytes32 tickerHash, address winnerToken) external override {
+        lastSetWinnerSeasonId = seasonId;
+        lastSetWinnerTickerHash = tickerHash;
+        lastSetWinnerToken = winnerToken;
+        ++setWinnerTickerCallCount;
     }
 }

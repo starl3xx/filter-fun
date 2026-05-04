@@ -93,8 +93,12 @@ The script:
 2. Deploys the suite in dependency order: TreasuryTimelock → BonusDistributor → POLVault →
    FilterLauncher (inline-deploys CreatorRegistry / CreatorFeeDistributor /
    TournamentRegistry / TournamentVault) → POLManager → FilterHook → FilterFactory.
-3. Wires `polManager` ↔ `launcher` ↔ `polVault`, `factory` ↔ `hook` ↔ `launcher`.
-4. Applies Sepolia config: `setMaxLaunchesPerWallet` and `setRefundableStakeEnabled`.
+3. Wires `polManager` ↔ `launcher` ↔ `polVault`, `factory` ↔ `hook` ↔ `launcher`. The
+   `LaunchEscrow` is deployed inline by the launcher's constructor (spec §46 deferred-
+   activation); its address is recorded in the manifest.
+4. Applies Sepolia config: `setRefundableStakeEnabled` (the per-wallet cap is now
+   structural — `LaunchEscrow` enforces 1 reservation per wallet per season — so
+   there is no `setMaxLaunchesPerWallet` knob).
 5. Writes `deployments/base-sepolia.json` with addresses, block height, deploy commit
    hash, and the cached hook salt.
 6. Verifies each contract on Basescan via `forge verify-contract`.
@@ -112,11 +116,12 @@ pattern (`MANIFEST_PATH_OVERRIDE`, `DEPLOYER_PRIVATE_KEY`, etc.):
 
 - **`SeedFilter.s.sol`** — populates `$FILTER` after the oracle calls `startSeason()`.
   Refuses to double-seed by probing `manifest.filterToken.address`.
-- **`VerifySepolia.s.sol`** — read-only operational verifier. Asserts five invariants
-  against the live deploy: `maxLaunchesPerWallet == 1` (spec §4.6 lock),
+- **`VerifySepolia.s.sol`** — read-only operational verifier. Asserts six invariants
+  against the live deploy: `launcher.launchEscrow == manifest.launchEscrow` (spec §46),
   `$FILTER` registered in `CreatorRegistry`, `tournamentRegistry.launcher == FilterLauncher`,
-  `launcher.polManager` and `launcher.treasury` match the manifest, and `adminOf == creatorOf`
-  for every token in the current season. Emits `VerifySepoliaOK` on success or reverts
+  `launcher.polManager` and `launcher.treasury` match the manifest, `adminOf == creatorOf`
+  for every token in the current season, and the §4.6.1 protocol-blocklist seed is
+  present (FILTER, WETH, ETH, USDC, USDT, DAI). Emits `VerifySepoliaOK` on success or reverts
   with `AssertionFailed_<n>`. Use `SKIP_FILTER_TOKEN_CHECK=1` for pre-seed verifications.
 - **`RedeployFactory.s.sol`** — operator-facing factory rotation. Required after PR #43
   on Sepolia (factory needs `CreatorCommitments` in its constructor). Mines a fresh

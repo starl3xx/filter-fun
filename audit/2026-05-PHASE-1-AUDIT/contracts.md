@@ -675,3 +675,64 @@ This design is correct for the current architecture. Document the assumption in 
 
 All other contracts are structurally sound with minor quality-of-life improvements suggested.
 
+---
+
+## ADDENDUM — Epic 1.15 deferred-activation refactor (2026-05-03)
+
+The pre-§46 launch flow ("launch immediately, soft-cancel on sparse weeks") was replaced
+with the deferred-activation reservation flow (spec §46) plus the §4.6.1 cross-season
+ticker uniqueness + protocol blocklist. The audit firm should review the following NEW
+contracts alongside the existing surface:
+
+**New contracts:**
+- `packages/contracts/src/LaunchEscrow.sol` — per-(season, creator) reservation escrow.
+  Holds reservation funds in trust until activation (`releaseToDeploy`) or abort
+  (`refundAll`). Both entries gated `onlyLauncher` with `nonReentrant`. Refund-failure
+  path leaves `refunded == false` so the operator runbook can manually retry.
+- `packages/contracts/src/libraries/TickerLib.sol` — pure helpers for ticker
+  normalisation (`^[A-Z0-9]{2,10}$`, strip leading `$`, trim, uppercase) and hashing.
+  Reused on-chain (launcher) + off-chain (indexer + UI port).
+
+**Refactored contracts:**
+- `packages/contracts/src/FilterLauncher.sol` — `launchToken` removed; replaced with
+  `reserve(string ticker, string metadataURI)` + the spec §46.9 eight-step validation;
+  `_activate` / `_deployToken` internals; `abortSeason` oracle-gated entry; ticker
+  blocklist + `winnerTickers` mapping + `setWinnerTicker(uint256, bytes32, address)`
+  callable only by the per-season vault.
+- `packages/contracts/src/SeasonVault.sol` — `submitWinner` extended to call
+  `launcher.setWinnerTicker(...)` so the winning ticker is permanently reserved across
+  all FUTURE seasons (§4.6.1). Reads the deployed ERC-20's `symbol()` to derive the
+  canonical hash; the launcher's `_deployToken` writes the canonical (TickerLib-
+  normalised) form into the token's symbol so the hashes line up.
+
+**Audit C-2 (post-§46 form):** the configurable `maxLaunchesPerWallet` knob is removed.
+The per-wallet cap of 1 is now enforced STRUCTURALLY by
+`LaunchEscrow.escrows[seasonId][creator].reservedAt != 0`. There is no env var, no
+setter, no constructor-default to drift. The C-2 regression test
+(`test/security/FilterLauncherMaxLaunchesPerWalletDefault.t.sol`) was repurposed to
+assert the structural property.
+
+**New regression coverage:**
+- `test/security/LaunchEscrowReentrancy.t.sol` — malicious receivers re-enter
+  `refundAll` and `releaseToDeploy`; non-reentrant blocks; bystander refunds proceed.
+- `test/security/DeferredActivationE2E.t.sol` — N=0..12 cohort scenarios.
+- `test/security/TickerValidation.t.sol` — case/whitespace/`$`/homograph collisions;
+  blocklist seed; multisig blocklist-add gating; cross-season winner reservation.
+- `test/security/SparseWeekRefund.t.sol` — h47 reservations + h48 abort sweep + the
+  RefundFailed-recipient carve-out (manual rescue path).
+- `test/security/EightStepValidation.t.sol` — every gate in spec §46.9 isolated and
+  asserted with its custom error.
+
+**New invariants** (added to the §42.2 invariant suite, runs at default 256×500):
+- `inv_no_orphaned_escrow` — past h48 every reservation is in a terminal lifecycle
+  state (released or refunded).
+- `inv_activation_atomicity` — the activation transition either fully lands the cohort
+  or fully reverts. Activated implies launchCount ≥ ACTIVATION_THRESHOLD AND pending
+  queue empty.
+- `inv_ticker_uniqueness` — `seasonTickers[seasonId]` is injective; the on-chain
+  mapping agrees with the ghost ticker registry across every fuzz run.
+
+Live in `test/invariant/DeferredActivationInvariants.t.sol` with handler at
+`test/invariant/handlers/DeferredActivationHandler.sol`. CI invariant budget (5 min)
+unchanged — the new suite adds ~7 seconds wall-clock at the default profile.
+

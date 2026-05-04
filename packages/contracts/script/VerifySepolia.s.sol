@@ -12,9 +12,9 @@ import {ScriptUtils} from "./ScriptUtils.sol";
 /// @notice Read-only operational verifier for the live Sepolia deploy.
 ///
 ///         Asserts that the deployed system matches the locked spec invariants:
-///           1. FilterLauncher.maxLaunchesPerWallet() == SPEC_MAX_LAUNCHES (1, spec §4.6).
-///              The value is fixed at the spec lock; both Sepolia and mainnet override the
-///              contract default of 2 via the `MAX_LAUNCHES_PER_WALLET=1` deploy env.
+///           1. FilterLauncher.launchEscrow() returns the manifest's launchEscrow address
+///              (spec §46 deferred-activation: the launcher and escrow have a 1:1 lifetime
+///              relationship; they MUST agree at deploy time).
 ///           2. CreatorRegistry has $FILTER registered (manifest.filterToken.address != 0
 ///              AND creatorRegistry.creatorOf(filterToken) != 0). Skipped via
 ///              SKIP_FILTER_TOKEN_CHECK=1 for verification before $FILTER seed.
@@ -24,6 +24,8 @@ import {ScriptUtils} from "./ScriptUtils.sol";
 ///           5. For every token in the current season: creatorRegistry.adminOf(token)
 ///              equals creatorRegistry.creatorOf(token) — i.e. no broken admin
 ///              assignments left dangling from a half-completed nominate/accept rotation.
+///           6. Spec §4.6.1 protocol blocklist: the constructor-seeded entries are present
+///              (FILTER, WETH, ETH, USDC, USDT, DAI all registered).
 ///
 ///         On success, emits a `VerifySepoliaOK` event from this script contract
 ///         (visible in the forge run trace; nothing is broadcast on chain). On any
@@ -44,17 +46,11 @@ contract VerifySepolia is Script {
     event VerifySepoliaOK(
         uint256 chainId,
         address filterLauncher,
-        uint256 maxLaunchesPerWallet,
+        address launchEscrow,
         bool filterTokenChecked,
         address filterToken,
         uint256 tokensChecked
     );
-
-    /// @notice Spec §4.6 locks the per-wallet weekly cap at 1 across Sepolia and mainnet.
-    ///         Hardcoded here rather than read from env so the verifier's expected value
-    ///         is committed alongside the spec, not subject to operator typo at runtime.
-    ///         If §4.6 is ever revisited, update this constant in lockstep with the spec.
-    uint256 public constant SPEC_MAX_LAUNCHES = 1;
 
     /// @notice Operator entry point. Reads `SKIP_FILTER_TOKEN_CHECK` from env (default
     ///         false) and delegates to `runWithFlags`. Splitting the env read out keeps
@@ -83,7 +79,7 @@ contract VerifySepolia is Script {
         require(creatorRegAddr != address(0), "VerifySepolia: creatorRegistry missing from manifest");
         require(tournRegAddr != address(0), "VerifySepolia: tournamentRegistry missing from manifest");
 
-        FilterLauncher launcher = FilterLauncher(launcherAddr);
+        FilterLauncher launcher = FilterLauncher(payable(launcherAddr));
         CreatorRegistry creatorRegistry = CreatorRegistry(creatorRegAddr);
         TournamentRegistry tournamentRegistry = TournamentRegistry(tournRegAddr);
 
@@ -93,15 +89,16 @@ contract VerifySepolia is Script {
         console2.log("filterLauncher:  ", launcherAddr);
 
         // ------------------------------------------------------------ Assertion 1
-        // maxLaunchesPerWallet == SPEC_MAX_LAUNCHES (1, spec §4.6)
-        uint256 actualMaxLaunches = launcher.maxLaunchesPerWallet();
-        if (actualMaxLaunches != SPEC_MAX_LAUNCHES) {
-            console2.log("AssertionFailed_1: maxLaunchesPerWallet mismatch");
-            console2.log("  spec:   ", SPEC_MAX_LAUNCHES);
-            console2.log("  actual: ", actualMaxLaunches);
-            revert("AssertionFailed_1: maxLaunchesPerWallet != spec 4.6 lock (1)");
+        // launcher.launchEscrow() agrees with manifest.launchEscrow (spec §46).
+        address manifestEscrow = vm.parseJsonAddress(m, ".addresses.launchEscrow");
+        address actualEscrow = address(launcher.launchEscrow());
+        if (manifestEscrow == address(0) || actualEscrow == address(0) || actualEscrow != manifestEscrow) {
+            console2.log("AssertionFailed_1: launchEscrow mismatch");
+            console2.log("  manifest:", manifestEscrow);
+            console2.log("  on-chain:", actualEscrow);
+            revert("AssertionFailed_1: launcher.launchEscrow != manifest.launchEscrow");
         }
-        console2.log("[1/5] maxLaunchesPerWallet:", actualMaxLaunches);
+        console2.log("[1/6] launchEscrow OK:", actualEscrow);
 
         // ------------------------------------------------------------ Assertion 2
         // CreatorRegistry has $FILTER registered. Skippable for pre-seed verifications.
@@ -125,9 +122,9 @@ contract VerifySepolia is Script {
                 console2.log("  filterToken:", filterToken);
                 revert("AssertionFailed_2b: creatorRegistry.creatorOf($FILTER) == address(0)");
             }
-            console2.log("[2/5] $FILTER registered, creator:", filterCreator);
+            console2.log("[2/6] $FILTER registered, creator:", filterCreator);
         } else {
-            console2.log("[2/5] $FILTER check SKIPPED via SKIP_FILTER_TOKEN_CHECK=1");
+            console2.log("[2/6] $FILTER check SKIPPED via SKIP_FILTER_TOKEN_CHECK=1");
         }
 
         // ------------------------------------------------------------ Assertion 3
@@ -139,7 +136,7 @@ contract VerifySepolia is Script {
             console2.log("  actual:  ", tournLauncher);
             revert("AssertionFailed_3: tournamentRegistry.launcher != filterLauncher");
         }
-        console2.log("[3/5] tournamentRegistry.launcher OK");
+        console2.log("[3/6] tournamentRegistry.launcher OK");
 
         // ------------------------------------------------------------ Assertion 4
         // launcher.polManager() == manifest.polManager AND launcher.treasury() == manifest.treasuryTimelock
@@ -157,7 +154,7 @@ contract VerifySepolia is Script {
             console2.log("  on-chain:", actualTreasury);
             revert("AssertionFailed_4b: launcher.treasury != manifest.treasuryTimelock");
         }
-        console2.log("[4/5] launcher.polManager + treasury match manifest");
+        console2.log("[4/6] launcher.polManager + treasury match manifest");
 
         // ------------------------------------------------------------ Assertion 5
         // For every token in the current season: adminOf == creatorOf.
@@ -167,7 +164,7 @@ contract VerifySepolia is Script {
         uint256 sid = launcher.currentSeasonId();
         uint256 tokensChecked = 0;
         if (sid == 0) {
-            console2.log("[5/5] no season started yet - skipped admin/creator scan");
+            console2.log("[5/6] no season started yet - skipped admin/creator scan");
         } else {
             address[] memory tokens = launcher.tokensInSeason(sid);
             for (uint256 i = 0; i < tokens.length; ++i) {
@@ -183,14 +180,27 @@ contract VerifySepolia is Script {
                 }
                 ++tokensChecked;
             }
-            console2.log("[5/5] admin == creator for", tokensChecked, "tokens");
+            console2.log("[5/6] admin == creator for", tokensChecked, "tokens");
         }
+
+        // ------------------------------------------------------------ Assertion 6
+        // Spec §4.6.1 protocol blocklist seed. Constructor must have populated all six.
+        string[6] memory seedTickers = ["FILTER", "WETH", "ETH", "USDC", "USDT", "DAI"];
+        for (uint256 i = 0; i < seedTickers.length; ++i) {
+            bytes32 h = keccak256(bytes(seedTickers[i]));
+            if (!launcher.tickerBlocklist(h)) {
+                console2.log("AssertionFailed_6: blocklist missing seed");
+                console2.log("  ticker:", seedTickers[i]);
+                revert("AssertionFailed_6: protocol-blocklist seed entry missing");
+            }
+        }
+        console2.log("[6/6] blocklist seed OK (FILTER, WETH, ETH, USDC, USDT, DAI)");
 
         // ------------------------------------------------------------ Success
         emit VerifySepoliaOK({
             chainId: block.chainid,
             filterLauncher: launcherAddr,
-            maxLaunchesPerWallet: actualMaxLaunches,
+            launchEscrow: actualEscrow,
             filterTokenChecked: !skipFilter,
             filterToken: filterToken,
             tokensChecked: tokensChecked

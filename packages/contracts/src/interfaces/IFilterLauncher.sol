@@ -19,7 +19,7 @@ interface IFilterLauncher {
         bool isFinalist;
     }
 
-    /// @notice Per-launch metadata captured by the capped launch system. Sits alongside
+    /// @notice Per-launch metadata captured when a reservation deploys. Sits alongside
     ///         `TokenEntry`; `TokenEntry` describes the token, this describes the launch slot.
     struct LaunchInfo {
         uint64 slotIndex;
@@ -42,5 +42,12 @@ interface IFilterLauncher {
     function tokensInSeason(uint256 seasonId) external view returns (address[] memory);
     function entryOf(uint256 seasonId, address token) external view returns (TokenEntry memory);
     function launchInfoOf(uint256 seasonId, address token) external view returns (LaunchInfo memory);
-    function getLaunchStatus(uint256 seasonId) external view returns (LaunchStatus memory);
+
+    /// @notice Spec §46 deferred-activation state. The vault's `submitWinner` reads these
+    ///         indirectly via `setWinnerTicker`; the indexer reads them for the `/season`
+    ///         phase classification.
+    function activated(uint256 seasonId) external view returns (bool);
+    function activatedAt(uint256 seasonId) external view returns (uint64);
+    function aborted(uint256 seasonId) external view returns (bool);
+    function setWinnerTicker(uint256 seasonId, bytes32 tickerHash, address winnerToken) external;
 }

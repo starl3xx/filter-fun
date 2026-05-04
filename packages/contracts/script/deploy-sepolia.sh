@@ -45,7 +45,10 @@ fi
 : "${WETH_ADDRESS:?WETH_ADDRESS required}"
 : "${TREASURY_OWNER:?TREASURY_OWNER required}"
 : "${SCHEDULER_ORACLE_ADDRESS:?SCHEDULER_ORACLE_ADDRESS required}"
-: "${MAX_LAUNCHES_PER_WALLET:?MAX_LAUNCHES_PER_WALLET required}"
+# Spec §46 deferred-activation: per-wallet cap is enforced structurally by LaunchEscrow.
+# `MAX_LAUNCHES_PER_WALLET` is no longer required (the deploy script ignores it). Kept
+# as an accepted-and-ignored knob for one release so existing operator env files don't
+# break — clean up after Sepolia drift validates.
 : "${REFUNDABLE_STAKE_ENABLED:?REFUNDABLE_STAKE_ENABLED required}"
 
 # Capture the deploy commit so the manifest can prove which source was deployed.

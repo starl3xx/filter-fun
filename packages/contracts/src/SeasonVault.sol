@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -28,6 +29,10 @@ interface ILauncherView {
     ///         left vaults from prior seasons honouring the old oracle indefinitely after
     ///         `FilterLauncher.setOracle` rotated.
     function oracle() external view returns (address);
+    /// @notice Cross-season winner ticker reservation (spec §4.6.1). Called by this vault at
+    ///         `submitWinner` so the winning token's ticker is permanently locked across all
+    ///         FUTURE seasons. The launcher is the registry; this vault is the writer.
+    function setWinnerTicker(uint256 seasonId, bytes32 tickerHash, address winnerToken) external;
 }
 
 interface ICreatorFeeDistributor {
@@ -357,6 +362,14 @@ contract SeasonVault is ReentrancyGuard {
         // upcoming quarterly Filter Bowl. Registry handles auth via launcher.vaultOf and is
         // idempotent per season.
         tournamentRegistry.recordWeeklyWinner(seasonId, winner_);
+
+        // Spec §4.6.1: the winning ticker is permanently reserved across FUTURE seasons. Read
+        // the deployed ERC-20's symbol — for community launches this is the canonical
+        // (TickerLib-normalised) form; for protocol launches (e.g. $FILTER) it's whatever the
+        // owner picked. Either way the token's `symbol()` IS the canonical pre-image of the
+        // hash key, so a re-launch attempt in any later season trips `TickerWinnerReserved`.
+        bytes32 winnerTickerHash = keccak256(bytes(IERC20Metadata(winner_).symbol()));
+        ILauncherView(launcher).setWinnerTicker(seasonId, winnerTickerHash, winner_);
 
         address winnerLocker = ILauncherView(launcher).lockerOf(seasonId, winner_);
 

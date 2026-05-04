@@ -88,7 +88,7 @@ contract RedeployFactory is Script {
         // launches happened — those tokens are orphaned by the rotation. Fail loudly unless
         // the operator explicitly opts in.
         bool ackActiveLaunch = ScriptUtils.envBool("ACTIVE_LAUNCH_OK", false);
-        FilterLauncher launcher = FilterLauncher(oldLauncher);
+        FilterLauncher launcher = FilterLauncher(payable(oldLauncher));
         uint256 sid = launcher.currentSeasonId();
         uint64 activeCount;
         if (sid > 0) {
