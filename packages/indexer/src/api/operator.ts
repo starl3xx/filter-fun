@@ -18,7 +18,7 @@
 /// enough that an operator-console session never bumps it.
 
 import {ponder, type ApiContext} from "@/generated";
-import {and, asc, desc, eq, gte, lte} from "@ponder/core";
+import {and, desc, eq, gte, lte} from "@ponder/core";
 import type {Context} from "hono";
 import {streamSSE} from "hono/streaming";
 

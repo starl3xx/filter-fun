@@ -97,7 +97,25 @@ export async function decideOperatorAuth(input: {
 
   // Staleness check — reject messages older than the window OR set in the future
   // (clock skew + replay safety).
-  const issuedAtMs = Date.parse(input.issuedAt);
+  //
+  // Bugbot PR #95 round 2 (High): the timestamp MUST come from the signed
+  // message body, not from the unsigned `X-Operator-Issued-At` header. Using
+  // the header was a replay vulnerability — an attacker who captured a valid
+  // operator request could replay it indefinitely by freshening only the
+  // header (signature stays valid because the signed message is unchanged).
+  // Parse `issuedAt: <ISO>` from the signed body and use THAT. We additionally
+  // require the header to match exactly (defense in depth — flags clients
+  // that are sending mismatched values, surfaces tampering attempts as a
+  // distinct deny reason rather than silently letting one or the other win).
+  const signedIssuedAt = parseSignedField(input.message, "issuedAt");
+  if (!signedIssuedAt) {
+    return {authorized: false, reason: "stale_message"};
+  }
+  if (signedIssuedAt !== input.issuedAt) {
+    // Header tampered post-signing OR client bug. Either way, refuse.
+    return {authorized: false, reason: "stale_message"};
+  }
+  const issuedAtMs = Date.parse(signedIssuedAt);
   if (!Number.isFinite(issuedAtMs)) {
     return {authorized: false, reason: "stale_message"};
   }
@@ -134,6 +152,29 @@ export async function decideOperatorAuth(input: {
     return {authorized: false, reason: "not_authorized"};
   }
   return {authorized: true, signer};
+}
+
+/// Parse a `<key>: <value>` line out of the signed message body. The body
+/// format is fixed (see `makeOperatorMessage` on the web side):
+///
+///   filter.fun operator console
+///   action: <method path>
+///   issuedAt: <ISO>
+///
+/// Returns `null` if the field isn't present or the value is empty. Tolerates
+/// trailing whitespace + CRLF line endings (a stray `\r` from a Windows client
+/// shouldn't authorise; but ALSO shouldn't gratuitously deny a well-formed
+/// signature — trim defensively).
+export function parseSignedField(message: string, key: string): string | null {
+  const lines = message.split(/\r?\n/);
+  const prefix = `${key}: `;
+  for (const line of lines) {
+    if (line.startsWith(prefix)) {
+      const v = line.slice(prefix.length).trim();
+      return v.length > 0 ? v : null;
+    }
+  }
+  return null;
 }
 
 /// Parse the comma-separated `OPERATOR_WALLETS` env. Empty entries (e.g. trailing
