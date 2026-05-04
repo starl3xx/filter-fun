@@ -87,8 +87,9 @@ contract LauncherStakeAdmin is ReentrancyGuard {
         nonReentrant
     {
         if (msg.sender != launcher.oracle()) revert NotOracle();
-        IFilterLauncher.Phase p = launcher.phaseOf(seasonId);
-        if (p == IFilterLauncher.Phase.Launch || p == IFilterLauncher.Phase(0)) revert WrongPhase();
+        // Audit: bugbot L PR #88. `Phase(0)` is `Phase.Launch` (Launch is the first
+        // enum variant) — the second disjunct was dead code and is dropped.
+        if (launcher.phaseOf(seasonId) == IFilterLauncher.Phase.Launch) revert WrongPhase();
 
         for (uint256 i = 0; i < survivors.length; ++i) {
             address t = survivors[i];
