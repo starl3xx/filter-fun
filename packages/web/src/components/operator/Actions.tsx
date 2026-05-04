@@ -1,7 +1,7 @@
 "use client";
 
 import {useState} from "react";
-import {keccak256, stringToHex, toHex, type Address} from "viem";
+import {keccak256, stringToHex, type Address} from "viem";
 import {useAccount, useWriteContract} from "wagmi";
 
 import {OperatorCard} from "./Card";
@@ -486,6 +486,3 @@ function btnStyle(tone: string, disabled: boolean): React.CSSProperties {
   };
 }
 
-// Reference unused helpers so they don't get tree-shaken; placeholder for future
-// per-action gas-estimate readouts (spec §47.4 confirmation modal).
-void toHex;
