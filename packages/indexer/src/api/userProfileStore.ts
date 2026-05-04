@@ -151,10 +151,22 @@ export function createPgUserProfileStore(pool: Pool): UserProfileStore {
 
   return {
     async ensureSchema() {
+      // Bugbot M PR #102 pass-10: clear `schemaReady` on rejection so a
+      // transient pg blip during the first request doesn't permanently
+      // poison the store. Without this, the rejected promise was cached
+      // and every subsequent caller saw the same failure even after the
+      // DB recovered. Mirrors the in-flight Promise pattern used by
+      // `getUserProfileStore` in `index.ts`.
       if (schemaReady === null) {
-        schemaReady = pool.query(TABLE_DDL).then(() => {
-          /* swallow query result */
-        });
+        schemaReady = pool
+          .query(TABLE_DDL)
+          .then(() => {
+            /* swallow query result */
+          })
+          .catch((err: unknown) => {
+            schemaReady = null;
+            throw err;
+          });
       }
       await schemaReady;
     },
