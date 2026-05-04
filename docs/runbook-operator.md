@@ -1112,9 +1112,9 @@ echo "Will block: $CANONICAL → $HASH"
 ```
 
 - [ ] `$CANONICAL` matches the DTO's expected display form (uppercase, alphanumeric
-      only). If the response shape is `{ok: "invalid_format", ...}`, the input fails the
-      `[A-Z0-9]{2,10}` regex — do not proceed; reject the DTO request and ask for a
-      compliant ticker.
+      only). If the response is HTTP 400 with `{error: "invalid format", raw: ...}`, the
+      input fails the `[A-Z0-9]{2,10}` regex — do not proceed; reject the DTO request and
+      ask for a compliant ticker.
 
 ```sh
 # 2. Multisig submits the tx. The operator's role is to prepare the calldata and

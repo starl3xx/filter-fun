@@ -47,7 +47,7 @@ export function useClaimRefund(): UseClaimRefundResult {
     query: {enabled: isDeployed("filterLauncher")},
   });
 
-  const {writeContractAsync, data: txHash} = useWriteContract();
+  const {writeContractAsync, data: txHash, reset: resetWrite} = useWriteContract();
   const {isLoading: confirming, isSuccess: confirmed} = useWaitForTransactionReceipt({
     hash: txHash,
     query: {enabled: !!txHash},
@@ -90,9 +90,14 @@ export function useClaimRefund(): UseClaimRefundResult {
   );
 
   const reset = useCallback(() => {
+    // Clear wagmi's `txHash` + receipt watcher first — without this, the
+    // render-time `confirmed` check immediately re-asserts `phase = "success"`
+    // on the next render and the DISMISS button is non-functional. Mirrors
+    // useLaunchToken's pattern. (bugbot H PR #93.)
+    resetWrite();
     setPhase("idle");
     setError(null);
-  }, []);
+  }, [resetWrite]);
 
   return {phase, error, claim, reset};
 }

@@ -103,5 +103,14 @@ function mapResponseToError(r: TickerCheckResponse): {error: string | null; cano
         error: `$${ok.canonical} is already reserved this season`,
         canonical: ok.canonical,
       };
+    default:
+      // Defensive: a future API verdict added to TickerCheckOk without a
+      // matching arm here would otherwise return `undefined` and crash the
+      // caller reading `.error`. Surface generic copy and don't gate the form
+      // — the chain still enforces. (bugbot H PR #93.)
+      return {
+        error: "Couldn't verify ticker availability — try again",
+        canonical: null,
+      };
   }
 }

@@ -203,7 +203,14 @@ export function buildSlotRows({
 
   const launchCount = status?.launchCount ?? filledMap.size;
   const windowOpen = !status || (status.timeRemainingSec > 0 && status.launchCount < status.maxLaunches);
-  const nextEmpty = launchCount; // Slot indices fill 0..N-1; next-to-claim is at index `launchCount`.
+  // Pre-activation, reservations occupy slots launchCount..launchCount+reservationCount-1
+  // (the contract assigns slotIndex = currentResCount on every reserve). The "next-to-claim"
+  // slot must skip past both filled AND reserved indices, otherwise the kind="next" CTA
+  // collides with the reservation overlay and disappears from the grid. (bugbot M PR #93.)
+  let nextEmpty = launchCount;
+  while (nextEmpty < MAX_LAUNCHES && (filledMap.has(nextEmpty) || reservations.has(nextEmpty))) {
+    nextEmpty++;
+  }
 
   const rows: LaunchSlot[] = [];
   for (let slotIndex = 0; slotIndex < MAX_LAUNCHES; slotIndex++) {

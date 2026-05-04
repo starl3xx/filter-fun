@@ -148,4 +148,33 @@ describe("buildSlotRows", () => {
     });
     expect(slots[0]?.kind).toBe("filled");
   });
+
+  it("skips past reserved slots when computing the next-to-claim CTA (bugbot M PR #93)", () => {
+    // Realistic case: pre-activation, reservations occupy slot 0 sequentially
+    // (the contract assigns slotIndex = currentResCount). Without the
+    // skip-past-reserved fix, kind="next" would collide with reservation
+    // overlay on slot 0 and the CTA card would disappear entirely.
+    const cohort = makeFixtureCohort();
+    const filledMap = new Map<number, {token: `0x${string}`; creator: `0x${string}`}>();
+    const reservationMap = new Map([
+      [
+        0,
+        {
+          status: "PENDING" as const,
+          creator: "0x000000000000000000000000000000000000c0de" as `0x${string}`,
+          tickerHash: "0x1111111111111111111111111111111111111111111111111111111111111111" as `0x${string}`,
+          escrowAmountWei: 50_000_000_000_000_000n,
+        },
+      ],
+    ]);
+    const slots = buildSlotRows({
+      status: {...status, launchCount: 0},
+      filledMap,
+      reservationMap,
+      cohort,
+    });
+    expect(slots[0]?.kind).toBe("reserved-pending");
+    // Slot 1 is the next-to-claim — CTA stays visible despite the slot-0 reservation.
+    expect(slots[1]?.kind).toBe("next");
+  });
 });
