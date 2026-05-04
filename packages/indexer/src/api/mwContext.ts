@@ -44,6 +44,12 @@ export function toMwContext(c: unknown): MwContext {
   if (typeof req.url !== "string") {
     throw new Error("toMwContext: Ponder Context shape changed — missing .req.url");
   }
+  if (typeof req.method !== "string") {
+    throw new Error("toMwContext: Ponder Context shape changed — missing .req.method");
+  }
+  if (typeof req.path !== "string") {
+    throw new Error("toMwContext: Ponder Context shape changed — missing .req.path");
+  }
   if (typeof req.header !== "function") {
     throw new Error("toMwContext: Ponder Context shape changed — missing .req.header");
   }

@@ -21,6 +21,11 @@ export const contractAddresses = {
   /// arrives via the same deploy manifest sync; pre-deploy it's the zero
   /// address and `isDeployed("creatorCommitments")` gates the bag-lock UI.
   creatorCommitments: (deployment.addresses.creatorCommitments || ZERO_ADDR) as Address,
+  /// CreatorFeeDistributor — Epic 1.21 / spec §47.4.2. Operator console calls
+  /// `disableCreatorFee(token, reason)` here for sanctioned/compromised creator
+  /// addresses. Pre-deploy it's the zero address; `isDeployed("creatorFeeDistributor")`
+  /// gates the form.
+  creatorFeeDistributor: (deployment.addresses.creatorFeeDistributor || ZERO_ADDR) as Address,
   // `filterToken` is intentionally not exported here. The deploy manifest
   // stores it at the top level as an object `{address, locker, ...}` (set
   // by SeedFilter.s.sol after the protocol launch), not under `addresses.*`.

@@ -53,6 +53,11 @@ export const CreatorFeeDistributorAbi = [
         "name": "token",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "reason",
+        "type": "string",
+        "internalType": "string"
       }
     ],
     "outputs": [],
@@ -341,6 +346,31 @@ export const CreatorFeeDistributorAbi = [
   },
   {
     "type": "event",
+    "name": "OperatorActionEmitted",
+    "inputs": [
+      {
+        "name": "actor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "action",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "params",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TokenRegistered",
     "inputs": [
       {
@@ -366,6 +396,11 @@ export const CreatorFeeDistributorAbi = [
   {
     "type": "error",
     "name": "Disabled",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EmptyReason",
     "inputs": []
   },
   {

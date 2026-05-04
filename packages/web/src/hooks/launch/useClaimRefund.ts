@@ -9,7 +9,7 @@
 /// `to` is the creator-of-record, so the only safe value is the wallet that
 /// originally reserved.
 
-import {useCallback, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt} from "wagmi";
 
 import {contractAddresses, isDeployed} from "@/lib/addresses";
@@ -53,9 +53,15 @@ export function useClaimRefund(): UseClaimRefundResult {
     query: {enabled: !!txHash},
   });
 
-  // Drive `phase` from the receipt watcher.
-  if (txHash && confirming && phase !== "broadcasting") setPhase("broadcasting");
-  if (txHash && confirmed && phase !== "success") setPhase("success");
+  // Drive `phase` from the receipt watcher. Bugbot M PR #95 round 1: previously
+  // these `setPhase` calls fired during render which violates React's setState-
+  // during-render rule and triggers cascading re-renders. Move into a useEffect
+  // keyed on the watcher's outputs so the transitions land in commit phase.
+  useEffect(() => {
+    if (!txHash) return;
+    if (confirming && phase !== "broadcasting") setPhase("broadcasting");
+    if (confirmed && phase !== "success") setPhase("success");
+  }, [txHash, confirming, confirmed, phase]);
 
   const claim = useCallback(
     async (seasonId: bigint) => {
@@ -91,9 +97,10 @@ export function useClaimRefund(): UseClaimRefundResult {
 
   const reset = useCallback(() => {
     // Clear wagmi's `txHash` + receipt watcher first — without this, the
-    // render-time `confirmed` check immediately re-asserts `phase = "success"`
-    // on the next render and the DISMISS button is non-functional. Mirrors
-    // useLaunchToken's pattern. (bugbot H PR #93.)
+    // useEffect above re-asserts `phase = "success"` on the next render
+    // (because `confirmed` is still true) and the DISMISS button is non-
+    // functional. Mirrors useLaunchToken's pattern. (bugbot H PR #93;
+    // useEffect form added per bugbot M PR #95 round 1.)
     resetWrite();
     setPhase("idle");
     setError(null);

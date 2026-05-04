@@ -9,6 +9,8 @@ import "./FilterLpLocker";
 import "./FilterToken";
 import "./BonusDistributor";
 import "./CreatorCommitments";
+// Epic 1.16 (perpetual creator-fee rollup: Accrued/Claimed/Redirected/Disabled handlers)
+// + Epic 1.21 (operator audit-trail mirror from `OperatorActionEmitted`).
 import "./CreatorFeeDistributor";
 import "./TournamentRegistry";
 import "./V4PoolManager";
@@ -21,3 +23,7 @@ import "./HpFinalityAdvancer";
 // for endpoint docs.
 import "./api/index";
 import "./api/events/index";
+// Epic 1.21 — `/operator/*` routes (financial-overview, settlement-history, alerts,
+// alerts/stream, actions). Operator-gated via SIWE-style signed-message auth + the
+// OPERATOR_WALLETS env allow-list.
+import "./api/operator";

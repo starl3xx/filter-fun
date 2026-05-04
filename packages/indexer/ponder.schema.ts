@@ -496,3 +496,29 @@ export const tournamentAnnualEntrant = onchainTable("tournament_annual_entrant",
   isChampion: t.boolean().notNull().default(false),
   recordedAt: t.bigint().notNull(),
 }));
+
+// ============================================================ Operator audit (Epic 1.21)
+
+/// Per-call audit trail of operator actions. Populated from two event sources:
+///   - `CreatorFeeDistributor.OperatorActionEmitted` — direct `disableCreatorFee` audit.
+///   - `FilterLauncher.TickerBlocked` — derived row (the launcher is byte-budget-excluded
+///     from emitting `OperatorActionEmitted` directly; the indexer reconstructs the
+///     audit row from the on-chain event + tx `from`).
+///
+/// Surfaced via `GET /operator/actions` for the operator console's audit-log view
+/// (filter by actor / action / date range).
+///
+/// `params` is the raw bytes payload from the event (or a synthesised equivalent for
+/// derived rows). The operator console ABI-decodes per `action` for display.
+export const operatorActionLog = onchainTable("operator_action_log", (t) => ({
+  id: t.text().primaryKey(), // `${txHash}:${logIndex}`
+  actor: t.hex().notNull(),
+  action: t.text().notNull(),
+  /// ABI-encoded params blob. Decoded client-side per `action` (e.g.
+  /// `disableCreatorFee` decodes as `(address token, string reason)`,
+  /// `addTickerToBlocklist` decodes as `(bytes32 tickerHash)`).
+  params: t.text().notNull(), // hex string, including 0x prefix
+  txHash: t.hex().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+}));

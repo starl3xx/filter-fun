@@ -1,17 +1,26 @@
+/// CreatorFeeDistributor event handlers.
+///
+/// Two concerns share this module after the Epic 1.16 / 1.21 merge:
+///
+///  1. Epic 1.16 (perpetual creator fees, spec §10.3 + §10.6) — fee-flow rollup.
+///     The on-chain accounting is canonical (`info.accrued - info.claimed`);
+///     these handlers keep an indexer-side rollup so
+///     `/tokens/:address/creator-earnings` answers in O(1) instead of summing
+///     every per-event `feeAccrual.toCreator` slice in the request path. Per-
+///     token row is created lazily on first event observation; `creator` +
+///     `seasonId` are resolved from the `token` row populated by
+///     `FilterFactory.TokenDeployed`.
+///
+///  2. Epic 1.21 (operator admin console, spec §47.4) — audit trail.
+///     `OperatorActionEmitted(actor, action, params)` is the structured audit
+///     signal emitted by `disableCreatorFee`. We mirror it verbatim into
+///     `operatorActionLog` — the operator console reads from that table to
+///     render the audit-log view (filterable by actor / action / date range
+///     per spec §47.7).
+
 import {ponder} from "@/generated";
 
-import {creatorEarning, token as tokenTable} from "../ponder.schema";
-
-/// Singleton CreatorFeeDistributor handlers (Epic 1.16, spec §10.3 + §10.6).
-///
-/// The on-chain accounting is canonical (`info.accrued - info.claimed`); these handlers
-/// keep an indexer-side rollup so `/tokens/:address/creator-earnings` answers in O(1)
-/// instead of summing every per-event `feeAccrual.toCreator` slice in the request path.
-///
-/// Per-token row is created lazily on first event observation. We resolve `creator` +
-/// `seasonId` from the existing `token` row populated by `FilterFactory.TokenDeployed` —
-/// the singleton always emits its first creator-fee event AFTER the launcher has
-/// registered the token, so the lookup is always non-null when this fires.
+import {creatorEarning, operatorActionLog, token as tokenTable} from "../ponder.schema";
 
 ponder.on("CreatorFeeDistributor:CreatorFeeAccrued", async ({event, context}) => {
   const tokenAddr = event.args.token.toLowerCase() as `0x${string}`;
@@ -114,5 +123,25 @@ ponder.on("CreatorFeeDistributor:CreatorFeeDisabled", async ({event, context}) =
   await context.db.update(creatorEarning, {token: tokenAddr}).set({
     disabled: true,
     claimed: existing.lifetimeAccrued,
+  });
+});
+
+ponder.on("CreatorFeeDistributor:OperatorActionEmitted", async ({event, context}) => {
+  // Bugbot PR #95 round 10 (Medium): normalize `actor` to lowercase at write
+  // time so the `/operator/actions?actor=...` filter (which lowercases the
+  // query input before `eq()`) matches stored rows. Pre-fix the column held
+  // checksummed addresses but the query lowercased its input, so the filter
+  // never matched.
+  await context.db.insert(operatorActionLog).values({
+    id: `${event.transaction.hash}:${event.log.logIndex}`,
+    actor: event.args.actor.toLowerCase() as `0x${string}`,
+    action: event.args.action,
+    // The `bytes` param arrives as a 0x-prefixed hex string from viem; store as-is.
+    // The operator console ABI-decodes per `action` (e.g. for "disableCreatorFee" the
+    // params decode as `(address token, string reason)`).
+    params: event.args.params,
+    txHash: event.transaction.hash,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
   });
 });

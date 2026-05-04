@@ -181,13 +181,7 @@ contract CreatorFeeDistributorTest is Test {
         _registerToken(tokenA, creatorA);
         vm.prank(attacker);
         vm.expectRevert(CreatorFeeDistributor.NotMultisig.selector);
-        distributor.disableCreatorFee(tokenA);
-    }
-
-    function test_DisableCreatorFee_RejectsUnknownToken() public {
-        vm.prank(multisig);
-        vm.expectRevert(CreatorFeeDistributor.UnknownToken.selector);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
     }
 
     function test_DisableCreatorFee_HappyPath() public {
@@ -195,17 +189,17 @@ contract CreatorFeeDistributorTest is Test {
         vm.expectEmit(true, false, false, false);
         emit CreatorFeeDistributor.CreatorFeeDisabled(tokenA);
         vm.prank(multisig);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
         assertTrue(distributor.isDisabled(tokenA));
     }
 
     function test_DisableCreatorFee_Idempotent() public {
         _registerToken(tokenA, creatorA);
         vm.prank(multisig);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
         // Second call is a no-op (no event emit, no state change beyond the first).
         vm.prank(multisig);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
         assertTrue(distributor.isDisabled(tokenA));
     }
 
@@ -219,7 +213,7 @@ contract CreatorFeeDistributorTest is Test {
         // Pre-rotation: new multisig has no authority.
         vm.prank(newMultisig);
         vm.expectRevert(CreatorFeeDistributor.NotMultisig.selector);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
 
         // Rotate launcher ownership (Ownable, not Ownable2Step here, so single-step).
         vm.prank(multisig);
@@ -228,16 +222,16 @@ contract CreatorFeeDistributorTest is Test {
         // Old multisig now reverts; new one succeeds.
         vm.prank(multisig);
         vm.expectRevert(CreatorFeeDistributor.NotMultisig.selector);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
         vm.prank(newMultisig);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
         assertTrue(distributor.isDisabled(tokenA));
     }
 
     function test_NotifyFee_RedirectsWhenDisabled() public {
         _registerToken(tokenA, creatorA);
         vm.prank(multisig);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
 
         uint256 treasuryBefore = weth.balanceOf(treasury);
         _notifyFee(tokenA, 1 ether);
@@ -257,7 +251,7 @@ contract CreatorFeeDistributorTest is Test {
 
         uint256 treasuryBefore = weth.balanceOf(treasury);
         vm.prank(multisig);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
         assertEq(distributor.pendingClaim(tokenA), 0, "pre-disable accrual swept to treasury");
         assertEq(weth.balanceOf(treasury) - treasuryBefore, 0.4 ether, "treasury captured pending");
 
@@ -274,7 +268,7 @@ contract CreatorFeeDistributorTest is Test {
         // Capture: only CreatorFeeDisabled should be emitted.
         vm.recordLogs();
         vm.prank(multisig);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
         Vm.Log[] memory logs = vm.getRecordedLogs();
         // Exactly one event from the distributor; transferring 0 WETH would emit a Transfer too,
         // so we assert by topic on the distributor's own events only.
@@ -297,7 +291,7 @@ contract CreatorFeeDistributorTest is Test {
         _registerToken(tokenA, creatorA);
         _notifyFee(tokenA, 1 ether);
         vm.prank(multisig);
-        distributor.disableCreatorFee(tokenA);
+        distributor.disableCreatorFee(tokenA, "compromised");
 
         vm.prank(creatorA);
         vm.expectRevert(CreatorFeeDistributor.Disabled.selector);
@@ -393,5 +387,75 @@ contract CreatorFeeDistributorTest is Test {
 
     function test_IsDisabled_FalseForUnregisteredToken() public view {
         assertFalse(distributor.isDisabled(tokenA));
+    }
+
+    // ============================================================ Operator: disableCreatorFee — audit trail (Epic 1.21)
+    //
+    // Epic 1.21 / spec §47.4.2 — emergency disable surface for sanctioned / compromised
+    // creator addresses. Reuses the launcher's `owner()` as the operator key (the
+    // multisig in production, modeled here by `multisig` from setUp); a free-text
+    // `reason` is required to keep the audit trail meaningful and is logged via
+    // `OperatorActionEmitted` for the indexer's OperatorActionLog table.
+
+    // Note: the auth-revert path is covered by `test_DisableCreatorFee_OnlyMultisig`
+    // in the Multisig-disable section above; not duplicated here. (Bugbot PR #95
+    // round 10 Low — pre-fix this section had `_RejectsNonOperator` which was
+    // identical to `_OnlyMultisig`, plus a deleted `_RejectsUnknownToken` that
+    // we've now restored below.)
+
+    function test_DisableCreatorFee_RejectsUnknownToken() public {
+        // Coverage of the `UnknownToken` revert in `disableCreatorFee` — the
+        // call must fail before the auth-passing path can mutate state for an
+        // unregistered token. Restored after the merge resolution dropped this
+        // test (bugbot PR #95 round 10 Low).
+        vm.prank(multisig);
+        vm.expectRevert(CreatorFeeDistributor.UnknownToken.selector);
+        distributor.disableCreatorFee(tokenA, "compromised");
+    }
+
+    function test_DisableCreatorFee_RejectsEmptyReason() public {
+        _registerToken(tokenA, creatorA);
+        vm.prank(multisig);
+        vm.expectRevert(CreatorFeeDistributor.EmptyReason.selector);
+        distributor.disableCreatorFee(tokenA, "");
+    }
+
+    function test_DisableCreatorFee_FlipsFilteredAndEmitsAudit() public {
+        _registerToken(tokenA, creatorA);
+
+        vm.expectEmit(true, false, false, true);
+        emit CreatorFeeDistributor.OperatorActionEmitted(
+            multisig,
+            "disableCreatorFee",
+            abi.encode(tokenA, "compromised")
+        );
+        vm.expectEmit(true, false, false, true);
+        emit CreatorFeeDistributor.CreatorFeeDisabled(tokenA);
+        vm.prank(multisig);
+        distributor.disableCreatorFee(tokenA, "compromised");
+
+        // Subsequent fee notifications now redirect to treasury (info.disabled = true).
+        weth.mint(address(distributor), 1 ether);
+        vm.prank(locker);
+        distributor.notifyFee(tokenA, 1 ether);
+        assertEq(weth.balanceOf(treasury), 1 ether, "post-disable fee redirected to treasury");
+    }
+
+    function test_DisableCreatorFee_IdempotentReEmitsAudit() public {
+        _registerToken(tokenA, creatorA);
+        vm.prank(multisig);
+        distributor.disableCreatorFee(tokenA, "compromised");
+
+        // Second call: state is already disabled=true, but the audit event MUST still
+        // fire so every operator call lands a row in the indexer's OperatorActionLog.
+        // The CreatorFeeDisabled event does NOT re-fire (idempotent state guard).
+        vm.expectEmit(true, false, false, true);
+        emit CreatorFeeDistributor.OperatorActionEmitted(
+            multisig,
+            "disableCreatorFee",
+            abi.encode(tokenA, "follow-up audit")
+        );
+        vm.prank(multisig);
+        distributor.disableCreatorFee(tokenA, "follow-up audit");
     }
 }

@@ -392,6 +392,13 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     function addTickerToBlocklist(bytes32 tickerHash) external onlyMultisig {
         tickerBlocklist[tickerHash] = true;
         emit TickerBlocked(tickerHash);
+        // Operator audit trail (Epic 1.21 / spec §47.4): the launcher is hard up against
+        // the EIP-170 24,576-byte budget — adding an `OperatorActionEmitted` mirror here
+        // pushes deployment over the limit. The indexer derives the OperatorActionLog row
+        // from the `TickerBlocked` event directly (the multisig caller is recoverable from
+        // the tx `from` address; the params are the indexed `tickerHash`). Functionally
+        // equivalent to emitting `OperatorActionEmitted` directly. See spec §47.4 + the
+        // `OWNERSHIP MODEL` natspec at the top of this contract for the byte-budget context.
     }
 
     /// @notice Permanently reserve a ticker for the cross-season pool. Called by the season's

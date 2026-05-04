@@ -30,7 +30,6 @@ const creatorCommitmentsAddrEnv = process.env.CREATOR_COMMITMENTS_ADDRESS as
   | `0x${string}`
   | undefined;
 const v4PoolManagerAddr = deployment.addresses.v4PoolManager;
-const creatorFeeDistributorAddr = deployment.addresses.creatorFeeDistributor;
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 // Epic 1.15a — companion contracts deployed by `FilterLauncher`'s constructor. Manifest
 // path is canonical (DeploySepolia reads them off the launcher and writes to manifest);
@@ -99,6 +98,23 @@ if (creatorCommitmentsAddr === launcherAddr) {
   );
 } else {
   console.log(`[ponder]   creator commitments: ${creatorCommitmentsAddr}`);
+}
+
+/// Epic 1.21 / spec §47.4 — CreatorFeeDistributor emits `OperatorActionEmitted` from
+/// `disableCreatorFee`. The address is in the manifest at `addresses.creatorFeeDistributor`;
+/// fall back to the launcher address as a no-op sentinel when unset (mirrors the
+/// CreatorCommitments pattern above).
+const creatorFeeDistributorFromManifest = deployment.addresses.creatorFeeDistributor;
+const creatorFeeDistributorAddr =
+  creatorFeeDistributorFromManifest && creatorFeeDistributorFromManifest !== ZERO_ADDR
+    ? creatorFeeDistributorFromManifest
+    : launcherAddr;
+if (creatorFeeDistributorAddr === launcherAddr) {
+  console.warn(
+    `[ponder]   creator fee distributor: <unset in manifest> — falling back to ${creatorFeeDistributorAddr} (no events will match). Supply a manifest with addresses.creatorFeeDistributor populated.`,
+  );
+} else {
+  console.log(`[ponder]   creator fee distributor: ${creatorFeeDistributorAddr}`);
 }
 
 /// Indexes the canonical filter.fun deployment. `SeasonVault`, `FilterLpLocker`, and
@@ -208,10 +224,12 @@ export default createConfig({
       address: tournamentRegistryAddr,
       startBlock,
     },
-    /// Singleton creator-fee distributor (Epic 1.16). Indexes per-token Accrued / Redirected
-    /// / Claimed events so the indexer can resolve `lifetimeAccrued`, `claimable`, and
-    /// `lastClaimAt` for any token in O(1) (table lookup) instead of summing the
-    /// per-event `feeAccrual.toCreator` slice in the request path.
+    /// Singleton creator-fee distributor.
+    /// - Epic 1.16: per-token Accrued / Redirected / Claimed / Disabled events feed
+    ///   the `creatorEarning` rollup so `lifetimeAccrued`, `claimable`, and
+    ///   `lastClaimAt` resolve in O(1).
+    /// - Epic 1.21 / spec §47.4: `OperatorActionEmitted` from `disableCreatorFee`
+    ///   mirrors into `operatorActionLog` for the operator-console audit view.
     CreatorFeeDistributor: {
       network,
       abi: CreatorFeeDistributorAbi,

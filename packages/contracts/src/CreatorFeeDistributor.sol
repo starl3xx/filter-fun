@@ -10,6 +10,11 @@ import {CreatorRegistry} from "./CreatorRegistry.sol";
 interface ILauncherView {
     function lockerOf(uint256 seasonId, address token) external view returns (address);
     function vaultOf(uint256 seasonId) external view returns (address);
+    // Note (bugbot PR #95 round 14, Low): `owner()` is read via the `Ownable`
+    // cast in `disableCreatorFee` (see line 175), not through this interface —
+    // the contract is `Ownable`-typed in main's deployment so the cast resolves
+    // to the inherited selector directly. We don't redeclare `owner()` here to
+    // avoid a misleading "this interface is consumed" signal.
 }
 
 /// @title CreatorFeeDistributor
@@ -72,6 +77,10 @@ contract CreatorFeeDistributor {
     ///         lifecycle — filtered + non-winning tokens lose their fee stream by virtue of LP
     ///         unwind, not by emitting this event.
     event CreatorFeeDisabled(address indexed token);
+    /// @notice Operator audit-trail signal (Epic 1.21 / spec §47.4). Emitted from
+    ///         operator-callable functions so the indexer's `OperatorActionLog` table
+    ///         captures actor + decoded params without per-event schemas.
+    event OperatorActionEmitted(address indexed actor, string action, bytes params);
 
     error NotLauncher();
     error NotRegisteredLocker();
@@ -80,6 +89,7 @@ contract CreatorFeeDistributor {
     error AlreadyRegistered();
     error UnknownToken();
     error UnverifiedTransfer();
+    error EmptyReason();
     error Disabled();
 
     modifier onlyLauncher() {
@@ -147,18 +157,41 @@ contract CreatorFeeDistributor {
         }
     }
 
-    /// @notice Multisig-only emergency disable. Redirects future fees to treasury AND sweeps any
-    ///         already-accrued pending balance to treasury so a sanctioned recipient cannot pull
-    ///         pre-disable funds via `claim`. Use case: the registered recipient is sanctioned,
-    ///         compromised, or otherwise disqualified. Idempotent (the second call has no
-    ///         pending balance to sweep because notifyFee redirects directly when disabled).
-    /// @dev    Authority is read live from `Ownable(launcher).owner()` — same pattern as the
-    ///         vault's live-oracle read (audit H-2). An ownership transfer on the launcher
-    ///         takes effect on this gate immediately, no per-distributor wire.
-    function disableCreatorFee(address token) external {
+    /// @notice Multisig-only emergency disable (spec §10.6, Epic 1.21 §47.4.2). Redirects
+    ///         future fees to treasury AND sweeps any already-accrued pending balance to
+    ///         treasury so a sanctioned recipient cannot pull pre-disable funds via
+    ///         `claim`. Use case: the registered recipient is sanctioned, compromised, or
+    ///         otherwise disqualified.
+    ///
+    ///         Idempotent state change (second call has no pending to sweep because
+    ///         `notifyFee` redirects directly when disabled), but the audit-trail event
+    ///         re-emits on every call so the indexer's `OperatorActionLog` records every
+    ///         operator attempt — operators sometimes re-call to log a follow-up reason
+    ///         after the initial disable.
+    ///
+    ///         A free-text `reason` is required (logged on `OperatorActionEmitted`) so
+    ///         post-hoc forensics can attribute the disable; an empty reason reverts with
+    ///         `EmptyReason()` to keep the audit log meaningful.
+    /// @dev    Authority is read live from `Ownable(launcher).owner()` — same pattern as
+    ///         the vault's live-oracle read (audit H-2). An ownership transfer on the
+    ///         launcher takes effect on this gate immediately, no per-distributor wire.
+    function disableCreatorFee(address token, string calldata reason) external {
         if (msg.sender != Ownable(launcher).owner()) revert NotMultisig();
+        // Bugbot PR #95 round 17 (Low): check `UnknownToken` BEFORE
+        // `EmptyReason`. During an emergency disable the operator most needs
+        // to learn the token address is wrong (can't fix reason text and
+        // re-submit when the target is misidentified) — the input-quality
+        // sanity check on `reason` belongs after the target-exists gate.
         if (!registered[token]) revert UnknownToken();
+        if (bytes(reason).length == 0) revert EmptyReason();
         TokenInfo storage info = _info[token];
+
+        // Audit-trail emission BEFORE the idempotent early-return so re-calls
+        // still log a row in the indexer's `OperatorActionLog`. Operators
+        // sometimes re-disable to attach a follow-up `reason` (e.g.
+        // additional forensic context after the initial disable).
+        emit OperatorActionEmitted(msg.sender, "disableCreatorFee", abi.encode(token, reason));
+
         if (info.disabled) return;
         info.disabled = true;
         emit CreatorFeeDisabled(token);
