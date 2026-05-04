@@ -931,6 +931,9 @@ describe("TickEngine", () => {
       tokenAddressByLocker: async () => new Map(),
       recentFees: async () => opts.recent ?? [],
       baselineFees: async () => opts.baseline ?? new Map(),
+      // Epic 1.22b — empty projections are fine for SSE-tick assertions; HP
+      // values fall back to the same zero-signal shape as the legacy stub.
+      projectionInputsForCohort: async () => new Map(),
     };
   }
 
@@ -984,6 +987,7 @@ describe("TickEngine", () => {
       tokenAddressByLocker: async () => new Map(),
       recentFees: async () => [],
       baselineFees: async () => new Map(),
+      projectionInputsForCohort: async () => new Map(),
     };
     const eng = new TickEngine({cfg: testCfg(), queries, hub});
     const first = eng.tick();
@@ -1012,6 +1016,7 @@ describe("TickEngine", () => {
       tokenAddressByLocker: async () => new Map(),
       recentFees: async () => [],
       baselineFees: async () => new Map(),
+      projectionInputsForCohort: async () => new Map(),
     };
     const eng = new TickEngine({cfg: testCfg(), queries, hub});
     await eng.tick(); // seeds prev
@@ -1055,6 +1060,7 @@ describe("TickEngine", () => {
         baselineFeesLockerArg = lockerMap;
         return new Map();
       },
+      projectionInputsForCohort: async () => new Map(),
     };
     const eng = new TickEngine({cfg: testCfg(), queries, hub});
     await eng.tick(); // seeds prev — no fee queries on first tick

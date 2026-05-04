@@ -13,6 +13,7 @@ import "./CreatorFeeDistributor";
 import "./TournamentRegistry";
 import "./V4PoolManager";
 import "./HpSnapshot";
+import "./HpFinalityAdvancer";
 
 // HTTP API routes — see `src/api/index.ts` (REST: /season, /tokens, /token/:address,
 // /profile/:address, /tokens/:address/history) and `src/api/events/index.ts` (SSE).

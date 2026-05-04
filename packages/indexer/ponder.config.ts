@@ -236,11 +236,23 @@ export default createConfig({
   /// timeseries that backs `/tokens/:address/history`. Default interval = 150 blocks
   /// (≈5 min on Base's 2s blocks). Override via `HP_SNAPSHOT_INTERVAL_BLOCKS` to thin
   /// the series down for cheaper testnet runs (or thicken it for backtesting).
+  ///
+  /// `HpFinalityAdvancer` (Epic 1.22b) — periodic finality advancer. Runs more
+  /// frequently than the snapshot writer so newly-inserted `tip` rows promote
+  /// to `soft`/`final` within a single Base finality window. Default interval =
+  /// 6 blocks (≈12s); the advancer is a small bounded UPDATE so the cost is
+  /// negligible. Independent of `HpSnapshot` so a slow snapshot tick doesn't
+  /// delay finality propagation.
   blocks: {
     HpSnapshot: {
       network,
       startBlock,
       interval: Number(process.env.HP_SNAPSHOT_INTERVAL_BLOCKS ?? 150),
+    },
+    HpFinalityAdvancer: {
+      network,
+      startBlock,
+      interval: Number(process.env.HP_FINALITY_ADVANCER_INTERVAL_BLOCKS ?? 6),
     },
   },
 });

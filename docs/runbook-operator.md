@@ -229,6 +229,20 @@ indexer repopulates from genesis blocks via the BLOCK_TICK / SWAP / HOLDER_SNAPS
 handlers on restart. Mainnet ships clean from this version — there are no pre-1.18 rows
 to preserve.
 
+#### Epic 1.22b — `holder_balance.first_seen_at` backfill
+
+Sepolia / staging only — mainnet ships clean from this version. After the schema migration
+adds `first_seen_at` (default `0`), legacy `holder_balance` rows look like "first seen at
+unix epoch" to the retention projection, which overstates retention for the first 24h.
+Backfill in one-shot:
+
+```sh
+psql "$INDEXER_DATABASE_URL" -f packages/indexer/scripts/migrate-1.22b-firstSeenAt.sql
+```
+
+The script sets `first_seen_at = block_timestamp` on every legacy row and asserts no zero
+remains before commit. Idempotent — safe to re-run on a fresh DB (it's a no-op).
+
 Spot-check a recent `hpSnapshot` row to confirm provenance is being stamped:
 
 ```sh
