@@ -336,8 +336,22 @@ ponder.get("/operator/alerts/stream", async (c) => {
           await stream.writeln(":hb");
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "alerts_unavailable";
-        await stream.writeSSE({event: "error", data: JSON.stringify({error: message})});
+        // Bugbot PR #95 round 18 (Low): if `computeAlerts` throws AND the
+        // stream is concurrently aborted (client disconnected mid-tick), the
+        // error-frame `writeSSE` will itself throw on the already-aborted
+        // stream — that throw escapes the catch and surfaces as an unhandled
+        // promise rejection. Guard the write so an aborted stream just exits
+        // the loop cleanly on the next iteration check.
+        if (!stream.aborted) {
+          const message = err instanceof Error ? err.message : "alerts_unavailable";
+          try {
+            await stream.writeSSE({event: "error", data: JSON.stringify({error: message})});
+          } catch {
+            // Stream raced from open → aborted between the guard and the
+            // write. Swallow — the `while (!stream.aborted)` condition
+            // will exit the loop on the next iteration.
+          }
+        }
         // Reset lastJson so the next successful tick re-emits the current
         // alert set even if the JSON happens to match what we sent before
         // the error — the client just got an error frame and may have
