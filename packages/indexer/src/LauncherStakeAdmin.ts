@@ -29,7 +29,17 @@ ponder.on("LauncherStakeAdmin:StakeRefunded", async ({event, context}) => {
   // stake refund is a separate accounting flow handled by `LauncherStakeAdmin` itself,
   // not the escrow contract's totals. The reservation row's `status` is the canonical
   // surface for "did this slot end up refunded?" regardless of which path got it there.
-  void event;
+  //
+  // Audit: bugbot M PR #92. Symmetric SSE broadcast with `StakeForfeited` — the Arena
+  // UI's slot grid needs the post-activation refund signal to flip the slot card from
+  // "RELEASED" → "REFUNDED" without a manual refresh.
+  broadcastReservationEvent({
+    type: "SLOT_REFUNDED",
+    seasonId: event.args.seasonId,
+    creator: tokenRow.creator,
+    amountWei: event.args.amount,
+    token: event.args.token,
+  });
 });
 
 /// Stake forfeited — soft-filter cut, creator loses the stake to `forfeitRecipient`.

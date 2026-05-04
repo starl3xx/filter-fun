@@ -29,18 +29,33 @@ const creatorCommitmentsAddrEnv = process.env.CREATOR_COMMITMENTS_ADDRESS as
   | `0x${string}`
   | undefined;
 const v4PoolManagerAddr = deployment.addresses.v4PoolManager;
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 // Epic 1.15a — companion contracts deployed by `FilterLauncher`'s constructor. Manifest
 // path is canonical (DeploySepolia reads them off the launcher and writes to manifest);
 // env vars `LAUNCH_ESCROW_ADDRESS` / `LAUNCHER_STAKE_ADMIN_ADDRESS` work for env-only
 // production deploys without a manifest on disk.
+//
+// Audit: bugbot M PR #92. Mirror the `creatorCommitmentsAddr` pattern below — an env-var-
+// only deploy that DIDN'T set these falls back through `loadFromEnv` which defaults to
+// `ZERO_ADDR` (a truthy string), so a naive `??` chain would subscribe Ponder to the
+// zero address with no diagnostic. Treat ZERO as "unset" by explicitly checking it
+// before accepting the manifest value, so the launcher-addr sentinel + warn log fires.
 const launchEscrowAddrEnv = process.env.LAUNCH_ESCROW_ADDRESS as `0x${string}` | undefined;
 const launcherStakeAdminAddrEnv = process.env.LAUNCHER_STAKE_ADMIN_ADDRESS as
   | `0x${string}`
   | undefined;
+const launchEscrowFromManifest = deployment.addresses.launchEscrow;
+const launcherStakeAdminFromManifest = deployment.addresses.launcherStakeAdmin;
 const launchEscrowAddr =
-  launchEscrowAddrEnv ?? deployment.addresses.launchEscrow ?? launcherAddr;
+  launchEscrowAddrEnv ??
+  (launchEscrowFromManifest && launchEscrowFromManifest !== ZERO_ADDR
+    ? launchEscrowFromManifest
+    : launcherAddr);
 const launcherStakeAdminAddr =
-  launcherStakeAdminAddrEnv ?? deployment.addresses.launcherStakeAdmin ?? launcherAddr;
+  launcherStakeAdminAddrEnv ??
+  (launcherStakeAdminFromManifest && launcherStakeAdminFromManifest !== ZERO_ADDR
+    ? launcherStakeAdminFromManifest
+    : launcherAddr);
 
 console.log(
   `[ponder] indexing ${network} from block ${startBlock} (commit ${deployment.deployCommitHash})`,
@@ -70,7 +85,6 @@ if (launcherStakeAdminAddr === launcherAddr) {
 /// Falls back to the launcher's address as a non-functional sentinel if both are unset —
 /// the launcher never emits `Committed`, so the subscription is inert in that case (we'd
 /// see no rows, not crash).
-const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 const creatorCommitmentsFromManifest = deployment.addresses.creatorCommitments;
 const creatorCommitmentsAddr =
   creatorCommitmentsAddrEnv ??

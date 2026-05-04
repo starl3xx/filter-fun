@@ -53,6 +53,12 @@ ponder.on("LaunchEscrow:SlotReserved", async ({event, context}) => {
   // Increment summary counters. Bootstrapped by FilterLauncher:SeasonStarted; the
   // defensive insert here covers a corrupt indexer state (drop happens-before is
   // strict in Ponder so this branch is unreachable in practice).
+  //
+  // Audit: bugbot M PR #92. The defensive insert MUST fall through to the broadcast
+  // — an early-return here silently drops the SSE frame for any reservation that
+  // happens to land before the summary row exists, leaving Arena UI clients
+  // unaware of the slot. The broadcast is the load-bearing invariant of this
+  // handler; the DB shape is secondary.
   const summary = await context.db.find(launchEscrowSummary, {id: event.args.seasonId});
   if (!summary) {
     await context.db.insert(launchEscrowSummary).values({
@@ -60,14 +66,14 @@ ponder.on("LaunchEscrow:SlotReserved", async ({event, context}) => {
       reservationCount: 1,
       totalEscrowed: event.args.escrowAmount,
     });
-    return;
+  } else {
+    await context.db
+      .update(launchEscrowSummary, {id: event.args.seasonId})
+      .set({
+        reservationCount: summary.reservationCount + 1,
+        totalEscrowed: summary.totalEscrowed + event.args.escrowAmount,
+      });
   }
-  await context.db
-    .update(launchEscrowSummary, {id: event.args.seasonId})
-    .set({
-      reservationCount: summary.reservationCount + 1,
-      totalEscrowed: summary.totalEscrowed + event.args.escrowAmount,
-    });
   broadcastReservationEvent({
     type: "SLOT_RESERVED",
     seasonId: event.args.seasonId,
