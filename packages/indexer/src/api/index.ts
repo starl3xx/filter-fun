@@ -680,10 +680,17 @@ ponder.get("/profile/:identifier", async (c) => {
   // the legacy `/profile/:address` behaviour is preserved.
   let address: `0x${string}` | null = null;
   let profileRow: Awaited<ReturnType<UserProfileStore["getByAddress"]>> = null;
-  let usernamePathAttempted = false;
+  // Bugbot M PR #102 pass-12: track whether the identity layer answered
+  // this request. On a transient failure we previously attached a null-
+  // derived `userProfile` block (`{hasUsername: false}`), which actively
+  // claimed the user had no username — even if they actually had one.
+  // Omitting the field instead lets the client distinguish "not known"
+  // (field absent) from "explicitly no username" (`hasUsername: false`).
+  let identityLayerOk = false;
   try {
     const store = await getUserProfileStore();
     const resolved = await resolveProfileIdentifier(store, raw);
+    identityLayerOk = true;
     if (resolved === null) {
       // Address-shaped identifiers always resolve at the helper level;
       // null means username-not-found (or syntactically-invalid).
@@ -697,9 +704,6 @@ ponder.get("/profile/:identifier", async (c) => {
     } else {
       address = resolved.address;
       profileRow = resolved.profileRow;
-      // Track whether we resolved via the username path so the subsequent
-      // role-filter validation can apply consistently.
-      usernamePathAttempted = !isAddressLike(raw.toLowerCase());
     }
   } catch {
     // Identity layer unavailable. Address-shaped identifiers still work.
@@ -709,8 +713,8 @@ ponder.get("/profile/:identifier", async (c) => {
     }
     address = lowered as `0x${string}`;
     profileRow = null;
+    identityLayerOk = false;
   }
-  void usernamePathAttempted; // currently unused; placeholder for future telemetry
 
   const url = new URL(mw.req.url);
   const roleParam = url.searchParams.get("role");
@@ -732,13 +736,19 @@ ponder.get("/profile/:identifier", async (c) => {
   // ignore unknown fields are unaffected.
   if (r.value.status === 200) {
     const body = r.value.body as ProfileResponse;
-    return c.json(
-      {
-        ...body,
-        userProfile: userProfileBlockFromRow(address!, profileRow ?? null),
-      },
-      200,
-    );
+    // Only attach the userProfile block when the identity layer answered.
+    // A transient failure shouldn't actively flip `hasUsername` to false
+    // for users who own a handle (PR #102 pass-12 fix).
+    if (identityLayerOk) {
+      return c.json(
+        {
+          ...body,
+          userProfile: userProfileBlockFromRow(address!, profileRow ?? null),
+        },
+        200,
+      );
+    }
+    return c.json(body, 200);
   }
   // Bugbot L PR #102 pass-5: this branch is currently unreachable —
   // `address!` is already validated by `isAddressLike` upstream, so
