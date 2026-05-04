@@ -9,6 +9,13 @@
 /// `usePoll`, just inlined here because the fetcher closes over a value
 /// (the wallet) that the parent can change at runtime — `usePoll` only
 /// re-arms on `intervalMs`, so it can't be reused as-is.
+///
+/// `enabled` (Bugbot PR #101 follow-up) defers polling on consumers that
+/// only need holdings during specific UI states. The arena homepage uses
+/// holdings ONLY during the filter-moment ceremony (countdown → firing →
+/// recap) — passing `enabled: filterMoment.stage !== "idle"` keeps the
+/// hook quiet on the high-traffic idle path while the admin console (which
+/// always needs holdings) keeps the default `enabled: true`.
 
 import {useEffect, useState} from "react";
 
@@ -25,13 +32,17 @@ export type UseHoldingsResult = {
 export function useHoldings(
   wallet: `0x${string}` | null | undefined,
   intervalMs: number = DEFAULT_INTERVAL_MS,
+  enabled: boolean = true,
 ): UseHoldingsResult {
   const [data, setData] = useState<HoldingsResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(Boolean(wallet));
+  const [isLoading, setIsLoading] = useState<boolean>(Boolean(wallet) && enabled);
 
   useEffect(() => {
-    if (!wallet) {
+    if (!wallet || !enabled) {
+      // Bugbot PR #101 follow-up: don't keep stale data around after a
+      // consumer disables the hook (e.g. filter-moment returning to idle) —
+      // the next enable should re-fetch fresh.
       setData(null);
       setError(null);
       setIsLoading(false);
@@ -82,7 +93,7 @@ export function useHoldings(
       abort?.abort();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [wallet, intervalMs]);
+  }, [wallet, intervalMs, enabled]);
 
   return {data, error, isLoading};
 }

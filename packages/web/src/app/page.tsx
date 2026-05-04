@@ -245,7 +245,12 @@ export default function HomePage() {
   // never disagree across the two surfaces.
   const {address: walletAddress, isConnected} = useAccount();
   const wallet = isConnected && walletAddress ? (walletAddress as `0x${string}`) : null;
-  const {data: holdings} = useHoldings(wallet);
+  // Bugbot PR #101 (Medium): only poll holdings during the filter-moment
+  // ceremony. Idle homepage views drop the request entirely. The 10-min
+  // countdown stage gives the hook plenty of warmup before firing/recap
+  // need the data.
+  const holdingsEnabled = filterMoment.stage !== "idle";
+  const {data: holdings} = useHoldings(wallet, undefined, holdingsEnabled);
   const walletFilteredTickers: string[] = useMemo(() => {
     if (!holdings) return [];
     if (filterMoment.filteredAddresses.size === 0) return [];
