@@ -169,16 +169,8 @@ contract Epic116FeeRoutingTest is Test, Deployers {
         locker.collectFees();
         uint256 vaultAfterPre = weth.balanceOf(address(launcher.vaultOf(1)));
         uint256 polVaultAfterPre = weth.balanceOf(address(polVault));
-        assertGt(
-            vaultAfterPre,
-            vaultBefore,
-            "pre-settlement: SeasonVault must receive the prize-pool slice"
-        );
-        assertEq(
-            polVaultAfterPre - polVaultBefore,
-            0,
-            "pre-settlement: POLVault must NOT receive any slice"
-        );
+        assertGt(vaultAfterPre, vaultBefore, "pre-settlement: SeasonVault must receive the prize-pool slice");
+        assertEq(polVaultAfterPre - polVaultBefore, 0, "pre-settlement: POLVault must NOT receive any slice");
 
         // Settlement.
         _submitWinner(tokenAddr);
@@ -332,9 +324,8 @@ contract Epic116FeeRoutingTest is Test, Deployers {
 
         // A series of post-settlement swaps with varied sizes so the integer math hits both
         // dust-y and clean rounding paths.
-        uint256[6] memory swaps = [
-            uint256(0.1 ether), 0.05 ether, 0.5 ether, 0.001 ether, 1 ether, 0.013 ether
-        ];
+        uint256[6] memory swaps =
+            [uint256(0.1 ether), 0.05 ether, 0.5 ether, 0.001 ether, 1 ether, 0.013 ether];
 
         uint256 priorCreatorPending = distributor.pendingClaim(tokenAddr);
 
@@ -358,12 +349,9 @@ contract Epic116FeeRoutingTest is Test, Deployers {
             // POL slice = totalCollected - (treasury + mechanics + creator). The treasury,
             // mechanics, creator slices match `(totalCollected * BPS) / 200` exactly because
             // the locker uses the same formula.
-            uint256 expectedTreasury =
-                (totalCollected * locker.POST_SETTLEMENT_TREASURY_BPS()) / 200;
-            uint256 expectedMech =
-                (totalCollected * locker.POST_SETTLEMENT_MECHANICS_BPS()) / 200;
-            uint256 expectedCreator =
-                (totalCollected * locker.POST_SETTLEMENT_CREATOR_BPS()) / 200;
+            uint256 expectedTreasury = (totalCollected * locker.POST_SETTLEMENT_TREASURY_BPS()) / 200;
+            uint256 expectedMech = (totalCollected * locker.POST_SETTLEMENT_MECHANICS_BPS()) / 200;
+            uint256 expectedCreator = (totalCollected * locker.POST_SETTLEMENT_CREATOR_BPS()) / 200;
             uint256 expectedPol = totalCollected - expectedTreasury - expectedMech - expectedCreator;
 
             assertEq(treasuryDelta, expectedTreasury, "post-settle: treasury slice drift");

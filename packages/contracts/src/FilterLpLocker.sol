@@ -185,7 +185,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         );
         require(
             POST_SETTLEMENT_POL_BPS + POST_SETTLEMENT_TREASURY_BPS + POST_SETTLEMENT_MECHANICS_BPS
-                + POST_SETTLEMENT_CREATOR_BPS == FEE_TOTAL_BPS,
+                    + POST_SETTLEMENT_CREATOR_BPS == FEE_TOTAL_BPS,
             "post-settle fee bps"
         );
         poolManager = poolManager_;
