@@ -9,6 +9,7 @@ import {privateKeyToAccount} from "viem/accounts";
 
 import {
   decideOperatorAuth,
+  parseOperatorMessage,
   parseOperatorWallets,
   parseSignedField,
 } from "../../src/api/operatorAuth.js";
@@ -337,6 +338,45 @@ describe("decideOperatorAuth — verifier injection (EIP-1271 path)", () => {
       allowlistRaw: SIGNER,
     });
     expect(r.authorized).toBe(true);
+  });
+});
+
+describe("parseOperatorMessage", () => {
+  // Bugbot PR #95 round 7 (High): the signed body is multi-line so it can't
+  // travel in a header value verbatim — `fetch` throws on `\n`/`\r` per
+  // Fetch spec. The web client base64-encodes; this server-side parser
+  // decodes. The round-trip must preserve the EXACT signed bytes; otherwise
+  // viem's verifyMessage will fail.
+  function b64(s: string): string {
+    return Buffer.from(s, "utf8").toString("base64");
+  }
+
+  it("returns undefined when the header is missing", () => {
+    expect(parseOperatorMessage(undefined)).toBeUndefined();
+    expect(parseOperatorMessage("")).toBeUndefined();
+  });
+
+  it("decodes a base64 ASCII body", () => {
+    expect(parseOperatorMessage(b64("hello"))).toBe("hello");
+  });
+
+  it("decodes a multi-line body losslessly (preserves \\n)", () => {
+    const original = [
+      "filter.fun operator console",
+      "action: GET /operator/alerts",
+      "issuedAt: 2026-05-04T20:00:00Z",
+    ].join("\n");
+    expect(parseOperatorMessage(b64(original))).toBe(original);
+  });
+
+  it("decodes UTF-8 codepoints losslessly", () => {
+    const original = "café — naïve";
+    expect(parseOperatorMessage(b64(original))).toBe(original);
+  });
+
+  it("returns undefined for empty base64 input (decoded length 0)", () => {
+    // `Buffer.from("", "base64")` is zero-length — treat as missing.
+    expect(parseOperatorMessage(b64(""))).toBeUndefined();
   });
 });
 

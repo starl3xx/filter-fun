@@ -5,10 +5,15 @@
 ///     production multisig + any signing-capable EOAs).
 ///   - Every `/operator/*` request must carry a SIWE-style signed message in the
 ///     `Authorization` and `X-Operator-Address` headers:
-///       Authorization:        `Bearer <0x-prefixed sig>`
-///       X-Operator-Address:   `<0x-prefixed signer address>`
-///       X-Operator-Message:   `<the signed message body>`
-///       X-Operator-Issued-At: `<ISO 8601 timestamp>` (≤ 5 min stale)
+///       Authorization:          `Bearer <0x-prefixed sig>`
+///       X-Operator-Address:     `<0x-prefixed signer address>`
+///       X-Operator-Message-B64: `<base64(utf8(signed message body))>` — the
+///                               body is multi-line and the Fetch spec forbids
+///                               `\n` / `\r` in header values, so it's
+///                               base64-encoded for transport. The verifier
+///                               sees the decoded form (signature math is
+///                               unchanged).
+///       X-Operator-Issued-At:   `<ISO 8601 timestamp>` (≤ 5 min stale)
 ///   - The message must be EIP-191 personal_sign-style (`viem.verifyMessage` semantics).
 ///   - The recovered signer must match `X-Operator-Address` AND must be in the
 ///     `OPERATOR_WALLETS` allow-list (case-insensitive comparison).
@@ -203,6 +208,28 @@ export function parseSignedField(message: string, key: string): string | null {
   return null;
 }
 
+/// Decode `X-Operator-Message-B64` back to the signed message body. The
+/// web client base64-encodes the (multi-line, human-readable) body before
+/// putting it in the header because the Fetch spec forbids `\n` / `\r` in
+/// header values. Bugbot PR #95 round 7 (High): pre-fix the web client
+/// sent the raw body, which made every `fetch` to the operator console
+/// throw TypeError on Headers construction. Returns `undefined` when the
+/// header is absent or the value isn't valid base64 — the missing_headers
+/// deny branch picks it up as a normal client misconfig.
+export function parseOperatorMessage(b64: string | undefined): string | undefined {
+  if (!b64) return undefined;
+  try {
+    // `Buffer.from(..., "base64")` accepts both standard and url-safe
+    // alphabets and silently drops invalid chars. We then UTF-8 decode the
+    // resulting bytes back to the original message.
+    const bytes = Buffer.from(b64, "base64");
+    if (bytes.length === 0) return undefined;
+    return bytes.toString("utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 /// Parse the comma-separated `OPERATOR_WALLETS` env. Empty entries (e.g. trailing
 /// commas) and malformed addresses are dropped silently — operators reading the
 /// boot log see the resolved list, so a typo lands as "address X dropped from
@@ -292,10 +319,19 @@ export async function applyOperatorAuth(c: MwContext): Promise<{response: Respon
   // and Hono's `c.req.path` returns the same shape (no query) — so a
   // direct equality check is sufficient.
   const expectedAction = `${c.req.method.toUpperCase()} ${c.req.path}`;
+  // Bugbot PR #95 round 7 (High): the signed message body is multi-line
+  // (`makeOperatorMessage` joins three lines with `\n` so the wallet prompt
+  // is human-readable to operators), and per the Fetch spec a header value
+  // MUST NOT contain `\n` / `\r` — `fetch` throws TypeError before sending.
+  // The web client base64-encodes the body and sends it as
+  // `X-Operator-Message-B64`; we decode here so the verifier sees the
+  // original signed bytes. `parseOperatorMessage` returns `undefined` on
+  // missing/malformed input → the existing `missing_headers` deny path.
+  const message = parseOperatorMessage(c.req.header("x-operator-message-b64"));
   const decision = await decideOperatorAuth({
     authorization: c.req.header("authorization"),
     address: c.req.header("x-operator-address"),
-    message: c.req.header("x-operator-message"),
+    message,
     issuedAt: c.req.header("x-operator-issued-at"),
     allowlistRaw: process.env.OPERATOR_WALLETS,
     expectedAction,

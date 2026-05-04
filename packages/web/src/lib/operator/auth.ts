@@ -64,13 +64,41 @@ export async function signOperatorRequest(
 
 /// Convert a signed request into the headers a `fetch` call needs. Co-located
 /// with the signer so a future change to header naming lands in one place.
+///
+/// The signed message body is multi-line (`makeOperatorMessage` joins three
+/// lines with `\n` so the wallet prompt is human-readable). Header values
+/// per the Fetch spec MUST NOT contain `\n` or `\r` — both browser and
+/// Node `fetch` throw `TypeError` constructing such a Headers object.
+/// Bugbot PR #95 round 7 (High Severity): pre-fix every `operatorFetch`
+/// call would throw before sending, completely breaking the operator
+/// console. The fix base64-encodes the body for transport. The signed
+/// bytes (and therefore the wallet prompt) are still the human-readable
+/// multi-line form; only the over-the-wire header value is encoded. The
+/// server base64-decodes before passing to the verifier so the recovered
+/// signature still matches the original body.
 export function operatorAuthHeaders(req: OperatorSignedRequest): HeadersInit {
   return {
     "Authorization": req.authorization,
     "X-Operator-Address": req.address,
-    "X-Operator-Message": req.message,
+    "X-Operator-Message-B64": encodeMessageForHeader(req.message),
     "X-Operator-Issued-At": req.issuedAt,
   };
+}
+
+/// Encode a UTF-8 string as base64 for safe header transport. The signed
+/// body is ASCII (`makeOperatorMessage` only builds ASCII strings), so a
+/// direct `btoa(message)` would suffice — but we encode through a UTF-8
+/// byte path for forward-compat (a future signed field carrying e.g. a
+/// multisig name with non-ASCII characters would still encode correctly).
+export function encodeMessageForHeader(message: string): string {
+  // `btoa` operates on Latin-1 only. Convert to UTF-8 bytes first so any
+  // non-ASCII codepoint encodes losslessly.
+  const utf8 = new TextEncoder().encode(message);
+  let binary = "";
+  for (let i = 0; i < utf8.length; i++) {
+    binary += String.fromCharCode(utf8[i]!);
+  }
+  return btoa(binary);
 }
 
 /// Adapter: wagmi's WalletClient has the right shape, but its signMessage

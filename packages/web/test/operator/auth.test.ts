@@ -5,6 +5,7 @@ import {privateKeyToAccount} from "viem/accounts";
 import {verifyMessage} from "viem";
 
 import {
+  encodeMessageForHeader,
   makeOperatorMessage,
   operatorAuthHeaders,
   signOperatorRequest,
@@ -54,7 +55,7 @@ describe("signOperatorRequest", () => {
 });
 
 describe("operatorAuthHeaders", () => {
-  it("emits the four canonical header names", () => {
+  it("emits the four canonical header names with a base64-encoded message", () => {
     const headers = operatorAuthHeaders({
       authorization: "Bearer 0xdead",
       address: "0xabcd",
@@ -64,8 +65,54 @@ describe("operatorAuthHeaders", () => {
     expect(headers).toEqual({
       Authorization: "Bearer 0xdead",
       "X-Operator-Address": "0xabcd",
-      "X-Operator-Message": "msg",
+      "X-Operator-Message-B64": "bXNn", // base64("msg")
       "X-Operator-Issued-At": "2026-05-04T00:00:00Z",
     });
+  });
+
+  // Bugbot PR #95 round 7 (High Severity): pre-fix the multi-line signed
+  // body was placed directly into `X-Operator-Message`. The Fetch spec
+  // forbids `\n` / `\r` (0x0A / 0x0D) in header VALUES — both browser
+  // and Node `fetch` throw `TypeError` constructing such a Headers
+  // object, so EVERY operator-console fetch failed before sending. The
+  // fix base64-encodes the body. This test pins that guarantee: the
+  // canonical signed body MUST round-trip through `new Headers()`
+  // without throwing.
+  it("produces headers that the Fetch API accepts (no forbidden bytes)", async () => {
+    const signer = makeSigner();
+    const req = await signOperatorRequest(signer, "GET /operator/alerts");
+    // The signed body is multi-line — sanity check before testing the
+    // header. If this assertion ever flips to single-line we should
+    // revisit whether the header-encode path is still needed.
+    expect(req.message).toContain("\n");
+    const headers = operatorAuthHeaders(req);
+    expect(() => new Headers(headers)).not.toThrow();
+    // And every header value is `\n` / `\r`-free.
+    for (const [, value] of Object.entries(headers as Record<string, string>)) {
+      expect(value).not.toMatch(/[\r\n]/);
+    }
+  });
+
+  it("the encoded message round-trips losslessly through atob", () => {
+    const original = makeOperatorMessage("GET /operator/alerts", "2026-05-04T20:00:00Z");
+    const encoded = encodeMessageForHeader(original);
+    // atob → byte-string; convert byte-string → UTF-8 string for the round-trip.
+    const decoded = new TextDecoder().decode(
+      Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0)),
+    );
+    expect(decoded).toBe(original);
+  });
+
+  it("encodes non-ASCII characters losslessly via the UTF-8 byte path", () => {
+    // Forward-compat: a future signed field might carry e.g. a multisig
+    // name with non-ASCII chars. The encoder MUST go through UTF-8 bytes
+    // so codepoints above 0xFF round-trip; a naive `btoa(message)` would
+    // throw on these inputs.
+    const original = "café — naïve";
+    const encoded = encodeMessageForHeader(original);
+    const decoded = new TextDecoder().decode(
+      Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0)),
+    );
+    expect(decoded).toBe(original);
   });
 });
