@@ -177,8 +177,13 @@ contract CreatorFeeDistributor {
     ///         launcher takes effect on this gate immediately, no per-distributor wire.
     function disableCreatorFee(address token, string calldata reason) external {
         if (msg.sender != Ownable(launcher).owner()) revert NotMultisig();
-        if (bytes(reason).length == 0) revert EmptyReason();
+        // Bugbot PR #95 round 17 (Low): check `UnknownToken` BEFORE
+        // `EmptyReason`. During an emergency disable the operator most needs
+        // to learn the token address is wrong (can't fix reason text and
+        // re-submit when the target is misidentified) — the input-quality
+        // sanity check on `reason` belongs after the target-exists gate.
         if (!registered[token]) revert UnknownToken();
+        if (bytes(reason).length == 0) revert EmptyReason();
         TokenInfo storage info = _info[token];
 
         // Audit-trail emission BEFORE the idempotent early-return so re-calls
