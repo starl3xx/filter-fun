@@ -205,6 +205,7 @@ contract DeploySepolia is Script {
                 polVault: address(polVault),
                 launcher: address(launcher),
                 launchEscrow: address(launcher.launchEscrow()),
+                launcherStakeAdmin: address(launcher.stakeAdmin()),
                 polManager: address(polManager),
                 hook: address(hook),
                 factory: address(factory),
@@ -265,6 +266,7 @@ contract DeploySepolia is Script {
         address polVault;
         address launcher;
         address launchEscrow;
+        address launcherStakeAdmin;
         address polManager;
         address hook;
         address factory;
@@ -302,6 +304,8 @@ contract DeploySepolia is Script {
             _kv("filterLauncher", a.launcher),
             ",",
             _kv("launchEscrow", a.launchEscrow),
+            ",",
+            _kv("launcherStakeAdmin", a.launcherStakeAdmin),
             ",",
             _kv("polManager", a.polManager),
             ",",

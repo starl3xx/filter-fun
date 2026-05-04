@@ -22,7 +22,18 @@ export type EventType =
   | "FILTER_FIRED"        // contract emitted Filter phase / liquidation (HIGH)
   | "FILTER_COUNTDOWN"    // < N min until filter (HIGH)
   | "PHASE_ADVANCED"      // any season phase advance (MEDIUM)
-  | "HP_UPDATED";         // hpSnapshot row written (LOW; per-trigger, fires on every recompute — Epic 1.17b)
+  | "HP_UPDATED"          // hpSnapshot row written (LOW; per-trigger, fires on every recompute — Epic 1.17b)
+  // Reservation lifecycle (Epic 1.15a) — emitted on `/season/:id/launch/stream`,
+  // not on the main `/events` feed. Per-event priorities are tuned to surface
+  // refund-required signals visibly while keeping background reservation churn quiet.
+  | "SLOT_RESERVED"       // creator reserved a slot (LOW)
+  | "SLOT_RELEASED"       // slot normalized into a launched token (LOW)
+  | "SLOT_REFUNDED"       // slot abort refund succeeded (MEDIUM)
+  | "SLOT_REFUND_PENDING" // slot abort refund failed — creator must claim (HIGH)
+  | "SLOT_REFUND_CLAIMED" // creator drained the pending-refund slot (LOW)
+  | "SLOT_FORFEITED"      // post-activation soft-filter cut, stake forfeited (MEDIUM)
+  | "SEASON_ACTIVATED"    // ≥ ACTIVATION_THRESHOLD slots filled, season is live (HIGH)
+  | "SEASON_ABORTED";     // season aborted; creators check pending refunds (HIGH)
 
 export interface TokenSnapshot {
   address: `0x${string}`;
