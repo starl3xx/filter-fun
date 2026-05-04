@@ -26,6 +26,10 @@ import {feeAccrual, operatorActionLog, phaseChange, season, token} from "../../p
 
 import {applyGetRateLimit, type MwContext, clientIpFromContext} from "./middleware.js";
 import {toMwContext} from "./mwContext.js";
+import {
+  evaluateSettlementProvenance,
+  type Alert,
+} from "./operatorAlerts.js";
 import {applyOperatorAuth} from "./operatorAuth.js";
 
 // ============================================================ /operator/financial-overview
@@ -44,11 +48,18 @@ ponder.get("/operator/financial-overview", async (c) => {
 
   const db = c.db;
 
-  // Aggregate the four-way fee-accrual rollups across all swaps in the indexed window.
+  // Aggregate the four-way fee-accrual rollups across all swaps in a bounded window.
   // The schema stores per-tx rows (one per `FilterLpLocker.FeesCollected` event), so we
-  // sum them in-handler. For genesis volumes this is fine (~hundreds of rows/season);
-  // post-mainnet a materialised aggregate is the optimisation if this becomes slow.
-  const rows = await db.select().from(feeAccrual);
+  // sum them in-handler. Bound to the trailing 30 days so the read scales with active
+  // load rather than total history (bugbot PR #95 round 3, Low Severity: pre-fix this
+  // was a full-table scan that grew unboundedly post-mainnet, becoming a per-request
+  // O(n) read on every operator console refresh).
+  const FINANCIAL_WINDOW_SEC = 30 * 24 * 3600;
+  const sinceSec = BigInt(Math.floor(Date.now() / 1000) - FINANCIAL_WINDOW_SEC);
+  const rows = await db
+    .select()
+    .from(feeAccrual)
+    .where(gte(feeAccrual.blockTimestamp, sinceSec));
   const flows = rows.reduce(
     (acc, r) => ({
       toVault: acc.toVault + r.toVault,
@@ -78,6 +89,13 @@ ponder.get("/operator/financial-overview", async (c) => {
         toMechanicsWei: flows.toMechanics.toString(),
         toCreatorWei: flows.toCreator.toString(),
       },
+      /// Window the `flowsTotal` aggregate covers (seconds — trailing 30 days).
+      /// The dashboard renders this so an operator reading "0.014 WETH to vault"
+      /// understands the scale ("0.014 WETH over the last 30 days" vs.
+      /// "all-time"). All-time aggregates would require a materialised view; the
+      /// 30-day window is a pragmatic cap that scales with operator-console
+      /// usage instead of total history.
+      flowsWindowSec: FINANCIAL_WINDOW_SEC,
       filterFundBySeason,
       indexedAt: Math.floor(Date.now() / 1000),
     },
@@ -309,81 +327,28 @@ ponder.get("/operator/alerts/stream", async (c) => {
 
 // ============================================================ Alert computation
 
-interface Alert {
-  id: string;
-  level: "warn" | "error";
-  source: string;
-  message: string;
-  since: number; // unix seconds
-  params?: Record<string, unknown>;
-}
-
 const RESERVATION_STUCK_THRESHOLD_SEC = 60 * 60; // 1 hour
-const SETTLEMENT_DRIFT_TOLERANCE_SEC = 10;
 
 async function computeAlerts(db: ApiContext["db"]): Promise<Alert[]> {
   const out: Alert[] = [];
   const nowSec = Math.floor(Date.now() / 1000);
 
-  // 1. Settlement provenance: for every season past h168, both CUT + FINALIZE phase
-  //    transitions must have landed within the tolerance of their expected anchors.
+  // 1. Settlement provenance.
   const seasons = await db.select().from(season).orderBy(desc(season.id)).limit(5);
   for (const s of seasons) {
-    const startedSec = Number(s.startedAt);
-    const expectedCut = startedSec + 96 * 3600;
-    const expectedFinalize = startedSec + 168 * 3600;
-    if (nowSec < expectedFinalize - SETTLEMENT_DRIFT_TOLERANCE_SEC) continue;
-
     const phaseRows = await db
       .select()
       .from(phaseChange)
       .where(eq(phaseChange.seasonId, s.id));
-    const cut = phaseRows.find((p) => p.newPhase === "Finals");
-    const finalize = phaseRows.find((p) => p.newPhase === "Settlement");
-    if (!cut) {
-      out.push({
-        id: `settlement_provenance_cut_missing:${s.id.toString()}`,
-        level: "error",
-        source: "oracle_provenance",
-        message: `Season ${s.id.toString()} missed CUT transition`,
-        since: expectedCut,
-        params: {seasonId: s.id.toString(), expectedAt: expectedCut},
-      });
-    } else {
-      const drift = Math.abs(Number(cut.blockTimestamp) - expectedCut);
-      if (drift > SETTLEMENT_DRIFT_TOLERANCE_SEC) {
-        out.push({
-          id: `settlement_provenance_cut_drift:${s.id.toString()}`,
-          level: "warn",
-          source: "oracle_provenance",
-          message: `Season ${s.id.toString()} CUT drifted ${drift}s from h96`,
-          since: Number(cut.blockTimestamp),
-          params: {seasonId: s.id.toString(), driftSec: drift},
-        });
-      }
-    }
-    if (!finalize) {
-      out.push({
-        id: `settlement_provenance_finalize_missing:${s.id.toString()}`,
-        level: "error",
-        source: "oracle_provenance",
-        message: `Season ${s.id.toString()} missed FINALIZE transition`,
-        since: expectedFinalize,
-        params: {seasonId: s.id.toString(), expectedAt: expectedFinalize},
-      });
-    } else {
-      const drift = Math.abs(Number(finalize.blockTimestamp) - expectedFinalize);
-      if (drift > SETTLEMENT_DRIFT_TOLERANCE_SEC) {
-        out.push({
-          id: `settlement_provenance_finalize_drift:${s.id.toString()}`,
-          level: "warn",
-          source: "oracle_provenance",
-          message: `Season ${s.id.toString()} FINALIZE drifted ${drift}s from h168`,
-          since: Number(finalize.blockTimestamp),
-          params: {seasonId: s.id.toString(), driftSec: drift},
-        });
-      }
-    }
+    out.push(
+      ...evaluateSettlementProvenance({
+        seasonId: s.id,
+        startedAtSec: Number(s.startedAt),
+        cutTimestampSec: phaseRows.find((p) => p.newPhase === "Finals")?.blockTimestamp,
+        finalizeTimestampSec: phaseRows.find((p) => p.newPhase === "Settlement")?.blockTimestamp,
+        nowSec,
+      }),
+    );
   }
 
   // 2. Reservation escrow stuck — surface tokens that exist but where the
