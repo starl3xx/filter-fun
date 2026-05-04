@@ -21,6 +21,7 @@ import {canonicalSymbol, validateLaunchFields, type FieldErrors, type LaunchForm
 
 import {Triangle} from "@/components/Triangle";
 import type {LaunchPhase} from "@/hooks/launch/useLaunchToken";
+import {useTickerCheck} from "@/hooks/launch/useTickerCheck";
 import {CostPanel} from "./CostPanel";
 import {CreatorIncentives} from "./CreatorIncentives";
 
@@ -29,8 +30,16 @@ export type LaunchFormProps = {
   slotIndex: number;
   launchCostWei: bigint;
   stakeWei: bigint;
-  /// Used for ticker collision check.
+  /// Used for the cost panel + as a fallback for the ticker uniqueness check
+  /// (Epic 1.15c moved the primary check to the indexer's
+  /// `/season/:id/tickers/check` API which also covers blocklist + cross-season
+  /// winner reservations; cohort is kept for fast offline behaviour when the
+  /// indexer is unreachable).
   cohort: TokenResponse[];
+  /// Current season id — drives the ticker-check API. `null` while the
+  /// launcher's `currentSeasonId` is still loading. Until non-null, the
+  /// pre-flight check defers and the form falls back to the cohort string match.
+  seasonId: number | bigint | null;
   /// Tx phase from useLaunchToken — drives button copy and lock.
   phase: LaunchPhase;
   /// Server-side error from pin or chain reverts.
@@ -56,6 +65,7 @@ export function LaunchForm({
   launchCostWei,
   stakeWei,
   cohort,
+  seasonId,
   phase,
   error,
   onSubmit,
@@ -77,7 +87,12 @@ export function LaunchForm({
   const [submitted, setSubmitted] = useState(false);
 
   const fieldErrors = useMemo<FieldErrors>(() => validateLaunchFields(fields), [fields]);
-  const tickerCollision = useTickerCollision(fields.ticker, cohort);
+  // Epic 1.15c — indexer-driven pre-flight check covers format + blocklist +
+  // winner_taken + season_taken. Falls back to the local cohort match when
+  // the indexer is unreachable or the seasonId is still loading.
+  const tickerCheck = useTickerCheck(fields.ticker, seasonId);
+  const localCollision = useTickerCollision(fields.ticker, cohort);
+  const tickerCollision = tickerCheck.error ?? localCollision;
 
   const submitDisabled =
     !isConnected ||

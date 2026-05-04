@@ -939,6 +939,265 @@ Before promoting `deployments/base-sepolia.json` patterns to `deployments/base.j
 
 ---
 
+## 9. Deferred-activation operations (Epic 1.15)
+
+The two-step launch — **reserve** at any time during the 48h launch window, **activate**
+once the window closes and at least one slot is filled — moves liquidity creation off the
+critical path of an individual creator's tx. Operators interact with this surface in three
+places: monitoring reservations during the window, aborting sparse seasons at h48, and
+extending the ticker blocklist when DTOs require it.
+
+> **Spec refs**: §4.6 (reservation cap), §4.6.1 (ticker normalisation + blocklist),
+> §4.7 (sparse season abort), §38.4 (LaunchEscrow pull-pattern refunds).
+
+> **Contract refs**: `FilterLauncher.reserve / activate / abortSeason`,
+> `LaunchEscrow.claimPendingRefund`, `LauncherStakeAdmin.refundStake / forfeitStake`.
+
+### 9.1 The reservation lifecycle (state machine)
+
+A reservation row in the indexer lives in exactly one of these states:
+
+| State | Reached by | Funds | Slot |
+|---|---|---|---|
+| `PENDING` | `SlotReserved` event | held in `LaunchEscrow` | held (counts toward 12-cap) |
+| `RELEASED` | `releaseToDeploy` (auto, during `_activate`) | spent on token deploy | filled — token live |
+| `REFUNDED` | `SlotRefunded` (push refund landed in `abortSeason` OR post-activation `StakeRefunded`) | paid to creator | gone |
+| `REFUND_PENDING` | push refund failed mid-`abortSeason` | sitting in `LaunchEscrow.pendingRefunds[seasonId][creator]` | gone (season aborted) |
+| `REFUND_CLAIMED` | creator called `claimPendingRefund` | paid to recipient | gone |
+| `FORFEITED` | `StakeForfeited` (filter-event slash on a non-finalist with refundable stake) | swept to treasury | n/a (post-cut) |
+
+The web banner (`PendingRefundBanner.tsx`) hides everything except `REFUND_PENDING`. The
+slot grid surfaces `PENDING` (`reserved-pending`) and `REFUND_PENDING`
+(`reserved-refund-pending`); `RELEASED` is rendered as a normal `filled` row.
+
+### 9.2 Monitor reservations during the launch window
+
+Run during the open launch window (h0 → h48). Most useful when public marketing is
+driving traffic and you want to confirm the indexer is keeping up.
+
+```sh
+# Active reservation count for the live season (indexer-side):
+curl -s "$INDEXER_URL/season/$SEASON/launch-status" | jq \
+  '{launchCount, reservationCount, maxLaunches, timeRemainingSec, nextLaunchCostWei}'
+```
+
+- [ ] `launchCount + reservationCount <= maxLaunches` (12). If higher, reservation
+      bookkeeping diverged from the contract — diagnose before activation.
+- [ ] `nextLaunchCostWei` is monotonic-non-decreasing across the window. A drop means a
+      release happened (not by itself wrong; just confirm via the SSE stream below).
+
+```sh
+# Live event stream (per-season). Each line is one SSE event.
+curl -sN "$INDEXER_URL/season/$SEASON/launch/stream"
+```
+
+Event types you'll see: `SLOT_RESERVED`, `SLOT_RELEASED`, `SLOT_REFUNDED`,
+`SLOT_REFUND_PENDING`, `SLOT_REFUND_CLAIMED`, `SLOT_FORFEITED`, `SEASON_ACTIVATED`,
+`SEASON_ABORTED`. Plus the existing `TOKEN_LAUNCHED` once activation drains the queue.
+
+```sh
+# Cross-check on-chain authoritative count (the launcher delegates to the escrow):
+LAUNCH_ESCROW=$(cast call "$LAUNCHER" 'launchEscrow()(address)' --rpc-url "$RPC_URL")
+cast call "$LAUNCH_ESCROW" 'reservationCountOf(uint256)(uint256)' $SEASON --rpc-url "$RPC_URL"
+```
+
+- [ ] On-chain `reservationCount` matches `INDEXER_URL/launch-status.reservationCount`.
+      A delta means the indexer missed a `SlotReserved` / `SlotReleased` event —
+      restart per §6.2 and verify backfill.
+
+### 9.3 Activation — automatic at the 4th reservation
+
+Activation happens **mid-window**, not at h48. When the 4th reservation lands (the
+`ACTIVATION_THRESHOLD = 4` constant), `reserve` calls `_activate` in the same tx — the
+queued reservations are drained, four `TokenLaunched` events fire, and `activated[sid]`
+flips to `true`. From that point through h48, additional reservations deploy immediately
+(no queueing).
+
+There is no operator action in the happy path. The web `useLaunchSlots` hook surfaces the
+queued vs. live distinction via `kind: "reserved-pending"` (queued, pre-activation) vs.
+`kind: "filled"` (deployed, post-activation).
+
+```sh
+# Confirm activation latched on-chain:
+cast call "$LAUNCHER" 'activated(uint256)(bool)' $SEASON --rpc-url "$RPC_URL"
+# Expect: true within seconds of the 4th reservation tx confirming.
+
+cast call "$LAUNCHER" 'launchCount(uint256)(uint256)' $SEASON --rpc-url "$RPC_URL"
+# Expect: 4 immediately after activation, then increments 1-by-1 with each subsequent
+# reservation through h48. Bounded by `maxLaunches` (12).
+```
+
+- [ ] After h48, the scheduler fires `advancePhase(sid, Trading)` per §3.2. If
+      `activated == false` AND `reservationCount > 0`, the phase advance reverts with
+      `SeasonNotActivated` (bugbot H PR #88) — the season MUST go through `abortSeason`
+      because <4 tokens cannot run the filter event. See §9.4.
+
+### 9.4 Sparse-season abort — operator SOP
+
+If h48 lands with `activated == false` (i.e. fewer than 4 reservations were made over the
+entire 48h window), the scheduler fires `abortSeason(seasonId)`. This is a terminal state
+for the season — the launcher rejects further launches and `advancePhase` is blocked. The
+next `startSeason()` opens season N+1.
+
+```sh
+# 1. Confirm the scheduler fired abort (not activate):
+cast call "$LAUNCHER" 'aborted(uint256)(bool)' $SEASON --rpc-url "$RPC_URL"
+# Expect: true.
+
+# 2. Confirm push-refunds landed (if there were stale PENDING rows the scheduler
+#    swept). The escrow tries direct sends first; rows that fail land in the pending
+#    refund queue. Read the indexer for the per-creator breakdown — the contract
+#    exposes `pendingRefunds[seasonId][creator]` per-creator only, so the indexer is
+#    the right surface for "what's stuck this season":
+curl -s "$INDEXER_URL/season/$SEASON/launch-status" | jq '.reservations[] | select(.status == "REFUND_PENDING") | {creator, escrowAmountWei}'
+
+# Spot-check the contract for a specific creator:
+LAUNCH_ESCROW=$(cast call "$LAUNCHER" 'launchEscrow()(address)' --rpc-url "$RPC_URL")
+cast call "$LAUNCH_ESCROW" 'pendingRefunds(uint256,address)(uint128)' $SEASON $CREATOR --rpc-url "$RPC_URL"
+```
+
+- [ ] If any rows show `REFUND_PENDING`, those creators' `receive()` reverted on
+      the push attempt (typically smart wallets with non-trivial fallbacks). They MUST
+      pull via `claimPendingRefund(seasonId, creator)` from the original creator wallet
+      — the contract's `to == creator` invariant rejects any other recipient.
+
+### 9.5 Pending-refund support (creator UX)
+
+Creators with unclaimed refunds see the yellow banner on `/launch` once their wallet is
+connected. It calls `LaunchEscrow.claimPendingRefund(seasonId, address)` directly; no
+operator path is required for the happy case.
+
+When a creator opens a support ticket ("I had a reservation in season N, the season
+aborted, and I haven't been refunded"):
+
+```sh
+# 1. Confirm the indexer sees the pending row:
+curl -s "$INDEXER_URL/wallet/$CREATOR/pending-refunds" | jq
+# Returns a list of {seasonId, amountWei, status: 'REFUND_PENDING'}.
+```
+
+- [ ] If empty: either the push refund landed cleanly (state is `REFUNDED`, no claim
+      needed) or the creator never had a reservation in that season. Cross-check by
+      reading `LaunchEscrow.escrowOf(seasonId, creator)` — zero means no reservation.
+
+- [ ] If populated: the banner SHOULD display. Direct the creator to `/launch`, connect
+      the wallet that originally reserved, and click `Claim X.XX ETH`. The contract
+      enforces `to` == the creator-of-record, so they cannot claim to a different wallet
+      — if they lost access to the reserving wallet, there is no recovery path. Log this
+      loudly when answering support; the framing is identical to the bag-lock immutability
+      conversation in §5.6.
+
+### 9.6 Ticker blocklist — extending under DTO request
+
+The blocklist is a one-way set: entries can be added, never removed (spec §4.6.1). Adds
+require the multisig caller (`onlyMultisig` gate on `addTickerToBlocklist`). The seed list
+shipped at deploy: `FILTER`, `USDC`, `USDT`, `DAI`, `WETH`, `WBTC`, `USDS`, `BASE`.
+
+> **CALLER CANONICALITY REQUIREMENT (audit M-PR-#88).** Pass the keccak256 of the
+> NORMALISED ticker bytes — uppercase, $-stripped, trimmed, validated against
+> `[A-Z0-9]{2,10}`. The `reserve` path always normalises before hashing, so a non-canonical
+> entry is unreachable (silently stores an orphan slot). The web bundle ships a TS port of
+> `TickerLib.normalize` for off-chain hash precomputation; the on-chain reference is in
+> `_seedBlocklist` (the constructor uses `keccak256(bytes("FILTER"))` etc., already in
+> canonical form).
+
+To add a ticker (e.g. a new DTO partner asks us to reserve `"PARTNER"`):
+
+```sh
+# 1. Compute the canonical hash. Use the indexer's TS port to verify normalisation:
+RAW="$partner"            # whatever the DTO submitted, including $ / lowercase / spaces
+CANONICAL=$(curl -s "$INDEXER_URL/season/$SEASON/tickers/check?ticker=$RAW" | jq -r .canonical)
+HASH=$(curl -s "$INDEXER_URL/season/$SEASON/tickers/check?ticker=$RAW" | jq -r .hash)
+echo "Will block: $CANONICAL → $HASH"
+```
+
+- [ ] `$CANONICAL` matches the DTO's expected display form (uppercase, alphanumeric
+      only). If the response is HTTP 400 with `{error: "invalid format", raw: ...}`, the
+      input fails the `[A-Z0-9]{2,10}` regex — do not proceed; reject the DTO request and
+      ask for a compliant ticker.
+
+```sh
+# 2. Multisig submits the tx. The operator's role is to prepare the calldata and
+#    confirm the transaction as a signer; do NOT execute from a hot operator wallet —
+#    onlyMultisig will revert.
+cast calldata 'addTickerToBlocklist(bytes32)' $HASH
+# Submit via Safe / multisig UI with the launcher as `to`.
+```
+
+- [ ] On execution, `TickerBlocked(tickerHash)` emits and the indexer ingests it into
+      `tickerBlocklist`. Confirm via:
+      ```sh
+      curl -s "$INDEXER_URL/season/$SEASON/tickers/check?ticker=$RAW" | jq .ok
+      # Expect: "blocklisted"
+      ```
+- [ ] If `ok` still returns `available` after the tx confirmed > 1 min, the indexer
+      missed the event — restart per §6.2.
+
+**Common footguns:**
+
+- Computing the hash from the raw display form (`"$Partner"`, `"partner"`,
+  `" PARTNER "`) instead of the normalised form (`"PARTNER"`). The orphan entry can't
+  be removed; you have to re-submit with the correct hash AND publicly note the bad
+  hash to avoid confusion.
+- Submitting from a one-of-N multisig signer instead of executing the proposal. The tx
+  reverts with `Unauthorized()`; gas is wasted but no state damage.
+
+### 9.7 Manual abort (emergency — scheduler down at h48)
+
+If the scheduler is down at h48 with the season `!activated`, the operator must fire
+`abortSeason` manually so the season reaches a terminal state and the next season's
+`startSeason` is unblocked.
+
+```sh
+# Confirm the season is sparse:
+LAUNCH_ESCROW=$(cast call "$LAUNCHER" 'launchEscrow()(address)' --rpc-url "$RPC_URL")
+RES_COUNT=$(cast call "$LAUNCH_ESCROW" 'reservationCountOf(uint256)(uint256)' $SEASON --rpc-url "$RPC_URL")
+LAUNCH_END=$(cast call "$LAUNCHER" 'launchEndTime(uint256)(uint256)' $SEASON --rpc-url "$RPC_URL")
+NOW=$(date +%s)
+echo "reservationCount=$RES_COUNT, launchEnd=$LAUNCH_END, now=$NOW"
+```
+
+- [ ] `NOW >= LAUNCH_END` AND `activated[$SEASON] == false`. (`reservationCount` may be
+      0, 1, 2, or 3 — anything below `ACTIVATION_THRESHOLD = 4` lands here.) If
+      `activated == true`, the season already has its tokens deployed; do NOT call
+      `abortSeason` — it'll revert with `SeasonAlreadyActivated`. The right path is
+      `advancePhase` to Filter per §3.
+
+```sh
+cast send "$LAUNCHER" 'abortSeason(uint256)' $SEASON \
+  --rpc-url "$RPC_URL" --private-key $ORACLE_KEY
+```
+
+- [ ] On success: `aborted[seasonId] == true`, `SeasonAborted` event emits, and the
+      indexer flips reservations to `REFUND_PENDING` / `REFUNDED` accordingly.
+- [ ] If the call reverts with `WindowStillOpen`: you fired before h48 — wait. With
+      `SeasonAlreadyActivated` / `SeasonAlreadyAborted`: the scheduler beat you to it
+      (race is harmless; verify final state).
+
+Restart the scheduler before the next season's h0 anchor (§6.1).
+
+### 9.8 Verification snippets (post-1.15 deploys)
+
+After any deploy that bumps the Epic 1.15 surface, sanity-check the wiring:
+
+```sh
+# LaunchEscrow address resolves off the launcher (was added post-manifest-freeze):
+LAUNCH_ESCROW=$(cast call "$LAUNCHER" 'launchEscrow()(address)' --rpc-url "$RPC_URL")
+echo "LaunchEscrow: $LAUNCH_ESCROW"
+[ "$LAUNCH_ESCROW" != "0x0000000000000000000000000000000000000000" ] || echo "FAIL: unset"
+
+# Stake admin (split from the launcher in §46 / EIP-3860):
+STAKE_ADMIN=$(cast call "$LAUNCHER" 'stakeAdmin()(address)' --rpc-url "$RPC_URL")
+echo "LauncherStakeAdmin: $STAKE_ADMIN"
+[ "$STAKE_ADMIN" != "0x0000000000000000000000000000000000000000" ] || echo "FAIL: unset"
+```
+
+- [ ] Both addresses non-zero and present in `deployments/<chain>.json`. The indexer
+      falls back to the launcher address when these are zero, which silently disables the
+      reservation event handlers — guard against this on every redeploy.
+
+---
+
 ## Appendix A — Known gotchas (lessons from prior incidents)
 
 These are real failure modes caught in code review, post-mortems, or testing. Memorize.

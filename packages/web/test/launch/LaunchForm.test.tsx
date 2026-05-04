@@ -12,6 +12,14 @@ vi.mock("wagmi", () => ({
   useAccount: () => ({address: "0x1234567890123456789012345678901234567890", isConnected: true}),
 }));
 
+// Epic 1.15c — the ticker-check hook hits the indexer; stub it so component
+// tests don't make network calls. With `seasonId: null` the hook is a no-op
+// and the form falls back to the cohort string match — preserving the
+// pre-1.15c assertions in this file.
+vi.mock("@/hooks/launch/useTickerCheck", () => ({
+  useTickerCheck: () => ({error: null, loading: false, canonical: null}),
+}));
+
 import {LaunchForm} from "@/components/launch/LaunchForm";
 import {makeFixtureCohort} from "../arena/fixtures";
 
@@ -20,6 +28,7 @@ const baseProps = {
   launchCostWei: 84000000000000000n,
   stakeWei: 84000000000000000n,
   cohort: makeFixtureCohort(),
+  seasonId: null,
   phase: "idle" as const,
   error: null,
   onSubmit: vi.fn(),
