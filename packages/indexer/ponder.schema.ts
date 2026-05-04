@@ -1,6 +1,11 @@
 import {onchainTable} from "@ponder/core";
 
 /// One row per season. State machine mirror of `FilterLauncher.Phase`.
+///
+/// `winnerSettledAt` (Epic 1.16, spec §9.4): block timestamp at which the winner was
+/// committed via `SeasonVault.submitWinner`. Zero/null while the season is still active.
+/// Surfaced on `/season` so the frontend can resolve "is post-settlement fee routing in
+/// effect?" in a single read; mirrors the on-chain `SeasonVault.winnerSettledAt` field.
 export const season = onchainTable("season", (t) => ({
   id: t.bigint().primaryKey(),
   startedAt: t.bigint().notNull(),
@@ -13,6 +18,36 @@ export const season = onchainTable("season", (t) => ({
   rolloverWinnerTokens: t.bigint().notNull().default(0n),
   bonusReserve: t.bigint().notNull().default(0n),
   finalizedAt: t.bigint(),
+  winnerSettledAt: t.bigint(),
+}));
+
+/// Per-token creator-fee accrual rollup (Epic 1.16, spec §10.3 + §10.6). One row per token.
+/// Mirrors the on-chain `CreatorFeeDistributor` accounting so `/tokens/:address/creator-
+/// earnings` can answer in O(1) without summing every `feeAccrual.toCreator` event in the
+/// request path. Per spec §10.3 + §10.6 accrual is perpetual — the row keeps growing for
+/// the life of the pool. `claimable = lifetimeAccrued - claimed`.
+export const creatorEarning = onchainTable("creator_earning", (t) => ({
+  token: t.hex().primaryKey(),
+  seasonId: t.bigint().notNull(),
+  creator: t.hex().notNull(),
+  /// Wei accrued to the creator over the token's full life (Accrued events).
+  lifetimeAccrued: t.bigint().notNull().default(0n),
+  /// Wei the creator (or admin-redirected recipient) has pulled via `claim` events.
+  claimed: t.bigint().notNull().default(0n),
+  /// Wei that arrived at the distributor while emergency-disabled and routed to treasury
+  /// instead of the creator. Surfaced for transparency; does NOT count toward
+  /// `lifetimeAccrued`.
+  redirectedToTreasury: t.bigint().notNull().default(0n),
+  /// Block timestamp of the most recent successful claim (zero/null until first claim).
+  lastClaimAt: t.bigint(),
+  /// True after the multisig has invoked `disableCreatorFee` (sanctioned/compromised
+  /// recipient). Future fees redirect to treasury (CreatorFeeRedirected events keep
+  /// landing) until the row is reset by upgrade.
+  disabled: t.boolean().notNull().default(false),
+  /// `HP_WEIGHTS_VERSION` snapshot at row creation. Surfaced on the response so consumers
+  /// can correlate earnings against the active scoring regime — useful for the cost/ROI
+  /// calculator (Epic 2.10).
+  weightsVersion: t.text().notNull().default("2026-05-05-v4-locked-int10k"),
 }));
 
 /// One row per launched token (including $FILTER).
@@ -42,6 +77,15 @@ export const feeAccrual = onchainTable("fee_accrual", (t) => ({
   id: t.text().primaryKey(), // `${tx}:${logIndex}`
   token: t.hex().notNull(),
   asset: t.hex().notNull(),
+  /// Pre-settlement (`PRE_SETTLEMENT`, spec §9.2): WETH lands at the SeasonVault.
+  /// Post-settlement (`POST_SETTLEMENT`, spec §9.4 — Epic 1.16): WETH lands at the
+  /// singleton POLVault instead. Same wei amount in either case; the discriminator is
+  /// what makes downstream attribution (POL exposure vs prize-pool growth) honest.
+  routing: t.text().notNull().default("PRE_SETTLEMENT"),
+  /// Wei routed to "the prize-slice destination" — SeasonVault when
+  /// `routing == "PRE_SETTLEMENT"`, POLVault when `routing == "POST_SETTLEMENT"`.
+  /// Field name preserved for backwards-compat with pre-Epic-1.16 consumers; downstream
+  /// readers should switch on `routing` to attribute correctly.
   toVault: t.bigint().notNull(),
   toTreasury: t.bigint().notNull(),
   toMechanics: t.bigint().notNull(),

@@ -164,6 +164,26 @@ describe("calculateOutcomes — spec §45.3 formulas", () => {
     expect(out.polBackingEth!).toBeCloseTo(625 / 3500, 4);
   });
 
+  /// Epic 1.16 (spec §10.3 + §10.6): perpetual long-tail. For wins, the projection sums
+  /// 12 decaying weeks at 50% w/w past settlement (the launch week is captured
+  /// separately by `creatorFeesUsd`). Geometric series:
+  ///   $100k × 0.0020 × Σ(0.5^w for w in 1..12) = $200 × (1 - 0.5^12) ≈ $199.95
+  it("wins: postSettlementLongTailUsd projects 12 weeks of decaying volume", () => {
+    const out = calculateOutcomes({...baseInput, outcome: "wins"});
+    expect(out.postSettlementLongTailUsd).not.toBeNull();
+    // Sum of 0.5^1 + 0.5^2 + ... + 0.5^12 = 1 - 0.5^12 ≈ 0.99976
+    const expected = 100_000 * 0.002 * (1 - Math.pow(0.5, 12));
+    expect(out.postSettlementLongTailUsd!).toBeCloseTo(expected, 2);
+    // The win-case netUsd MUST fold in the long-tail — pre-Epic-1.16 it didn't, and the
+    // calculator under-stated winner ROI by ~1× the launch-week revenue.
+    expect(out.netUsd).toBeLessThan(-out.creatorFeesUsd);
+  });
+
+  it("filtered + survives: postSettlementLongTailUsd is null (LP unwinds, no trades)", () => {
+    expect(calculateOutcomes({...baseInput, outcome: "filtered"}).postSettlementLongTailUsd).toBeNull();
+    expect(calculateOutcomes({...baseInput, outcome: "survives"}).postSettlementLongTailUsd).toBeNull();
+  });
+
   it("breakeven volume = launch cost / 0.20%", () => {
     // $35 / 0.0020 = $17,500
     const out = calculateOutcomes({...baseInput, outcome: "filtered"});

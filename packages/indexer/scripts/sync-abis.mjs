@@ -22,14 +22,14 @@ const targets = [
   "BonusDistributor",
   "TournamentRegistry",
   "CreatorCommitments",
+  // Epic 1.16 (perpetual creator fees) + Epic 1.21 / spec §47.4 (operator audit
+  // trail). The indexer subscribes to `CreatorFeeDistributor.OperatorActionEmitted`
+  // to mirror rows into `OperatorActionLog`, plus the perpetual fee accrual events.
+  "CreatorFeeDistributor",
   // Epic 1.15a — deferred-activation reservation lifecycle.
   "LaunchEscrow",
   "LauncherStakeAdmin",
   "LauncherLens",
-  // Epic 1.21 / spec §47.4 — operator audit trail. CreatorFeeDistributor emits
-  // `OperatorActionEmitted` from `disableCreatorFee`; the indexer subscribes to that
-  // single event and mirrors rows into `OperatorActionLog`.
-  "CreatorFeeDistributor",
 ];
 
 for (const name of targets) {

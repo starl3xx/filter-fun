@@ -21,6 +21,10 @@ contract MockLpLocker is ILpLocker {
     address public immutable override baseAsset;
     address public vault;
     bool public override liquidated;
+    /// @notice Mirrors the FilterLpLocker post-settlement marker (Epic 1.16). SeasonVault
+    ///         calls `markWinnerSettled` on the winner's locker at `submitWinner` time; the
+    ///         mock just records the timestamp so tests can assert the call landed.
+    uint256 public winnerSettledAt;
 
     /// @dev How much WETH `liquidateToWETH` produces. Set per-test.
     uint256 public liquidationProceeds;
@@ -48,6 +52,13 @@ contract MockLpLocker is ILpLocker {
     }
 
     function collectFees() external override {}
+
+    /// @notice Mirrors `FilterLpLocker.markWinnerSettled` — vault-only, idempotent-revert.
+    function markWinnerSettled() external {
+        require(msg.sender == vault, "not vault");
+        require(winnerSettledAt == 0, "already settled");
+        winnerSettledAt = block.timestamp;
+    }
 
     function liquidateToWETH(address recipient, uint256 minOut) external override returns (uint256 out) {
         require(msg.sender == vault, "not vault");

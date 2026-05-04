@@ -16,7 +16,7 @@
 ///   │                                              │
 ///   │ If your token wins the week:                 │
 ///   │  • 2.5% champion bounty (typical Ξ X – Ξ X)  │
-///   │  • Permanent POL backing (~Ξ X locked LP)    │
+///   │  • Filter Fund Liquidity Reserve (~Ξ X LP)   │
 ///   └──────────────────────────────────────────────┘
 
 import {C, F} from "@/lib/tokens";
@@ -162,7 +162,7 @@ export function CostPanel({
         accent={C.yellow}
         items={[
           `2.5% champion bounty — typical ${fmtEth4(bountyLowEth)} – ${fmtEth4(bountyHighEth)}`,
-          `Permanent POL backing — ~${fmtEth4(polEthMid)} locked LP forever`,
+          `Filter Fund Liquidity Reserve — ~${fmtEth4(polEthMid)} locked LP forever, compounding your token's liquidity`,
         ]}
       />
     </div>

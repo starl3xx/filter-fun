@@ -218,21 +218,22 @@ export default createConfig({
       address: creatorCommitmentsAddr,
       startBlock,
     },
-    /// Epic 1.21 — operator audit-trail subscription. Only the
-    /// `OperatorActionEmitted` event is consumed (handler in
-    /// `src/CreatorFeeDistributor.ts`); the rest of the contract's events
-    /// (`CreatorFeeAccrued` / `CreatorFeeRedirected` / `CreatorFeeClaimed`) are
-    /// not currently indexed because there's no UI surface for them yet.
-    CreatorFeeDistributor: {
-      network,
-      abi: CreatorFeeDistributorAbi,
-      address: creatorFeeDistributorAddr,
-      startBlock,
-    },
     TournamentRegistry: {
       network,
       abi: TournamentRegistryAbi,
       address: tournamentRegistryAddr,
+      startBlock,
+    },
+    /// Singleton creator-fee distributor.
+    /// - Epic 1.16: per-token Accrued / Redirected / Claimed / Disabled events feed
+    ///   the `creatorEarning` rollup so `lifetimeAccrued`, `claimable`, and
+    ///   `lastClaimAt` resolve in O(1).
+    /// - Epic 1.21 / spec §47.4: `OperatorActionEmitted` from `disableCreatorFee`
+    ///   mirrors into `operatorActionLog` for the operator-console audit view.
+    CreatorFeeDistributor: {
+      network,
+      abi: CreatorFeeDistributorAbi,
+      address: creatorFeeDistributorAddr,
       startBlock,
     },
     /// V4 PoolManager is the singleton emitter for every `Swap` on Base. We index ALL its

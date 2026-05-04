@@ -204,10 +204,22 @@ export function RoiCalculator({slotCostWei, stakeWei, ethUsd: ethUsdProp}: RoiCa
               accent={C.green}
               hint={
                 state.outcome === "filtered"
-                  ? "Half-week of fees — accrual stops at the cut"
-                  : "0.20% of weekly volume"
+                  ? "Half-week of fees — LP unwinds at the cut"
+                  : "0.20% of weekly volume — week 1 only"
               }
             />
+
+            {/* Epic 1.16 (spec §10.3 + §10.6): perpetual long-tail. Surfaces only on
+                `wins` because non-winning tokens don't trade post-settlement. This
+                is now the dominant ROI term over multi-month horizons. */}
+            {state.outcome === "wins" && out.postSettlementLongTailUsd !== null && (
+              <OutputRow
+                label="Perpetual long-tail"
+                value={`+${fmtUsd(out.postSettlementLongTailUsd)}`}
+                accent={C.green}
+                hint="Win → 0.20% of every trade forever (12-week projection at 50% w/w decay)"
+              />
+            )}
 
             {state.outcome === "wins" && out.bountyRangeUsd && (
               <OutputRow
@@ -220,7 +232,7 @@ export function RoiCalculator({slotCostWei, stakeWei, ethUsd: ethUsdProp}: RoiCa
 
             {state.outcome === "wins" && out.polBackingEth !== null && (
               <OutputRow
-                label="POL backing"
+                label="Filter Fund Liquidity Reserve backing"
                 value={`~${fmtEth4(out.polBackingEth)} locked LP`}
                 accent={C.purple}
                 hint="Permanent V4 LP — never withdrawn"

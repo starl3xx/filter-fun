@@ -300,7 +300,7 @@ function ChampionPanel({season}: {season: SeasonResponse | null}) {
   }, [growing]);
   return (
     <aside
-      aria-label="Champion pool"
+      aria-label="Filter Fund"
       style={{
         padding: 16,
         borderRadius: 14,
@@ -324,7 +324,7 @@ function ChampionPanel({season}: {season: SeasonResponse | null}) {
               color: C.yellow,
             }}
           >
-            Champion Pool
+            Filter Fund
           </span>
           <Triangle size={10} inline />
         </span>
@@ -377,9 +377,9 @@ function ChampionPanel({season}: {season: SeasonResponse | null}) {
       >
         <div style={{display: "flex", flexDirection: "column"}}>
           <span style={{fontSize: 9, fontFamily: F.mono, color: C.cyan, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>
-            Champion Backing Pool
+            Filter Fund Liquidity Reserve
           </span>
-          <span style={{fontSize: 10, color: C.dim}}>Protocol-owned liquidity for the winner</span>
+          <span style={{fontSize: 10, color: C.dim}}>Permanent liquidity for the winner</span>
         </div>
         <div
           style={{

@@ -22,17 +22,38 @@ interface ICreatorFeeDistributor {
     function notifyFee(address token, uint256 amount) external;
 }
 
+/// @notice Singleton POLManager view used to resolve the POLVault address. The locker forwards
+///         post-settlement WETH-leg slices to POLVault per spec §9.4 (Epic 1.16) — the WETH
+///         accumulates there as a record-of-back compounding pool and a future iteration can
+///         pull it into a permanent LP add. Reading the address through the manager keeps the
+///         locker constructor stable while the singleton wiring lives on the manager side.
+interface IPOLManagerView {
+    function polVault() external view returns (address);
+}
+
 /// @title FilterLpLocker
 /// @notice One per filter.fun-launched token. Permanently holds the V4 full-range LP position.
 ///         Splits collected fees per BPS, and exposes settlement primitives the season's vault
 ///         calls during week-end unwinding.
 ///
-///         Trading fee = 2% of swap volume = 200 BPS, broken down on the WETH-side leg as:
+///         Trading fee = 2% of swap volume = 200 BPS, broken down on the WETH-side leg.
+///
+///         Pre-settlement (`winnerSettledAt == 0`, spec §9.2):
 ///         - 0.90% → prize pool (seasonVault)        PRIZE_FEE_BPS = 90
 ///         - 0.65% → treasury                        TREASURY_FEE_BPS = 65
 ///         - 0.25% → mechanics                       MECHANICS_FEE_BPS = 25
 ///         - 0.20% → creator fee distributor         CREATOR_FEE_BPS = 20
 ///         Sum = 200 BPS by construction (see compile-time check below).
+///
+///         Post-settlement (`winnerSettledAt > 0`, spec §9.4 — Epic 1.16):
+///         - 0.90% → POL vault (compounds backing)   POST_SETTLEMENT_POL_BPS = 90
+///         - 0.65% → treasury                        POST_SETTLEMENT_TREASURY_BPS = 65
+///         - 0.25% → mechanics                       POST_SETTLEMENT_MECHANICS_BPS = 25
+///         - 0.20% → creator fee distributor         POST_SETTLEMENT_CREATOR_BPS = 20
+///         Same 200 BPS total; only the prize-slice destination flips from the (now-settled)
+///         SeasonVault to the singleton POLVault. SeasonVault flips the flag on the WINNER
+///         locker only at `submitWinner` time. Non-winner pools never reach the flag because
+///         their LP is unwound at filter time and they never trade again.
 ///
 ///         The token-leg fee dust is routed entirely to the season vault — it's negligible
 ///         in $ terms and doesn't merit a creator/treasury slice on every swap.
@@ -50,11 +71,21 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     // -------- Fee split policy. Constants are in basis points of total trade volume; sum
     //          must equal `FEE_TOTAL_BPS` (= 200 BPS = 2%) so the math reads as "x BPS of
     //          the trade goes to recipient y". A constructor invariant enforces the sum.
+    //
+    //          Pre-settlement (spec §9.2): four-way split feeding prize pool / treasury /
+    //          mechanics / creator. Post-settlement (spec §9.4 — Epic 1.16): same four slices
+    //          numerically, but the prize-pool slice routes to POLVault instead so it
+    //          compounds winner backing rather than feeding a season that's already over.
+    //          Both totals = 200 bps; the constructor invariant covers both splits.
     uint256 internal constant FEE_TOTAL_BPS = 200;
     uint256 public constant PRIZE_FEE_BPS = 90;
     uint256 public constant TREASURY_FEE_BPS = 65;
     uint256 public constant MECHANICS_FEE_BPS = 25;
     uint256 public constant CREATOR_FEE_BPS = 20;
+    uint256 public constant POST_SETTLEMENT_POL_BPS = 90;
+    uint256 public constant POST_SETTLEMENT_TREASURY_BPS = 65;
+    uint256 public constant POST_SETTLEMENT_MECHANICS_BPS = 25;
+    uint256 public constant POST_SETTLEMENT_CREATOR_BPS = 20;
 
     // -------- Action codes for unlockCallback dispatch
     uint8 internal constant ACTION_COLLECT = 1;
@@ -89,10 +120,23 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     // -------- Mutable state
     bool public override liquidated;
 
+    /// @notice Block timestamp at which SeasonVault marked this pool as the winner. Zero for
+    ///         non-winners (their LP gets unwound at filter time and they never accrue
+    ///         post-settlement fees). Used by `_takeAndSplit` to switch from §9.2 routing
+    ///         (prize → vault) to §9.4 routing (POL slice → POLVault).
+    uint256 public winnerSettledAt;
+
     // -------- Events / errors
     event FeesCollected(
         uint256 toVault, uint256 toTreasury, uint256 toMechanics, uint256 toCreator, address asset
     );
+    /// @notice Post-settlement variant. Same wei amounts the pre-settlement event would emit,
+    ///         but the prize-pool slice has been redirected to POLVault per spec §9.4. Indexer
+    ///         attributes this to POL exposure rather than season prize accrual.
+    event PostSettlementFeesCollected(
+        uint256 toPolVault, uint256 toTreasury, uint256 toMechanics, uint256 toCreator, address asset
+    );
+    event WinnerSettled(uint256 timestamp);
     event LiquidatedToBase(uint256 baseRecovered, uint256 tokenStranded);
     event Bought(uint256 wethIn, uint256 tokensOut);
     event PolLiquidityAdded(uint256 wethIn, uint256 wethUsed, uint256 tokensUsed, uint128 liquidity);
@@ -103,6 +147,7 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
     error NotPolManager();
     error AlreadyLiquidated();
     error AlreadySeeded();
+    error AlreadySettled();
     error InsufficientOutput();
     error UnknownAction();
 
@@ -133,9 +178,15 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         int24 tickUpper_,
         bytes32 positionSalt_
     ) {
-        // Invariant: BPS slices must sum to FEE_TOTAL_BPS so the WETH split is exact.
+        // Invariant: both pre- and post-settlement BPS slices must sum to FEE_TOTAL_BPS so
+        // the WETH split is exact in either routing regime.
         require(
             PRIZE_FEE_BPS + TREASURY_FEE_BPS + MECHANICS_FEE_BPS + CREATOR_FEE_BPS == FEE_TOTAL_BPS, "fee bps"
+        );
+        require(
+            POST_SETTLEMENT_POL_BPS + POST_SETTLEMENT_TREASURY_BPS + POST_SETTLEMENT_MECHANICS_BPS
+                    + POST_SETTLEMENT_CREATOR_BPS == FEE_TOTAL_BPS,
+            "post-settle fee bps"
         );
         poolManager = poolManager_;
         factory = factory_;
@@ -167,6 +218,16 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         seeded = true;
         bytes memory data = abi.encode(ACTION_SEED, uint256(liquidity), address(0), uint256(0));
         poolManager.unlock(data);
+    }
+
+    /// @notice Vault-only. Flips this locker into post-settlement fee routing per spec §9.4
+    ///         (Epic 1.16). From the next swap-fee collection forward, the WETH-leg slice that
+    ///         used to feed the prize pool routes to POLVault instead. Reverts on re-call so
+    ///         the timestamp is recorded once.
+    function markWinnerSettled() external onlyVault {
+        if (winnerSettledAt != 0) revert AlreadySettled();
+        winnerSettledAt = block.timestamp;
+        emit WinnerSettled(block.timestamp);
     }
 
     function collectFees() external override nonReentrant {
@@ -454,27 +515,57 @@ contract FilterLpLocker is ILpLocker, IUnlockCallback, ReentrancyGuard {
         // Token-leg fee dust → vault. Splitting per-BPS across four recipients on the
         // token-side adds bookkeeping for negligible value (the fee is denominated in the
         // launched-token, which has no external market until a winner is picked).
+        // Post-settlement we keep this destination at the SeasonVault: the vault still
+        // exists in `Distributing` phase and the dust amount is too small to merit a
+        // separate routing branch.
         if (Currency.unwrap(currency) != baseAsset) {
             poolManager.take(currency, vault, amount);
             emit FeesCollected(amount, 0, 0, 0, Currency.unwrap(currency));
             return;
         }
-        // WETH-leg: 4-way split per the user-aligned BPS. Vault takes whatever rounding
-        // dust falls out of the integer math so the fixed slices (treasury, mechanics,
-        // creator) are exact.
-        uint256 toTreasury = (amount * TREASURY_FEE_BPS) / FEE_TOTAL_BPS;
-        uint256 toMechanics = (amount * MECHANICS_FEE_BPS) / FEE_TOTAL_BPS;
-        uint256 toCreator = (amount * CREATOR_FEE_BPS) / FEE_TOTAL_BPS;
-        uint256 toVault = amount - toTreasury - toMechanics - toCreator;
-        poolManager.take(currency, vault, toVault);
+        // WETH-leg: 4-way split per the user-aligned BPS. The destination of the prize-pool
+        // slice flips between SeasonVault (pre-settlement, §9.2) and POLVault (post-settle,
+        // §9.4) based on `winnerSettledAt`. Treasury / mechanics / creator slices are
+        // unchanged across the boundary. The prize slice is the remainder of the integer-
+        // math split, so any dust lands with the prize destination and per-event totals
+        // are exact.
+        //
+        // The PRE_/POST_SETTLEMENT_*_BPS constants are kept as separate symbols (currently
+        // identical at 90/65/25/20) so external indexers can pin §9.2 vs §9.4 routing, and
+        // so the post-settlement values can be reconciled independently if the spec moves
+        // (see commit-message note re: POL=95 vs POL=90 to preserve the FEE_TOTAL_BPS=200
+        // invariant).
+        bool postSettlement = winnerSettledAt != 0;
+        (uint256 treasuryBps, uint256 mechanicsBps, uint256 creatorBps) = postSettlement
+            ? (
+                uint256(POST_SETTLEMENT_TREASURY_BPS),
+                uint256(POST_SETTLEMENT_MECHANICS_BPS),
+                uint256(POST_SETTLEMENT_CREATOR_BPS)
+            )
+            : (uint256(TREASURY_FEE_BPS), uint256(MECHANICS_FEE_BPS), uint256(CREATOR_FEE_BPS));
+
+        uint256 toTreasury = (amount * treasuryBps) / FEE_TOTAL_BPS;
+        uint256 toMechanics = (amount * mechanicsBps) / FEE_TOTAL_BPS;
+        uint256 toCreator = (amount * creatorBps) / FEE_TOTAL_BPS;
+        uint256 toPrize = amount - toTreasury - toMechanics - toCreator;
+        address prizeDest = postSettlement ? IPOLManagerView(polManager).polVault() : vault;
+
+        poolManager.take(currency, prizeDest, toPrize);
         poolManager.take(currency, treasury, toTreasury);
         poolManager.take(currency, mechanics, toMechanics);
         if (toCreator > 0) {
             poolManager.take(currency, address(creatorFeeDistributor), toCreator);
-            // Notify is separate from `take` so the distributor can verify the WETH
-            // actually arrived (vs. trusting a bookkeeping-only call); see notifyFee.
+            // Notify is separate from `take` so the distributor can verify the WETH actually
+            // arrived (vs. trusting a bookkeeping-only call); see notifyFee.
             creatorFeeDistributor.notifyFee(token, toCreator);
         }
-        emit FeesCollected(toVault, toTreasury, toMechanics, toCreator, Currency.unwrap(currency));
+
+        if (postSettlement) {
+            emit PostSettlementFeesCollected(
+                toPrize, toTreasury, toMechanics, toCreator, Currency.unwrap(currency)
+            );
+        } else {
+            emit FeesCollected(toPrize, toTreasury, toMechanics, toCreator, Currency.unwrap(currency));
+        }
     }
 }

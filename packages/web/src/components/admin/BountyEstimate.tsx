@@ -33,10 +33,11 @@ export function BountyEstimate({season, isWinner}: BountyEstimateProps) {
         {isWinner ? "AT THE FRONT — IF YOU HOLD THE LINE" : "IF YOU WIN THIS WEEK"}
       </p>
       <Field k="Champion bounty" v={`~${bounty.toFixed(3)} ETH`} />
-      <Field k="POL backing" v={`~${polReserve.toFixed(2)} ETH`} />
+      <Field k="Filter Fund Liquidity Reserve" v={`~${polReserve.toFixed(2)} ETH`} />
       <p style={{marginTop: 10, fontSize: 11, color: C.dim, fontFamily: F.display, lineHeight: 1.5}}>
-        Bounty is 2.5% of the losers pot, paid to the winning token's creator.
-        POL is deployed as permanent V4 LP on the winner's pool — locked, never withdrawn.
+        Bounty is 2.5% of the Filter Fund, paid to the winning token's creator.
+        The Filter Fund Liquidity Reserve deploys as permanent V4 LP on the
+        winner's pool — locked, never withdrawn.
       </p>
     </Card>
   );

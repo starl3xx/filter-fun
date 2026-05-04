@@ -9,7 +9,8 @@ import "./FilterLpLocker";
 import "./FilterToken";
 import "./BonusDistributor";
 import "./CreatorCommitments";
-// Epic 1.21 — operator audit-trail mirror from CreatorFeeDistributor.OperatorActionEmitted.
+// Epic 1.16 (perpetual creator-fee rollup: Accrued/Claimed/Redirected/Disabled handlers)
+// + Epic 1.21 (operator audit-trail mirror from `OperatorActionEmitted`).
 import "./CreatorFeeDistributor";
 import "./TournamentRegistry";
 import "./V4PoolManager";

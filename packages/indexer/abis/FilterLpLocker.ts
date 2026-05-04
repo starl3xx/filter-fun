@@ -139,6 +139,58 @@ export const FilterLpLockerAbi = [
   },
   {
     "type": "function",
+    "name": "POST_SETTLEMENT_CREATOR_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "POST_SETTLEMENT_MECHANICS_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "POST_SETTLEMENT_POL_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "POST_SETTLEMENT_TREASURY_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "PRIZE_FEE_BPS",
     "inputs": [],
     "outputs": [
@@ -308,6 +360,13 @@ export const FilterLpLockerAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "markWinnerSettled",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -538,6 +597,19 @@ export const FilterLpLockerAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "winnerSettledAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
     "type": "event",
     "name": "Bought",
     "inputs": [
@@ -644,6 +716,56 @@ export const FilterLpLockerAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "PostSettlementFeesCollected",
+    "inputs": [
+      {
+        "name": "toPolVault",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toTreasury",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toMechanics",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toCreator",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WinnerSettled",
+    "inputs": [
+      {
+        "name": "timestamp",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AlreadyLiquidated",
     "inputs": []
@@ -651,6 +773,11 @@ export const FilterLpLockerAbi = [
   {
     "type": "error",
     "name": "AlreadySeeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AlreadySettled",
     "inputs": []
   },
   {

@@ -7,7 +7,7 @@
 ///
 ///   FILTER COMPLETE
 ///   $A $B $C $D $E $F        ← survivor tickers
-///   Champion Pool +Ξ X.XX
+///   Filter Fund +Ξ X.XX
 ///   [Your rollover sub-card if applicable]
 ///   [View Arena] button
 ///
@@ -34,7 +34,7 @@ export type RecapCardProps = {
   /// Champion pool delta as a decimal-ether string. Animated in via CSS;
   /// the parent-level transition handles the count-up.
   championPoolDelta?: string;
-  /// Current Champion Pool total — surfaced as the post-delta value.
+  /// Current Filter Fund total — surfaced as the post-delta value.
   championPoolNow?: string;
   /// Projected wallet rollover entitlement — null until indexer ships.
   walletEntitlementEth: string | null;
@@ -203,7 +203,7 @@ function PoolDelta({delta, now, placeholder}: {delta: string; now?: string; plac
       }}
     >
       <div style={{fontFamily: F.mono, fontSize: 9, color: C.faint, letterSpacing: "0.18em", fontWeight: 800, textTransform: "uppercase"}}>
-        Champion Pool
+        Filter Fund
       </div>
       <div
         style={{

@@ -41,6 +41,7 @@ import {cors} from "hono/cors";
 
 import {
   bonusClaim,
+  creatorEarning,
   creatorLock,
   holderSnapshot,
   hpSnapshot,
@@ -65,12 +66,14 @@ import {loadCorsConfigFromEnv, originAllowed} from "./cors.js";
 import {toMwContext} from "./mwContext.js";
 import {checkAndLogCadence, consoleCadenceLogger} from "./snapshotCadence.js";
 import {
+  getCreatorEarningsHandler,
   getReadinessHandler,
   getSeasonHandler,
   getTokenDetailHandler,
   getTokensHandler,
   type ApiQueries,
   type BagLockRow,
+  type CreatorEarningRow,
   type TokenDetailRow,
 } from "./handlers.js";
 import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
@@ -168,6 +171,18 @@ ponder.get("/token/:address", async (c) => {
   const limited = applyGetRateLimit(mw);
   if (limited) return limited;
   const result = await getTokenDetailHandler(buildQueries(c.db), c.req.param("address") ?? "");
+  return c.json(result.body, result.status as 200 | 400 | 404);
+});
+
+/// Epic 1.16 (spec §10.3 + §10.6): per-token creator-fee surface. Powers the creator
+/// admin console "claim past tokens" flow + the cost/ROI calculator's winner long-tail
+/// projection. Returns a zero-shaped payload for tokens that haven't accrued yet so the
+/// UI's still-earning badge can render against any token without special-casing absence.
+ponder.get("/tokens/:address/creator-earnings", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyGetRateLimit(mw);
+  if (limited) return limited;
+  const result = await getCreatorEarningsHandler(buildQueries(c.db), c.req.param("address") ?? "");
   return c.json(result.body, result.status as 200 | 400 | 404);
 });
 
@@ -513,6 +528,9 @@ function buildQueries(db: ApiDb): ApiQueries {
         phase: row.phase,
         totalPot: row.totalPot,
         bonusReserve: row.bonusReserve,
+        // Epic 1.16: surface the on-chain post-settlement marker so /season consumers can
+        // resolve "is the winner pool routing to POL now?" without dereferencing the locker.
+        winnerSettledAt: row.winnerSettledAt ?? null,
       };
     },
     publicLaunchCount: async (seasonId) => {
@@ -552,6 +570,25 @@ function buildQueries(db: ApiDb): ApiQueries {
         createdAt: row.createdAt,
       };
       return detail;
+    },
+    creatorEarningsForToken: async (addr): Promise<CreatorEarningRow | null> => {
+      const rows = await db
+        .select()
+        .from(creatorEarning)
+        .where(eq(creatorEarning.token, addr))
+        .limit(1);
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        token: row.token,
+        creator: row.creator,
+        lifetimeAccrued: row.lifetimeAccrued,
+        claimed: row.claimed,
+        redirectedToTreasury: row.redirectedToTreasury,
+        lastClaimAt: row.lastClaimAt ?? null,
+        disabled: row.disabled,
+        weightsVersion: row.weightsVersion,
+      };
     },
     bagLocksForTokens: async (tokens) => {
       if (tokens.length === 0) return [];

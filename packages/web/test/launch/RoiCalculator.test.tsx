@@ -49,19 +49,19 @@ describe("RoiCalculator", () => {
     expect(wins.checked).toBe(true);
   });
 
-  it("hides bounty + POL outputs in non-wins scenarios", () => {
+  it("hides bounty + Reserve outputs in non-wins scenarios", () => {
     render(<RoiCalculator {...baseProps} />);
     // Default is filtered — neither output should be visible.
     expect(screen.queryByText(/champion bounty/i)).toBeNull();
-    expect(screen.queryByText(/POL backing/i)).toBeNull();
+    expect(screen.queryByText(/filter fund liquidity reserve/i)).toBeNull();
   });
 
-  it("reveals bounty + POL outputs when outcome flips to wins", () => {
+  it("reveals bounty + Reserve outputs when outcome flips to wins", () => {
     render(<RoiCalculator {...baseProps} />);
     // Click the wins-week radio directly.
     fireEvent.click(screen.getByRole("radio", {name: /wins week/i}));
     expect(screen.getByText(/champion bounty/i)).toBeTruthy();
-    expect(screen.getByText(/POL backing/i)).toBeTruthy();
+    expect(screen.getByText(/filter fund liquidity reserve/i)).toBeTruthy();
   });
 
   it("renders breakeven volume derived from the slot cost", () => {

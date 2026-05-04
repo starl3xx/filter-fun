@@ -30,6 +30,7 @@ import {
   buildTokensResponse,
   isAddressLike,
   tickerWithDollar,
+  weiToDecimalEther,
   type SeasonResponse,
   type SeasonRow,
   type TokenResponse,
@@ -53,6 +54,19 @@ export interface BagLockRow {
   unlockTimestamp: bigint;
 }
 
+/// Per-token creator-fee rollup row used by `/tokens/:address/creator-earnings`.
+/// Mirrors the on-chain `CreatorFeeDistributor` accounting (Epic 1.16, spec §10.3).
+export interface CreatorEarningRow {
+  token: `0x${string}`;
+  creator: `0x${string}`;
+  lifetimeAccrued: bigint;
+  claimed: bigint;
+  redirectedToTreasury: bigint;
+  lastClaimAt: bigint | null;
+  disabled: boolean;
+  weightsVersion: string;
+}
+
 export interface ApiQueries {
   /// Latest season the indexer has seen (highest seasonId), or null if none.
   latestSeason: () => Promise<SeasonRow | null>;
@@ -67,6 +81,10 @@ export interface ApiQueries {
   bagLocksForTokens: (
     tokens: ReadonlyArray<`0x${string}`>,
   ) => Promise<BagLockRow[]>;
+  /// Creator-fee rollup for one token (Epic 1.16). Returns null for tokens that have
+  /// never accrued (and never been disabled) — the row is created lazily on the first
+  /// indexed event.
+  creatorEarningsForToken: (addr: `0x${string}`) => Promise<CreatorEarningRow | null>;
 }
 
 export interface ApiResult<T> {
@@ -180,6 +198,79 @@ export async function getTokenDetailHandler(
 /// Re-export the centralized validator so `import {isAddressLike} from "./handlers.js"`
 /// (used in tests) keeps working without sprawling import-path churn.
 export {isAddressLike} from "./builders.js";
+
+// ============================================================ /tokens/:address/creator-earnings (Epic 1.16)
+
+/// Spec §10.3 + §10.6 (locked 2026-05-02): creator earnings are perpetual — winners earn
+/// 0.20% of every swap on their pool forever; filtered + non-winning finalists stop earning
+/// only because their LP is unwound, not because of a code-side cap. The endpoint surfaces
+/// the indexer-side rollup for ANY token (winner or otherwise) so the creator admin console
+/// can list past-token earnings without per-token RPC reads, and so winning creators can
+/// monitor the long-tail accrual without touching the contract directly.
+///
+/// `claimable` = `lifetimeAccrued - claimed` (mirrors the contract's `pendingClaim` view).
+/// `weightsVersion` ties the row to the active scoring regime so the cost/ROI calculator
+/// (Epic 2.10) can correlate against the weights that produced the observed earnings.
+export interface CreatorEarningsResponse {
+  token: `0x${string}`;
+  creator: `0x${string}`;
+  /// Wei accrued over the token's full life. Decimal-ether string for UI consumption.
+  lifetimeAccrued: string;
+  /// Wei the creator (or admin-redirected recipient) has pulled. Decimal-ether string.
+  claimed: string;
+  /// `lifetimeAccrued - claimed`. Decimal-ether string. The headline number on the
+  /// creator admin console "Claim" button.
+  claimable: string;
+  /// Wei that arrived while emergency-disabled and routed to treasury instead of the
+  /// creator. Always "0" in the normal lifecycle; non-zero indicates a multisig action.
+  redirectedToTreasury: string;
+  /// Unix-seconds of the most-recent successful claim. `null` until the creator has
+  /// claimed at least once.
+  lastClaimAt: number | null;
+  /// Mirrors the on-chain emergency-disable flag. UI surfaces a banner when true.
+  disabled: boolean;
+  /// `HP_WEIGHTS_VERSION` snapshot at row creation. Stable for the life of the token in
+  /// genesis (no live mutation); useful as a correlation handle for Epic 2.10.
+  weightsVersion: string;
+}
+
+export async function getCreatorEarningsHandler(
+  q: ApiQueries,
+  rawAddress: string,
+): Promise<ApiResult<CreatorEarningsResponse>> {
+  const addr = rawAddress.toLowerCase();
+  if (!isAddressLike(addr)) return err(400, "invalid address");
+  const tokenRow = await q.tokenByAddress(addr as `0x${string}`);
+  if (!tokenRow) return err(404, "unknown token");
+  const earnings = await q.creatorEarningsForToken(addr as `0x${string}`);
+  if (!earnings) {
+    // No accrual events yet (token launched but not traded, or indexer hasn't backfilled).
+    // Return a zero-shaped response so the UI can render "still earning" badges + a $0
+    // claim button without special-casing absence.
+    return ok({
+      token: tokenRow.id,
+      creator: tokenRow.creator,
+      lifetimeAccrued: "0",
+      claimed: "0",
+      claimable: "0",
+      redirectedToTreasury: "0",
+      lastClaimAt: null,
+      disabled: false,
+      weightsVersion: "2026-05-05-v4-locked-int10k",
+    });
+  }
+  return ok({
+    token: earnings.token,
+    creator: earnings.creator,
+    lifetimeAccrued: weiToDecimalEther(earnings.lifetimeAccrued),
+    claimed: weiToDecimalEther(earnings.claimed),
+    claimable: weiToDecimalEther(earnings.lifetimeAccrued - earnings.claimed),
+    redirectedToTreasury: weiToDecimalEther(earnings.redirectedToTreasury),
+    lastClaimAt: earnings.lastClaimAt === null ? null : Number(earnings.lastClaimAt),
+    disabled: earnings.disabled,
+    weightsVersion: earnings.weightsVersion,
+  });
+}
 
 // ============================================================ /readiness (Audit H-4)
 

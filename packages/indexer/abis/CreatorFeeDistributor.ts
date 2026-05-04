@@ -28,19 +28,6 @@ export const CreatorFeeDistributorAbi = [
   },
   {
     "type": "function",
-    "name": "ELIGIBILITY_WINDOW",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "claim",
     "inputs": [
       {
@@ -78,25 +65,6 @@ export const CreatorFeeDistributorAbi = [
   },
   {
     "type": "function",
-    "name": "eligible",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "infoOf",
     "inputs": [
       {
@@ -117,7 +85,7 @@ export const CreatorFeeDistributorAbi = [
             "internalType": "uint256"
           },
           {
-            "name": "filtered",
+            "name": "disabled",
             "type": "bool",
             "internalType": "bool"
           },
@@ -132,6 +100,25 @@ export const CreatorFeeDistributorAbi = [
             "internalType": "uint256"
           }
         ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isDisabled",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -161,19 +148,6 @@ export const CreatorFeeDistributorAbi = [
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "markFiltered",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -421,6 +395,11 @@ export const CreatorFeeDistributorAbi = [
   },
   {
     "type": "error",
+    "name": "Disabled",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "EmptyReason",
     "inputs": []
   },
@@ -442,11 +421,6 @@ export const CreatorFeeDistributorAbi = [
   {
     "type": "error",
     "name": "NotRegisteredLocker",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NotRegisteredVault",
     "inputs": []
   },
   {

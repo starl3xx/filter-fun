@@ -1,0 +1,121 @@
+---
+title: Post-Settlement Fee Routing
+description: How the 90 bps Filter-Fund slice routes to the Filter Fund Liquidity Reserve once a season's winner is committed (Epic 1.16, spec §9.4).
+---
+
+# Post-Settlement Fee Routing
+
+Once a season's winner is committed via `SeasonVault.submitWinner`, the WETH-leg fee split on
+that winner's pool flips. This page covers the mechanism (`winnerSettledAt` flag), the new
+routing destination (the Filter Fund Liquidity Reserve, deployed via `POLVault` in contract
+code), and the rationale.
+
+> **Naming note (spec §11.0):** the user-facing names are **Filter Fund** (the losers-pot
+> accumulating across the week) and **Filter Fund Liquidity Reserve** (the 10% slice deployed
+> as permanent winner backing, plus the post-settlement 90 bps top-up). Internal contract
+> names — `POLVault`, `POLManager`, `POL_BPS`, `polReserve`, `winnerSettledAt`, etc. — are
+> retained for audit-firm continuity. Where this page references contract identifiers, code
+> blocks, or event/field names it uses the contract names verbatim.
+
+## The flip
+
+Every filter.fun pool emits a 200-bps WETH-leg fee on every swap. The four-slice breakdown is
+identical pre- and post-settlement EXCEPT for where the prize-pool slice goes:
+
+| Slice | BPS | Pre-settlement (§9.2) | Post-settlement (§9.4) |
+| --- | --- | --- | --- |
+| Filter Fund / Reserve | 90 | SeasonVault (Filter Fund) | **POLVault** (Filter Fund Liquidity Reserve) |
+| Treasury | 65 | Treasury | Treasury |
+| Mechanics | 25 | Mechanics | Mechanics |
+| Creator | 20 | Creator | Creator |
+| **Total** | **200** | | |
+
+Same totals. Same creator slice. The 90-bps prize slice is the only thing that moves — it's
+no longer feeding a season that has already been settled, so it tops up the winner's
+Filter Fund Liquidity Reserve instead.
+
+## The contract-side mechanism
+
+The canonical flag is on the per-token locker:
+
+`FilterLpLocker.winnerSettledAt` — Unix-seconds at which the winner was committed, set on
+the WINNER's locker only by SeasonVault inside the same `submitWinner` transaction. Zero on
+every other locker (filtered tokens + non-winning finalists never reach this call).
+
+Off-chain consumers that need the per-season "is post-settlement?" answer read it from the
+`SeasonVault.WinnerSubmitted` event's block timestamp — the indexer's
+`/season/:id` route exposes this as `winnerSettledAt`. There is intentionally no on-chain
+mirror on the vault itself (it costs ~11 bytes of FilterLauncher init-code budget that the
+launcher needs to stay under EIP-170 after the deferred-activation refactor in PR #88).
+
+The locker's `_takeAndSplit` reads its own `winnerSettledAt` on every fee collection:
+
+```solidity
+if (winnerSettledAt == 0) {
+    // §9.2: prize → SeasonVault
+} else {
+    // §9.4: prize → POLVault
+}
+```
+
+The transition is atomic — the last fee event before `submitWinner` uses §9.2; the first one
+after uses §9.4. There is no per-token migration step.
+
+## Why route to the Reserve?
+
+Per spec §11.7: post-settlement, the season's Filter Fund is closed (the winner has been picked,
+the rollover/bonus/Reserve slices have been deployed, the bounty has been paid). A new Filter
+Fund can't be filled. The natural destination for the 90-bps slice is the singleton POLVault,
+which records the WETH against the winner's pool — i.e., the winner's Filter Fund Liquidity
+Reserve. A future iteration adds a `compoundIntoPosition` function that periodically pulls
+accumulated POLVault WETH back into the locker's permanent LP position — compounding the
+winner's Reserve instead of leaving the WETH idle.
+
+The non-winner pools never reach this code path because:
+- Filtered tokens have their LP unwound at h96 → no trades, no fees.
+- Non-winning finalists have their LP unwound at h168 (final settlement) → same outcome.
+
+Only the winning pool keeps trading past settlement, and only the winning pool flips to §9.4
+routing.
+
+## What this means for creators
+
+For winners, the creator's 0.20% slice keeps flowing forever (spec §10.3 + §10.6, also
+locked 2026-05-02). Settlement does NOT change the creator's payout — it only changes where
+the 90-bps prize slice goes. See [`/creators/incentives`](../creators/incentives) for the full
+creator-side breakdown.
+
+## Indexer + frontend exposure
+
+- `/season` API response includes `winnerSettledAt` (Unix-seconds; null pre-settlement).
+- `/tokens/:address/creator-earnings` returns the per-token rollup unaffected by the routing
+  flip — the creator slice is the same in both regimes.
+- The `feeAccrual` indexer table now carries a `routing` discriminator
+  (`"PRE_SETTLEMENT" | "POST_SETTLEMENT"`) so downstream consumers can distinguish prize-pool
+  growth from POL exposure when summing the table.
+- The locker emits a separate `PostSettlementFeesCollected` event so log-watchers can attribute
+  POL inflow without parsing `routing` joins.
+
+## Invariants (audit anchor)
+
+The PR #50 invariant suite is extended with:
+
+- `inv_post_settlement_routing` — for any winner pool past settlement, the sum of
+  `{POL, treasury, mechanics, creator}` per fee event = 200 bps, and the POL share = 90 bps
+  exactly.
+- `inv_creator_fee_perpetual_for_winner` — for any winner pool past settlement, the creator-
+  fee accrual is non-zero on every swap (i.e., `creatorAccrued[winnerPool]` strictly
+  increases on every trade).
+
+Pre-Epic-1.16 the second invariant would have failed for any swap past h168 because of the
+72-hour eligibility cap that has now been removed. The first didn't exist because the post-
+settlement routing didn't exist.
+
+## What didn't change
+
+- Total fee per swap = 200 bps = 2% (spec §9.0).
+- Creator slice = 20 bps = 0.20% (spec §10.2; perpetual per §10.3).
+- Champion bounty (§10.4) — still 2.5% of losers pot at settlement, separate from the
+  trading-fee stream.
+- POLVault accounting model — still records-only (no token custody); the records track
+  per-token + per-protocol POL exposure across seasons.

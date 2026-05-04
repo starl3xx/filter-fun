@@ -8,6 +8,7 @@ import {describe, expect, it} from "vitest";
 
 import {weiToDecimalEther} from "../../src/api/builders.js";
 import {
+  getCreatorEarningsHandler,
   getSeasonHandler,
   getTokenDetailHandler,
   getTokensHandler,
@@ -35,6 +36,9 @@ function mkSeason(over: Partial<SeasonRow> = {}): SeasonRow {
     phase: "Launch",
     totalPot: 0n,
     bonusReserve: 0n,
+    // Epic 1.16 (spec §9.4): null pre-settlement; populated to a Unix-seconds bigint
+    // post-`submitWinner`. Default null since most legacy tests run mid-season.
+    winnerSettledAt: null,
     ...over,
   };
 }
@@ -75,6 +79,9 @@ function fixtureQueries(opts: {
     tokensInSeason: async () => opts.tokens ?? [],
     tokenByAddress: async (a) => opts.detailLookup?.[a] ?? null,
     bagLocksForTokens: async () => opts.bagLocks ?? [],
+    // Epic 1.16 — fixture queries default to "no creator-earnings rollup yet"; tests
+    // that need to assert against the rollup will override this in their own builders.
+    creatorEarningsForToken: async () => null,
   };
 }
 
@@ -505,5 +512,166 @@ describe("weiToDecimalEther", () => {
     expect(weiToDecimalEther(15n * 10n ** 17n)).toBe("1.5"); // 1.5 ETH
     // 14.82 ETH = 14_820_000_000_000_000_000 wei, exactly 14.82.
     expect(weiToDecimalEther(14_820_000_000_000_000_000n)).toBe("14.82");
+  });
+});
+
+// ============================================================ Epic 1.16
+
+describe("/season — winnerSettledAt (Epic 1.16, spec §9.4)", () => {
+  it("emits winnerSettledAt: null while the season is still active", async () => {
+    const r = await getSeasonHandler(fixtureQueries({season: mkSeason()}));
+    expect(r.status).toBe(200);
+    const body = r.body as {status: "ready"; season: {winnerSettledAt: number | null}};
+    expect(body.status).toBe("ready");
+    expect(body.season.winnerSettledAt).toBeNull();
+  });
+
+  it("emits winnerSettledAt: <unix-seconds> once the winner has been committed", async () => {
+    const settledAt = STARTED_AT + 168n * HOUR; // h168 final-settlement time
+    const r = await getSeasonHandler(
+      fixtureQueries({season: mkSeason({winnerSettledAt: settledAt})}),
+    );
+    expect(r.status).toBe(200);
+    const body = r.body as {status: "ready"; season: {winnerSettledAt: number | null}};
+    expect(body.season.winnerSettledAt).toBe(Number(settledAt));
+  });
+});
+
+describe("/tokens/:address/creator-earnings (Epic 1.16, spec §10.3 + §10.6)", () => {
+  const tokenAddr = addr(0xabc);
+  const creatorAddr = addr(0xbeef);
+
+  function tokenDetailFixture(): TokenDetailRow {
+    return {
+      id: tokenAddr,
+      symbol: "WIN",
+      name: "Winner",
+      isFinalist: true,
+      liquidated: false,
+      liquidationProceeds: null,
+      creator: creatorAddr,
+      seasonId: 1n,
+      isProtocolLaunched: false,
+      createdAt: 0n,
+    };
+  }
+
+  it("400 on a malformed address", async () => {
+    const r = await getCreatorEarningsHandler(fixtureQueries({season: null}), "not-an-address");
+    expect(r.status).toBe(400);
+  });
+
+  it("404 on an address the indexer has never seen", async () => {
+    const r = await getCreatorEarningsHandler(fixtureQueries({season: null}), addr(0xdead));
+    expect(r.status).toBe(404);
+  });
+
+  it("returns a zero-shaped payload when the token exists but has no rollup yet", async () => {
+    const queries: ApiQueries = {
+      ...fixtureQueries({season: null}),
+      tokenByAddress: async () => tokenDetailFixture(),
+      creatorEarningsForToken: async () => null,
+    };
+    const r = await getCreatorEarningsHandler(queries, tokenAddr);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      token: tokenAddr,
+      creator: creatorAddr,
+      lifetimeAccrued: "0",
+      claimed: "0",
+      claimable: "0",
+      lastClaimAt: null,
+      disabled: false,
+    });
+  });
+
+  it("returns the rollup with computed claimable + decimal-ether amounts", async () => {
+    const lifetimeWei = 14_820_000_000_000_000_000n; // 14.82 ETH
+    const claimedWei = 4_000_000_000_000_000_000n; // 4 ETH
+    const lastClaimSec = STARTED_AT + 30n * 24n * 3600n;
+    const queries: ApiQueries = {
+      ...fixtureQueries({season: null}),
+      tokenByAddress: async () => tokenDetailFixture(),
+      creatorEarningsForToken: async () => ({
+        token: tokenAddr,
+        creator: creatorAddr,
+        lifetimeAccrued: lifetimeWei,
+        claimed: claimedWei,
+        redirectedToTreasury: 0n,
+        lastClaimAt: lastClaimSec,
+        disabled: false,
+        weightsVersion: "2026-05-05-v4-locked-int10k",
+      }),
+    };
+    const r = await getCreatorEarningsHandler(queries, tokenAddr);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      lifetimeAccrued: "14.82",
+      claimed: "4",
+      claimable: "10.82", // 14.82 - 4
+      lastClaimAt: Number(lastClaimSec),
+      disabled: false,
+      weightsVersion: "2026-05-05-v4-locked-int10k",
+    });
+  });
+
+  it("surfaces the multisig-disabled flag and treasury redirect tally", async () => {
+    const queries: ApiQueries = {
+      ...fixtureQueries({season: null}),
+      tokenByAddress: async () => tokenDetailFixture(),
+      creatorEarningsForToken: async () => ({
+        token: tokenAddr,
+        creator: creatorAddr,
+        lifetimeAccrued: 0n,
+        claimed: 0n,
+        redirectedToTreasury: 2_500_000_000_000_000_000n, // 2.5 ETH redirected
+        lastClaimAt: null,
+        disabled: true,
+        weightsVersion: "2026-05-05-v4-locked-int10k",
+      }),
+    };
+    const r = await getCreatorEarningsHandler(queries, tokenAddr);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      disabled: true,
+      redirectedToTreasury: "2.5",
+      claimable: "0",
+    });
+  });
+
+  /// Regression: bugbot caught that the on-chain `disableCreatorFee` sweep
+  /// (`info.claimed = info.accrued`) wasn't mirrored in the indexer, so the API
+  /// would have returned a stale positive `claimable` for a disabled token whose
+  /// pending was already swept to treasury. Post-fix, the handler bumps
+  /// `claimed` to match `lifetimeAccrued` on `CreatorFeeDisabled`, and the API
+  /// reports `claimable: "0"` even when there was prior accrual.
+  it("post-sweep: disabled token with prior accrual reports claimable = 0", async () => {
+    const queries: ApiQueries = {
+      ...fixtureQueries({season: null}),
+      tokenByAddress: async () => tokenDetailFixture(),
+      creatorEarningsForToken: async () => ({
+        token: tokenAddr,
+        creator: creatorAddr,
+        // Both bumped to 1.4 ETH — the indexer fast-forwards `claimed` to match
+        // `lifetimeAccrued` on disable so the contract's `pendingClaim() == 0` is
+        // mirrored in the API.
+        lifetimeAccrued: 1_400_000_000_000_000_000n,
+        claimed: 1_400_000_000_000_000_000n,
+        // The 1.4 ETH that was swept becomes a treasury redirect.
+        redirectedToTreasury: 1_400_000_000_000_000_000n,
+        lastClaimAt: null,
+        disabled: true,
+        weightsVersion: "2026-05-05-v4-locked-int10k",
+      }),
+    };
+    const r = await getCreatorEarningsHandler(queries, tokenAddr);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      disabled: true,
+      lifetimeAccrued: "1.4",
+      claimed: "1.4",
+      claimable: "0",
+      redirectedToTreasury: "1.4",
+    });
   });
 });
