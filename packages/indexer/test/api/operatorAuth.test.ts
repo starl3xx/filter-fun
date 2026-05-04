@@ -109,6 +109,58 @@ describe("decideOperatorAuth", () => {
   });
 });
 
+describe("decideOperatorAuth — verifier injection (EIP-1271 path)", () => {
+  // Regression: bugbot PR #95 round 1 caught that the original implementation
+  // hardcoded viem's top-level `verifyMessage` utility — which only does
+  // EIP-191 ecrecover (EOAs) — and so silently rejected every valid EIP-1271
+  // multisig signature. The fix injects an OperatorVerifier; production wires
+  // in `publicClient.verifyMessage(...)` (EIP-191 + on-chain isValidSignature
+  // for contract accounts). These tests prove the injection actually flows
+  // through, so a future regression that hardcodes the EOA path lands as a
+  // failure here instead of in production.
+  it("uses the injected verifier instead of the EOA fallback when provided", async () => {
+    let verifierCalled = false;
+    const fakeMultisigSig = "0xdeadbeefcafe" as const;
+    const r = await decideOperatorAuth({
+      authorization: `Bearer ${fakeMultisigSig}`,
+      address: SIGNER,
+      message: "hello",
+      issuedAt: new Date().toISOString(),
+      allowlistRaw: SIGNER,
+      verifier: async () => {
+        verifierCalled = true;
+        // Stub returns true regardless — proves the EOA-only fallback is
+        // bypassed (the fakeMultisigSig would never validate via ecrecover).
+        return true;
+      },
+    });
+    expect(verifierCalled).toBe(true);
+    expect(r.authorized).toBe(true);
+  });
+
+  it("rejects when the injected verifier returns false", async () => {
+    const headers = await signedHeaders("hello");
+    const r = await decideOperatorAuth({
+      ...headers,
+      allowlistRaw: SIGNER,
+      verifier: async () => false,
+    });
+    expect(r.authorized).toBe(false);
+    expect(r.reason).toBe("bad_signature");
+  });
+
+  it("falls back to the default EOA verifier when none is provided", async () => {
+    // The default verifier uses recoverMessageAddress (EIP-191 only). A valid
+    // EOA signature still authorises; the test exercises the fallback path.
+    const headers = await signedHeaders("hello");
+    const r = await decideOperatorAuth({
+      ...headers,
+      allowlistRaw: SIGNER,
+    });
+    expect(r.authorized).toBe(true);
+  });
+});
+
 describe("parseOperatorWallets", () => {
   it("returns empty when the env is unset / blank", () => {
     expect(parseOperatorWallets(undefined)).toEqual([]);

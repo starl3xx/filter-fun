@@ -26,11 +26,32 @@
 ///   - "bad_signature"     — recovered signer ≠ `X-Operator-Address`.
 ///   - "not_authorized"    — signer not in the allow-list.
 
-import {getAddress, isAddress, verifyMessage} from "viem";
+import {createPublicClient, getAddress, http, isAddress} from "viem";
+import {base, baseSepolia} from "viem/chains";
 
 import type {MwContext} from "./middleware.js";
 
 const STALENESS_WINDOW_MS = 5 * 60 * 1000;
+
+/// Verifier function shape — given (address, message, signature), returns true
+/// if the signature is valid. Production path uses
+/// `publicClient.verifyMessage(...)` which handles BOTH EIP-191 (EOA ecrecover)
+/// AND EIP-1271 (on-chain `isValidSignature` for smart-contract / multisig
+/// accounts). Tests inject a stubbed verifier (or omit, defaulting to the EOA-
+/// only utility) so they don't need an RPC connection.
+///
+/// Audit (bugbot PR #95 round 1, High Severity): the top-level `verifyMessage`
+/// utility from `viem` is **EOA-only** by design — viem's own docs warn
+/// "Does not support Contract Accounts. It is highly recommended to use
+/// publicClient.verifyMessage instead." Production deploys MUST hit the
+/// public-client variant or the multisig operator path will silently 403 every
+/// request with `bad_signature` (the genesis EOA path keeps working, masking
+/// the issue until mainnet rollover).
+export type OperatorVerifier = (input: {
+  address: `0x${string}`;
+  message: string;
+  signature: `0x${string}`;
+}) => Promise<boolean>;
 
 export interface OperatorAuthDecision {
   authorized: boolean;
@@ -41,7 +62,9 @@ export interface OperatorAuthDecision {
 }
 
 /// Pure helper — testable without spinning up a Hono context. Reads the four
-/// headers + the env, returns the auth decision.
+/// headers + the env, returns the auth decision. Inject a custom `verifier`
+/// for tests; production callers omit it and the lazy module-singleton wires
+/// in the public-client variant (handles EIP-1271).
 export async function decideOperatorAuth(input: {
   authorization: string | undefined;
   address: string | undefined;
@@ -49,6 +72,10 @@ export async function decideOperatorAuth(input: {
   issuedAt: string | undefined;
   allowlistRaw: string | undefined;
   nowMs?: number;
+  /// Override for testing. Defaults to the EOA-only fallback when omitted —
+  /// production callers should use `applyOperatorAuth` (below), which wires
+  /// in the public-client verifier so EIP-1271 multisig flows work.
+  verifier?: OperatorVerifier;
 }): Promise<OperatorAuthDecision> {
   const allowlist = parseOperatorWallets(input.allowlistRaw);
   if (allowlist.length === 0) {
@@ -79,13 +106,17 @@ export async function decideOperatorAuth(input: {
     return {authorized: false, reason: "stale_message"};
   }
 
-  // viem.verifyMessage: EIP-191 personal_sign + EIP-1271 contract-account fallback. The
-  // multisig-as-operator path (production) needs the EIP-1271 branch; an EOA operator
-  // (genesis testing) lands on the EIP-191 branch. verifyMessage handles both
-  // transparently when given the address.
+  // EIP-191 personal_sign + EIP-1271 smart-contract-account verification. The
+  // injected verifier handles both transparently — production wires in
+  // `publicClient.verifyMessage(...)` which falls back to an on-chain
+  // `isValidSignature(bytes32,bytes)` call when the address is a contract.
+  // The default fallback below is EOA-only (utility-form `verifyMessage`)
+  // and is only reached in tests / dev environments where no RPC is
+  // configured. See OperatorVerifier docstring for the audit context.
+  const verifier = input.verifier ?? defaultEoaVerifier;
   let valid = false;
   try {
-    valid = await verifyMessage({
+    valid = await verifier({
       address: input.address as `0x${string}`,
       message: input.message,
       signature: sig as `0x${string}`,
@@ -119,6 +150,71 @@ export function parseOperatorWallets(raw: string | undefined): `0x${string}`[] {
     .map((s) => getAddress(s));
 }
 
+// ============================================================ verifiers
+
+/// EOA-only fallback. Uses viem's `recoverMessageAddress` directly (the same
+/// primitive the top-level `verifyMessage` utility wraps). Reached only when
+/// no production verifier is constructed (no RPC configured) — EIP-1271 calls
+/// require an RPC, so we'd silently fail if we tried. Logging would be too
+/// noisy here (called per-request); the warn fires once at module load when
+/// the production verifier can't be constructed.
+const defaultEoaVerifier: OperatorVerifier = async ({address, message, signature}) => {
+  const {recoverMessageAddress} = await import("viem");
+  try {
+    const recovered = await recoverMessageAddress({message, signature});
+    return recovered.toLowerCase() === address.toLowerCase();
+  } catch {
+    return false;
+  }
+};
+
+/// Lazy module-singleton public client used to verify operator signatures via
+/// `publicClient.verifyMessage(...)`. Falls back to the EOA-only verifier when
+/// no RPC URL is configured (test environments, indexer running without
+/// PONDER_RPC_URL_*).
+///
+/// Re-uses `PONDER_RPC_URL_8453` / `PONDER_RPC_URL_84532` so the operator
+/// console works against the same chain the indexer is bound to. The chain
+/// selection mirrors `ponder.config.ts` (`PONDER_NETWORK`); a mismatch here
+/// would attempt to verify multisig signatures against the wrong chain's
+/// state and 403 every legitimate request.
+let cachedVerifier: OperatorVerifier | null = null;
+
+function buildProductionVerifier(): OperatorVerifier | null {
+  const networkRaw = process.env.PONDER_NETWORK ?? "baseSepolia";
+  const network = networkRaw === "base" ? "base" : "baseSepolia";
+  const rpcUrl =
+    network === "base" ? process.env.PONDER_RPC_URL_8453 : process.env.PONDER_RPC_URL_84532;
+  if (!rpcUrl) {
+    console.warn(
+      `[operator-auth] PONDER_RPC_URL_${network === "base" ? "8453" : "84532"} unset — operator-auth will use the EOA-only verifier. EIP-1271 multisig signatures will be rejected.`,
+    );
+    return null;
+  }
+  // Type annotation deliberately omitted: ponder ships its own viem types
+  // alongside the workspace viem, and an explicit `PublicClient` here trips a
+  // "two different types with this name exist" mismatch under Ponder's narrower
+  // generated definitions. Letting TS infer the literal createPublicClient
+  // return type keeps the call-site narrow and skips the conflict.
+  const chain = network === "base" ? base : baseSepolia;
+  const client = createPublicClient({chain, transport: http(rpcUrl)});
+  return async ({address, message, signature}) =>
+    client.verifyMessage({address, message, signature});
+}
+
+export function getOperatorVerifier(): OperatorVerifier {
+  if (cachedVerifier) return cachedVerifier;
+  cachedVerifier = buildProductionVerifier() ?? defaultEoaVerifier;
+  return cachedVerifier;
+}
+
+/// Test hook — reset the verifier singleton between tests that exercise the
+/// production path. Not exported through the public surface; tests reach for
+/// it via the source path.
+export function __resetVerifierForTests(): void {
+  cachedVerifier = null;
+}
+
 /// Hono-style helper: extracts headers from MwContext, runs the decision, writes
 /// 403 + JSON on deny. Returns null when authorized so the route handler proceeds.
 /// On success, attaches the signer to a shared header so handlers that audit-log
@@ -130,6 +226,7 @@ export async function applyOperatorAuth(c: MwContext): Promise<{response: Respon
     message: c.req.header("x-operator-message"),
     issuedAt: c.req.header("x-operator-issued-at"),
     allowlistRaw: process.env.OPERATOR_WALLETS,
+    verifier: getOperatorVerifier(),
   });
   if (!decision.authorized) {
     return {
