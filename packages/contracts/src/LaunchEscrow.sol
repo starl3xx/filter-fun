@@ -39,6 +39,8 @@ contract LaunchEscrow is ReentrancyGuard {
     error SeasonAlreadyAborted();
     error UnknownReservation();
     error ZeroAddress();
+    error NoPendingRefund();
+    error PendingRefundFailed();
 
     event SlotReserved(
         uint256 indexed seasonId,
@@ -54,10 +56,17 @@ contract LaunchEscrow is ReentrancyGuard {
     event ReservationRefunded(
         uint256 indexed seasonId, address indexed creator, uint256 amount
     );
-    /// @notice Emitted when a single creator's refund tx fails during `refundAll` (e.g. their
-    ///         receiver reverts or runs out of gas). The sweep continues; the operator
-    ///         runbook's manual-sweep procedure picks failed entries up.
+    /// @notice Emitted when a single creator's refund push fails during `refundAll` (e.g. their
+    ///         receiver reverts or runs out of gas). The sweep continues; the failed amount is
+    ///         credited to `pendingRefunds[seasonId][creator]` and the creator (or, for a
+    ///         contract creator with a broken `receive()`, any address that contract delegates
+    ///         to) can pull the funds out via `claimPendingRefund`.
     event RefundFailed(uint256 indexed seasonId, address indexed creator, uint256 amount);
+    /// @notice Emitted when a creator (or their delegated `to`) successfully pulls a previously
+    ///         stuck refund out of the escrow via `claimPendingRefund`.
+    event PendingRefundClaimed(
+        uint256 indexed seasonId, address indexed creator, address to, uint256 amount
+    );
     event SeasonAborted(uint256 indexed seasonId, uint256 reservationCount, uint256 totalRefunded);
 
     /// @notice Per-(season, creator) escrow record. Tracks both the ETH amount and lifecycle
@@ -101,6 +110,16 @@ contract LaunchEscrow is ReentrancyGuard {
     ///         only calls `refundAll` if `season.activated == false` at h48 anyway, but the
     ///         redundant guard here keeps the escrow defensible standalone.
     mapping(uint256 => bool) public activated;
+
+    /// @notice Pending refund credit for `(seasonId → creator)` whose push-refund failed during
+    ///         `refundAll` (their `receive()` reverted, ran out of gas, etc.). The credit can
+    ///         be pulled by the creator at any time via `claimPendingRefund(seasonId, to)` —
+    ///         no admin involvement required, no time limit, and no dependency on the season's
+    ///         lifecycle (the season can stay in the `aborted` terminal state forever and the
+    ///         creator's funds remain claimable). Audit: bugbot M PR #88 — replaces the prior
+    ///         `r.refunded = false` rollback model that would brick funds when combined with
+    ///         the `aborted[seasonId] = true` flag (which permanently blocks `refundAll`).
+    mapping(uint256 => mapping(address => uint128)) public pendingRefunds;
 
     modifier onlyLauncher() {
         if (msg.sender != launcher) revert NotLauncher();
@@ -198,10 +217,14 @@ contract LaunchEscrow is ReentrancyGuard {
     ///         redundant `!activated[seasonId]` guard here so the escrow is defensible
     ///         standalone (a future caller can't trick us into refunding a live cohort).
     /// @dev    A single failed refund tx (because the creator is a contract whose receive()
-    ///         reverts, or runs out of gas) emits `RefundFailed(creator)` and continues with
-    ///         the rest. Operations can pick the failed entry up via the runbook's manual-
-    ///         sweep procedure. We do NOT revert the whole sweep on one bad recipient — that
-    ///         would let any single griefer brick the entire season's refund.
+    ///         reverts, or runs out of gas) credits `pendingRefunds[seasonId][creator]` and
+    ///         emits `RefundFailed`; the sweep continues. The creator can pull the credit via
+    ///         `claimPendingRefund` at any later time. We do NOT revert the whole sweep on
+    ///         one bad recipient — that would let any single griefer brick the entire season's
+    ///         refund. Audit: bugbot M PR #88 — pull-pattern fallback replaces the prior
+    ///         `r.refunded = false` rollback that would have permanently locked funds (since
+    ///         the `aborted[seasonId] = true` flag set above blocks both this function and
+    ///         `releaseToDeploy` from ever being called again for this season).
     function refundAll(uint256 seasonId)
         external
         onlyLauncher
@@ -231,10 +254,12 @@ contract LaunchEscrow is ReentrancyGuard {
             }
             (bool ok,) = creator.call{value: amount}("");
             if (!ok) {
-                // Roll back the `refunded` flag so the manual-sweep procedure can retry via
-                // the operator runbook. Surfaces a per-creator event so monitoring catches
-                // the failure without scanning every refund call.
-                r.refunded = false;
+                // Push failed; credit the amount to the pull-pattern map so the creator can
+                // claim later via `claimPendingRefund(seasonId, to)`. We KEEP `r.refunded = true`
+                // so a re-run of `refundAll` (defensive; it's gated by `aborted[seasonId]`
+                // anyway) doesn't double-credit. The pending map is now the source of truth
+                // for the stuck amount.
+                pendingRefunds[seasonId][creator] = uint128(amount);
                 emit RefundFailed(seasonId, creator, amount);
                 continue;
             }
@@ -243,6 +268,31 @@ contract LaunchEscrow is ReentrancyGuard {
         }
 
         emit SeasonAborted(seasonId, reservationCount, totalRefunded);
+    }
+
+    // ============================================================ Rescue (pull-pattern)
+
+    /// @notice Pull a stuck refund out of the escrow after a failed push during `refundAll`.
+    ///         Self-only: `msg.sender` must be the original creator (the address that holds the
+    ///         credit in `pendingRefunds`). The recipient `to` is parameterised so a contract
+    ///         creator whose own `receive()` reverted (the exact case that put the funds into
+    ///         pull mode) can redirect to a fresh EOA / proxy that accepts ETH. EOA creators
+    ///         that simply ran out of gas in the original sweep can pass `payable(msg.sender)`.
+    /// @dev    Audit: bugbot M PR #88. There is no time limit and no admin gate — the credit
+    ///         is the creator's permanent claim on their escrow. `nonReentrant` because the
+    ///         `to` recipient is arbitrary and may itself try to re-enter.
+    function claimPendingRefund(uint256 seasonId, address payable to)
+        external
+        nonReentrant
+        returns (uint256 amount)
+    {
+        if (to == address(0)) revert ZeroAddress();
+        amount = uint256(pendingRefunds[seasonId][msg.sender]);
+        if (amount == 0) revert NoPendingRefund();
+        delete pendingRefunds[seasonId][msg.sender];
+        (bool ok,) = to.call{value: amount}("");
+        if (!ok) revert PendingRefundFailed();
+        emit PendingRefundClaimed(seasonId, msg.sender, to, amount);
     }
 
     // ============================================================ Views

@@ -128,9 +128,12 @@ contract SparseWeekRefundTest is Test {
     }
 
     /// @notice Refund-failure case: a creator whose receive hook reverts (e.g. a contract
-    ///         with no fallback). The sweep MUST continue; the failed creator's flag stays
-    ///         `refunded == false` so the operator runbook can manually retry. Other
-    ///         creators in the same sweep still get paid.
+    ///         with no fallback). The sweep MUST continue; the failed creator's amount is
+    ///         credited to `pendingRefunds` so the creator can pull it later via
+    ///         `claimPendingRefund`. Other creators in the same sweep still get paid.
+    ///         (Audit: bugbot M PR #88 — pull-pattern fallback. Pre-fix this rolled back
+    ///         `r.refunded = false` and left funds permanently stuck since the season's
+    ///         `aborted` flag blocks any further `refundAll` / `releaseToDeploy`.)
     function test_RefundFailureSkipsRecipientButCompletesRest() public {
         vm.prank(oracle);
         uint256 sid = launcher.startSeason();
@@ -152,18 +155,64 @@ contract SparseWeekRefundTest is Test {
         vm.prank(oracle);
         launcher.abortSeason(sid);
 
-        // Bad receiver's escrow record persists with `refunded = false` so the ops runbook
-        // can manually rescue. The escrow's `_reservers` array still references it.
+        // Bad receiver's reservation is marked refunded (the sweep made its accounting pass);
+        // the actual stuck amount lives in `pendingRefunds` for self-service pull recovery.
         LaunchEscrow.Reservation memory badRes = escrow.escrowOf(sid, address(bad));
-        assertEq(badRes.refunded, false, "bad receiver still pending refund");
-        assertEq(address(bad).balance, 0, "bad receiver got nothing back (revert)");
+        assertEq(badRes.refunded, true, "bad receiver flag flipped after sweep");
+        assertEq(escrow.pendingRefunds(sid, address(bad)), cost0, "pending credit recorded");
+        assertEq(address(bad).balance, 0, "bad receiver got nothing back (push failed)");
 
-        // Good creator made whole.
+        // Good creator made whole on the original sweep.
         assertEq(goodCreator.balance, 10 ether, "good creator refunded");
 
-        // Funds for the failed refund are still in the escrow contract awaiting manual
-        // rescue. The exact remaining balance equals the bad receiver's slot cost.
+        // Funds for the failed refund still in the escrow contract, awaiting pull-pattern
+        // claim. The exact remaining balance equals the bad receiver's slot cost.
         assertEq(address(escrow).balance, cost0, "stuck funds remain in escrow");
+
+        // Pull-pattern recovery: BadReceiver redirects the claim to a fresh EOA that
+        // accepts ETH (the on-chain analogue of "rotate to a new wallet"). After the claim,
+        // the credit is zeroed and the escrow is empty.
+        address payable rescue = payable(makeAddr("rescue"));
+        bad.claim(address(escrow), sid, rescue);
+        assertEq(rescue.balance, cost0, "rescue address received pulled refund");
+        assertEq(escrow.pendingRefunds(sid, address(bad)), 0, "pending credit cleared");
+        assertEq(address(escrow).balance, 0, "escrow drained after pull");
+    }
+
+    /// @notice Audit: bugbot M PR #88 — the pull-pattern claim is self-only (msg.sender must
+    ///         be the address that originally reserved). A third party cannot drain another
+    ///         creator's pending credit even if they spot it in the indexer.
+    function test_ClaimPendingRefund_RejectsNonCreator() public {
+        vm.prank(oracle);
+        uint256 sid = launcher.startSeason();
+
+        BadReceiver bad = new BadReceiver();
+        address goodCreator = makeAddr("goodCreator");
+        vm.deal(goodCreator, 10 ether);
+
+        uint256 cost0 = _slotCost(0);
+        uint256 cost1 = _slotCost(1);
+        bad.reserveVia{value: cost0}(address(launcher), "BADRCV", "ipfs://b");
+        vm.prank(goodCreator);
+        launcher.reserve{value: cost1}("GOODRCV", "ipfs://g");
+
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(oracle);
+        launcher.abortSeason(sid);
+
+        // Stranger has nothing pending; claim must revert NoPendingRefund.
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(LaunchEscrow.NoPendingRefund.selector);
+        escrow.claimPendingRefund(sid, payable(attacker));
+
+        // Good creator already got paid via the sweep; their pending credit is also zero.
+        vm.prank(goodCreator);
+        vm.expectRevert(LaunchEscrow.NoPendingRefund.selector);
+        escrow.claimPendingRefund(sid, payable(goodCreator));
+
+        // Pending credit is exclusively for `bad`.
+        assertEq(escrow.pendingRefunds(sid, address(bad)), cost0);
     }
 }
 
@@ -172,6 +221,13 @@ contract SparseWeekRefundTest is Test {
 contract BadReceiver {
     function reserveVia(address launcher, string calldata ticker, string calldata uri) external payable {
         FilterLauncher(payable(launcher)).reserve{value: msg.value}(ticker, uri);
+    }
+
+    /// @notice Pull a stuck pending refund out of the escrow, redirecting to a wallet that
+    ///         actually accepts ETH. This is the on-chain analogue of an operator runbook
+    ///         step: "creator's wallet is broken, rotate to a new EOA".
+    function claim(address escrow, uint256 seasonId, address payable to) external {
+        LaunchEscrow(payable(escrow)).claimPendingRefund(seasonId, to);
     }
 
     receive() external payable {

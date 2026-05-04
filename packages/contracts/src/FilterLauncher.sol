@@ -45,6 +45,24 @@ import {TickerLib} from "./libraries/TickerLib.sol";
 ///           - Hour 48 if `_activated == false`: oracle calls `abortSeason`; the launch
 ///             escrow's `refundAll` returns every reservation's ETH to its creator. Tokens
 ///             were never deployed; the season ends without a Filter phase.
+///
+///         OWNERSHIP MODEL (audit: bugbot M PR #88).
+///         This contract uses single-step `Ownable`, NOT `Ownable2Step`. The two-step model
+///         would add ~500 bytes of runtime bytecode and the launcher is hard up against the
+///         EIP-170 24,576-byte limit (currently 24,563 / 24,576 — 13 bytes spare). The
+///         deferred-activation refactor (this PR) already externalised TournamentRegistry,
+///         TournamentVault, LauncherLens, LauncherStakeAdmin, and TickerLib to fit; restoring
+///         Ownable2Step would require additional externalisation that is out of scope here.
+///
+///         OPERATIONAL MITIGATION. The `owner` of this contract MUST be a multisig (e.g.
+///         Safe) in production. Multisigs provide the equivalent of a 2-step transfer flow
+///         off-chain (proposer → confirmers → executor), so a mistyped `transferOwnership`
+///         requires the same multi-party confirmation as any other privileged call. See the
+///         operator runbook (`docs/runbook.md`) for the full ownership-rotation procedure.
+///         Direct EOA ownership is for testnet / genesis bring-up only and MUST be rotated
+///         to the multisig before §10 mainnet listing. The `oracle` address is independent
+///         of `owner` and is rotated via `setOracle(...)` (also single-step, same multisig
+///         constraint).
 contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     using SafeCast for uint256;
 
