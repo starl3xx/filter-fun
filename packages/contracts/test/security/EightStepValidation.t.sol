@@ -8,6 +8,8 @@ import {LaunchEscrow} from "../../src/LaunchEscrow.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault} from "../../src/TournamentVault.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
 import {MockFilterFactory} from "../mocks/MockFilterFactory.sol";
 
@@ -57,6 +59,9 @@ contract EightStepValidationTest is Test {
         launcher.setPolManager(IPOLManager(polManager));
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
+        // Tournament wire required since `startSeason` zero-checks the registry
+        // (audit: bugbot M PR #88).
+        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0xBEEF))));
         escrow = launcher.launchEscrow();
         vm.deal(creator, 100 ether);
     }
@@ -92,7 +97,8 @@ contract EightStepValidationTest is Test {
         for (uint160 i = 1; i <= 12; ++i) {
             address w = address(uint160(0xFE10) + i);
             vm.deal(w, 1 ether);
-            string memory t = string(abi.encodePacked("S2", bytes1(uint8(48 + (i / 10))), bytes1(uint8(48 + (i % 10)))));
+            string memory t =
+                string(abi.encodePacked("S2", bytes1(uint8(48 + (i / 10))), bytes1(uint8(48 + (i % 10)))));
             vm.prank(w);
             launcher.reserve{value: _slotCost(uint64(i - 1))}(t, "ipfs://m");
         }

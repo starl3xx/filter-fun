@@ -8,6 +8,8 @@ import {LaunchEscrow} from "../../src/LaunchEscrow.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault} from "../../src/TournamentVault.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
 import {MockFilterFactory} from "../mocks/MockFilterFactory.sol";
 
@@ -41,6 +43,9 @@ contract SparseWeekRefundTest is Test {
         launcher.setPolManager(IPOLManager(polManager));
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
+        // Tournament wire required since `startSeason` zero-checks the registry
+        // (audit: bugbot M PR #88).
+        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0xBEEF))));
         escrow = launcher.launchEscrow();
     }
 
@@ -100,12 +105,10 @@ contract SparseWeekRefundTest is Test {
         vm.prank(oracle);
         uint256 sid = launcher.startSeason();
 
-        address[3] memory creators = [
-            makeAddr("almostA"),
-            makeAddr("almostB"),
-            makeAddr("almostC")
-        ];
-        for (uint256 i = 0; i < 3; ++i) vm.deal(creators[i], 10 ether);
+        address[3] memory creators = [makeAddr("almostA"), makeAddr("almostB"), makeAddr("almostC")];
+        for (uint256 i = 0; i < 3; ++i) {
+            vm.deal(creators[i], 10 ether);
+        }
 
         uint256[3] memory costs = [_slotCost(0), _slotCost(1), _slotCost(2)];
         vm.prank(creators[0]);

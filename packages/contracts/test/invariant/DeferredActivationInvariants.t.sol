@@ -57,9 +57,8 @@ contract DeferredActivationInvariantsTest is StdInvariant, Test {
             // legal terminal-state too. The handler's creator pool is all EOAs (vm.deal'd
             // addresses), so this carve-out shouldn't fire under fuzz, but expressed
             // defensively.
-            bool ok = r.released
-                || r.refunded
-                || (handler.launcher().aborted(sid) && _refundFailedFor(creator));
+            bool ok =
+                r.released || r.refunded || (handler.launcher().aborted(sid) && _refundFailedFor(creator));
             assertTrue(ok, "orphaned escrow past h48");
         }
     }
@@ -81,7 +80,9 @@ contract DeferredActivationInvariantsTest is StdInvariant, Test {
         assertEq(handler.launcher().pendingReservations(sid).length, 0, "pending non-empty post-activate");
         // launchCount must agree with reservationCount once activation is done — they
         // re-converge at activation moment and march in lockstep thereafter.
-        assertEq(launchCount, handler.launcher().lens().reservationCount(sid), "launchCount != reservationCount");
+        assertEq(
+            launchCount, handler.launcher().lens().reservationCount(sid), "launchCount != reservationCount"
+        );
     }
 
     /// @notice Spec §4.6.1 invariant — `seasonTickers[seasonId]` is injective. The ghost

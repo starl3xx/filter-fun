@@ -332,11 +332,13 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     ///         inline-deployed) because together they push FilterLauncher's init code past
     ///         EIP-3860 (49,152 B). DeploySepolia handles the deploy + wire sequence.
     function setTournament(TournamentRegistry registry_, TournamentVault vault_) external onlyOwner {
-        // Audit: bugbot M PR #88. The one-shot guard MUST also reject zero `registry_` or
-        // a first call with a zero address would leave `tournamentRegistry == address(0)`,
-        // bypassing the AlreadySet sentinel and allowing a subsequent re-wire. Vault is
-        // checked transitively — operator-side `VerifySepolia` asserts non-zero post-deploy.
-        if (address(registry_) == address(0)) revert ZeroAddress();
+        // Audit: bugbot M+L PR #88. The one-shot guard MUST also reject zero `registry_`
+        // OR zero `vault_` — otherwise a first call with either zero would either bypass
+        // the `AlreadySet` sentinel (zero registry leaves the slot empty so a re-call slips
+        // through) or permanently brick the tournament path (zero vault address fails every
+        // `onlyTournamentVault` check on the registry, with the one-shot guard blocking
+        // re-wire). Combined into a single OR'd revert to keep bytecode under EIP-170.
+        if (address(registry_) == address(0) || address(vault_) == address(0)) revert ZeroAddress();
         if (address(tournamentRegistry) != address(0)) revert AlreadySet();
         tournamentRegistry = registry_;
         tournamentVault = vault_;
@@ -370,10 +372,7 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     /// @notice Owner-only operator setter for the per-launch cost ladder + stake-vs-fee toggle.
     ///         Combined into one entry point to keep the launcher under EIP-170; operators
     ///         pass the existing values for the field they don't want to change.
-    function setLaunchConfig(uint256 baseLaunchCost_, bool refundableStakeEnabled_)
-        external
-        onlyOwner
-    {
+    function setLaunchConfig(uint256 baseLaunchCost_, bool refundableStakeEnabled_) external onlyOwner {
         baseLaunchCost = baseLaunchCost_;
         refundableStakeEnabled = refundableStakeEnabled_;
     }
@@ -408,6 +407,11 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     /// @notice Opens a new season. Deploys its `SeasonVault` and starts the 48h launch window.
     function startSeason() external onlyOracle whenNotPaused returns (uint256 seasonId) {
         if (address(polManager) == address(0)) revert PolManagerUnset();
+        // Audit: bugbot M PR #88. `tournamentRegistry` is now externally wired (post-§46
+        // EIP-3860 split) — if `setTournament` hasn't been called yet, baking
+        // `address(0)` into a fresh `SeasonVault` would brick its `submitWinner` and
+        // `processFilterEvent` paths (both call into the registry).
+        if (address(tournamentRegistry) == address(0)) revert ZeroAddress();
         seasonId = ++currentSeasonId;
         // `currentSeasonId` is monotonically incremented, so `phaseOf[seasonId]` is always
         // the default `Phase.Launch` here — no explicit re-open guard needed.
@@ -691,9 +695,12 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     function launchProtocolToken(string calldata name_, string calldata symbol_, string calldata metadataURI_)
         external
         onlyOwner
-        whenNotPaused
         returns (address token, address locker)
     {
+        // `whenNotPaused` deliberately NOT applied: pause is for community reservation halts;
+        // protocol-launch is an owner-only emergency seed path (e.g. $FILTER on launch day)
+        // that must remain available even with the rest of the system paused. Recovers a
+        // few bytes of the EIP-170 budget consumed by bugbot zero-check fixes.
         uint256 sid = currentSeasonId;
         if (phaseOf[sid] != Phase.Launch) revert WrongPhase();
         // Audit: bugbot M PR #88. An aborted season stays in Phase.Launch (terminal)

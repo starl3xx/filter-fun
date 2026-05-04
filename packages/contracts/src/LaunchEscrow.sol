@@ -50,12 +50,8 @@ contract LaunchEscrow is ReentrancyGuard {
         bytes32 metadataHash,
         uint256 escrowAmount
     );
-    event ReservationReleased(
-        uint256 indexed seasonId, address indexed creator, uint256 amount
-    );
-    event ReservationRefunded(
-        uint256 indexed seasonId, address indexed creator, uint256 amount
-    );
+    event ReservationReleased(uint256 indexed seasonId, address indexed creator, uint256 amount);
+    event ReservationRefunded(uint256 indexed seasonId, address indexed creator, uint256 amount);
     /// @notice Emitted when a single creator's refund push fails during `refundAll` (e.g. their
     ///         receiver reverts or runs out of gas). The sweep continues; the failed amount is
     ///         credited to `pendingRefunds[seasonId][creator]` and the creator (or, for a
@@ -64,9 +60,7 @@ contract LaunchEscrow is ReentrancyGuard {
     event RefundFailed(uint256 indexed seasonId, address indexed creator, uint256 amount);
     /// @notice Emitted when a creator (or their delegated `to`) successfully pulls a previously
     ///         stuck refund out of the escrow via `claimPendingRefund`.
-    event PendingRefundClaimed(
-        uint256 indexed seasonId, address indexed creator, address to, uint256 amount
-    );
+    event PendingRefundClaimed(uint256 indexed seasonId, address indexed creator, address to, uint256 amount);
     event SeasonAborted(uint256 indexed seasonId, uint256 reservationCount, uint256 totalRefunded);
 
     /// @notice Per-(season, creator) escrow record. Tracks both the ETH amount and lifecycle

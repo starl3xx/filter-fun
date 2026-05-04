@@ -9,6 +9,8 @@ import {TickerLib} from "../../src/libraries/TickerLib.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault} from "../../src/TournamentVault.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
 import {MockFilterFactory} from "../mocks/MockFilterFactory.sol";
 
@@ -42,6 +44,9 @@ contract TickerValidationTest is Test {
         launcher.setPolManager(IPOLManager(polManager));
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
+        // Tournament wire required since `startSeason` zero-checks the registry
+        // (audit: bugbot M PR #88).
+        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0xBEEF))));
         escrow = launcher.launchEscrow();
 
         vm.deal(aliceCreator, 100 ether);

@@ -82,11 +82,10 @@ contract LauncherStakeAdmin is ReentrancyGuard {
     /// @notice Resolve the refundable-stake outcome for a batch of launched tokens. Survivors
     ///         get their stake refunded to the original creator; forfeitures forward the stake
     ///         to the launcher's `forfeitRecipient`.
-    function applySoftFilter(
-        uint256 seasonId,
-        address[] calldata survivors,
-        address[] calldata forfeited
-    ) external nonReentrant {
+    function applySoftFilter(uint256 seasonId, address[] calldata survivors, address[] calldata forfeited)
+        external
+        nonReentrant
+    {
         if (msg.sender != launcher.oracle()) revert NotOracle();
         IFilterLauncher.Phase p = launcher.phaseOf(seasonId);
         if (p == IFilterLauncher.Phase.Launch || p == IFilterLauncher.Phase(0)) revert WrongPhase();

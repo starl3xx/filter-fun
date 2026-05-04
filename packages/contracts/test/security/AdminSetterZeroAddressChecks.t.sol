@@ -139,9 +139,30 @@ contract AdminSetterZeroAddressChecksTest is Test {
     ///         silently re-wire the tournament addresses post-deploy.
     function test_BugbotPR88_SetTournamentRejectsZeroRegistry() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        launcher.setTournament(TournamentRegistry(address(0)), TournamentVault(payable(address(0))));
+        launcher.setTournament(TournamentRegistry(address(0)), TournamentVault(payable(address(0xBEEF))));
         // Sanity: storage stays at zero, so a follow-up call with valid args still works
         // (the one-shot guard hasn't been tripped because the bad call reverted).
         assertEq(address(launcher.tournamentRegistry()), address(0));
+    }
+
+    /// @notice Audit: bugbot L PR #88. Mirror of the registry check for `vault_`.
+    ///         A zero vault would permanently brick `TournamentRegistry`'s
+    ///         `onlyTournamentVault`-gated entry points (no caller can match
+    ///         `address(0)`), and the one-shot `AlreadySet` guard blocks re-wiring.
+    function test_BugbotPR88_SetTournamentRejectsZeroVault() public {
+        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
+        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0))));
+    }
+
+    /// @notice Audit: bugbot M PR #88. `startSeason` MUST refuse to deploy a
+    ///         `SeasonVault` if `tournamentRegistry` is unset — baking
+    ///         `address(0)` into the vault's `submitWinner` / `processFilterEvent`
+    ///         paths would permanently brick those flows for that season.
+    function test_BugbotPR88_StartSeasonRejectsUnsetTournamentRegistry() public {
+        // Wire polManager (else `PolManagerUnset` fires first) but skip `setTournament`.
+        launcher.setPolManager(IPOLManager(address(0xF000)));
+        vm.prank(oracle);
+        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
+        launcher.startSeason();
     }
 }

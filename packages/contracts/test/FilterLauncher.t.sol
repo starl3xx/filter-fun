@@ -11,6 +11,8 @@ import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 import {IBonusFunding, IPOLManager} from "../src/SeasonVault.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
+import {TournamentRegistry} from "../src/TournamentRegistry.sol";
+import {TournamentVault} from "../src/TournamentVault.sol";
 import {MockWETH} from "./mocks/MockWETH.sol";
 import {MockFilterFactory} from "./mocks/MockFilterFactory.sol";
 
@@ -44,6 +46,10 @@ contract FilterLauncherTest is Test {
         launcher.setPolManager(IPOLManager(polManager));
         factory = new MockFilterFactory(address(launcher), address(weth));
         launcher.setFactory(IFilterFactory(address(factory)));
+        // Tournament wires are required since `startSeason` zero-checks the registry
+        // (audit: bugbot M PR #88). Unit tests don't exercise tournament flow, so dummy
+        // non-zero addresses are sufficient.
+        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0xBEEF))));
 
         vm.deal(aliceCreator, 100 ether);
         vm.deal(bobCreator, 100 ether);
@@ -419,9 +425,8 @@ contract FilterLauncherTest is Test {
         bool found = false;
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].topics[0] == sig) {
-                (,,,,, string memory emittedSymbol,) = abi.decode(
-                    logs[i].data, (address, bool, uint64, uint256, string, string, string)
-                );
+                (,,,,, string memory emittedSymbol,) =
+                    abi.decode(logs[i].data, (address, bool, uint64, uint256, string, string, string));
                 assertEq(emittedSymbol, "FILTER", "event symbol must be canonical");
                 found = true;
                 break;
