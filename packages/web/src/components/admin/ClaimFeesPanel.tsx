@@ -40,14 +40,20 @@ export function ClaimFeesPanel({token, creator, recipient, auth}: ClaimFeesPanel
   const recipientLabel = recipient ? shortAddr(recipient) : "—";
   const isDelegated = creator && recipient && !addrEq(creator, recipient);
 
+  // `fees.disabled` is the multisig emergency flag — the on-chain `claim()` reverts with
+  // `Disabled()` in this state, so the button must be inert and the label must call it out.
+  // Bundled into the disable cascade so a stale `pending > 0` read can't make the button
+  // briefly clickable during a refetch race.
   const disabled =
-    !isCreator || fees.pending === 0n || fees.isSubmitting || fees.isMining;
+    !isCreator || fees.disabled || fees.pending === 0n || fees.isSubmitting || fees.isMining;
 
   let label: string;
   if (auth.state === "DISCONNECTED") {
     label = "Connect to claim";
   } else if (!isCreator) {
     label = "Only the creator can claim";
+  } else if (fees.disabled) {
+    label = "Claim disabled (multisig)";
   } else if (fees.isSubmitting) {
     label = "Sign in wallet…";
   } else if (fees.isMining) {
