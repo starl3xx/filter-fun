@@ -217,10 +217,17 @@ export function computeCohortPercentiles(
   hpByAddress: ReadonlyMap<string, HpUpdate>,
 ): CohortPercentiles {
   const out = new Map<string, Partial<Record<HpTileKey, number>>>();
-  if (tokens.length === 0) return out;
+  // Bugbot finding (PR #91, commit 2a5dce2): a single-token cohort can't
+  // produce a meaningful percentile (you can't rank against yourself).
+  // The pre-fix `denom = Math.max(1, n - 1)` collapsed N=1 to denom=1, the
+  // single token got sort-index 0, and every bar rendered as `0 / 1 * 100`
+  // = 0% — the tile looked empty even when the token had perfect scores.
+  // Bail out for cohorts of 0 OR 1 so the tile's `MiniBarRow` falls
+  // through to its `rawScore * 100` branch and renders the absolute score.
+  if (tokens.length <= 1) return out;
   for (const t of tokens) out.set(t.token.toLowerCase(), {});
 
-  const denom = Math.max(1, tokens.length - 1);
+  const denom = tokens.length - 1;
 
   for (const key of HP_TILE_KEYS_IN_ORDER) {
     const sorted = [...tokens].sort((a, b) => scoreFor(a, key, hpByAddress) - scoreFor(b, key, hpByAddress));
