@@ -36,6 +36,11 @@ export function usePastTokens(
     let mounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let abort: AbortController | null = null;
+    // Bugbot PR #101 (Low): drop stale data immediately on wallet change so
+    // the past-tokens panel doesn't briefly show the prior wallet's launches
+    // attributed to the new one before the fetch resolves.
+    setData(null);
+    setError(null);
     setIsLoading(true);
 
     const tick = async () => {

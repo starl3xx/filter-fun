@@ -29,10 +29,26 @@ export function useComponentDeltas(
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!enabled || !tokenAddress) return;
+    if (!enabled || !tokenAddress) {
+      // Bugbot PR #101 (Low): clear stale data when the consumer disables
+      // the hook or the token address changes to a falsy value. Without
+      // this, an admin navigating between token admin pages with a
+      // drilldown open would see the prior token's delta rows flash
+      // briefly under the new token's mini-bars before the next fetch
+      // resolved.
+      setData(null);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
     let mounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let abort: AbortController | null = null;
+    // Same reasoning as the guard above — drop stale data immediately on
+    // token change so the next render doesn't flash the prior token's
+    // rows under the new token's mini-bars before the fetch lands.
+    setData(null);
+    setError(null);
     setIsLoading(true);
 
     const tick = async () => {

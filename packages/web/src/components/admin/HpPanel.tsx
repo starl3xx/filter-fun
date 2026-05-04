@@ -256,11 +256,17 @@ function DrilldownRow({
   const sign = row.delta >= 0 ? "+" : "−";
   const deltaAbs = Math.abs(row.delta).toFixed(2);
   const deltaColor = row.delta >= 0 ? C.green : C.red;
+  // Bugbot PR #101 (Medium): the panel header comment is explicit that
+  // internal HP-component field names ("velocity", "effectiveBuyers", ...)
+  // MUST NEVER reach the user — `HP_LABELS` is the single source of truth
+  // for the spec §6.6 user-facing translation. The drilldown row was
+  // rendering the raw key.
+  const label = HP_LABELS[componentKey as HpKey] ?? componentKey;
   return (
     <div style={{display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap"}}>
       <span style={{color: deltaColor, fontWeight: 800}}>
         {sign}
-        {deltaAbs} {componentKey}
+        {deltaAbs} {label}
       </span>
       {row.swap ? (
         <>

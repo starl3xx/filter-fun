@@ -136,7 +136,10 @@ describe("HpPanel — component drilldown (Epic 1.23)", () => {
     await act(async () => {
       fireEvent.click(btn);
     });
-    await waitFor(() => expect(container.textContent).toContain("+0.42 velocity"));
+    // Bugbot PR #101 (Medium): drilldown MUST render the user-facing label
+    // ("Buying activity") not the internal field name ("velocity").
+    await waitFor(() => expect(container.textContent).toContain("+0.42 Buying activity"));
+    expect(container.textContent).not.toContain("+0.42 velocity");
     expect(container.textContent).toContain("0.5 ETH buy");
     // Truncated address rendering — 6-char head + 4-char tail.
     expect(container.textContent).toContain("0xabc1");

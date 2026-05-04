@@ -51,6 +51,11 @@ export function useHoldings(
     let mounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let abort: AbortController | null = null;
+    // Bugbot PR #101 (Low): drop stale data immediately on wallet change so
+    // the UI doesn't briefly attribute the prior wallet's holdings to the
+    // new one before the fetch resolves.
+    setData(null);
+    setError(null);
     setIsLoading(true);
 
     const tick = async () => {

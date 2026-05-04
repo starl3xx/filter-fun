@@ -22,6 +22,15 @@ export function fmtEth(decimalEther: string): string {
 /// truncation-vs-rounding divergence on PR #101: for wei values where the 7th
 /// decimal digit is ≥ 5, truncation gives a different string and the two
 /// surfaces silently disagree.
+///
+/// **Why duplicated** rather than extracted to a shared workspace package:
+/// the repo's no-premature-abstraction policy (one function does not justify
+/// a new package). Divergence is enforced by the IDENTICAL parity battery
+/// that runs in both workspaces' test suites
+/// (`packages/web/test/regression/weiToDecimalEtherParity.test.ts` and
+/// `packages/indexer/test/api/security/weiToDecimalEtherParity.test.ts`) —
+/// editing either implementation forces both CI checks to fail until the
+/// batteries are re-aligned.
 export function weiToDecimalEther(wei: bigint): string {
   const negative = wei < 0n;
   const abs = negative ? -wei : wei;
