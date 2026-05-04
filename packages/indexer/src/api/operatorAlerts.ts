@@ -17,11 +17,6 @@ export interface Alert {
 
 /// Alert thresholds (bugbot PR #95 round 3).
 ///
-/// `SETTLEMENT_DRIFT_TOLERANCE_SEC` (10s) is the dispatch-spec'd tolerance for
-/// the dashboard's drift indicator (the red-vs-green chip on each settlement-
-/// provenance row). A drift > 10s is visually flagged because operators want
-/// to spot drift early on the dashboard.
-///
 /// `SETTLEMENT_DRIFT_ALERT_SEC` (60s) is the threshold that fires the *alert*.
 /// Block-time + oracle-scheduling jitter + RPC mempool latency routinely
 /// account for 10-30s of drift even on a healthy deployment; a 10s alert
@@ -34,7 +29,12 @@ export interface Alert {
 /// scheduler may legitimately fire the tx 30-45s after the anchor due to
 /// mempool latency; a 10s grace would near-always fire an alert that
 /// auto-resolves a few seconds later.
-export const SETTLEMENT_DRIFT_TOLERANCE_SEC = 10;
+///
+/// Note (bugbot PR #95 round 12, Low): the 10s drift TOLERANCE used by the
+/// dashboard's red/green chip is a separate, web-side concern — see
+/// `packages/web/src/components/operator/Dashboards.tsx` for the source of
+/// truth on that constant. The indexer doesn't read it, so it isn't
+/// duplicated here.
 export const SETTLEMENT_DRIFT_ALERT_SEC = 60;
 export const SETTLEMENT_MISSING_GRACE_SEC = 60;
 

@@ -156,6 +156,17 @@ export function FinancialOverviewCard({data}: {data: FinancialOverview | null}) 
   );
 }
 
+/// Dispatch-spec'd drift tolerance for the dashboard's red/green chip per
+/// settlement-provenance row. A drift > 10s gets visually flagged so an
+/// operator can spot scheduler latency before it crosses the 60s alert
+/// threshold (see `SETTLEMENT_DRIFT_ALERT_SEC` in the indexer's
+/// `operatorAlerts.ts` for the alert-side constant — these are deliberately
+/// different surfaces and read at different cadences). Bugbot PR #95 round 12
+/// (Low): pre-fix this was a bare `10` magic number with the same value
+/// declared (and unused) in the indexer's operatorAlerts.ts. Source of truth
+/// now lives here, where it's actually consumed.
+const SETTLEMENT_DRIFT_TOLERANCE_SEC = 10;
+
 /// Spec §47.3.4 — settlement provenance. Last N seasons' CUT/FINALIZE timestamps
 /// + drift vs. the expected h96 / h168 anchors.
 export function SettlementProvenanceCard({history}: {history: SettlementHistoryEntry[] | null}) {
@@ -172,7 +183,11 @@ export function SettlementProvenanceCard({history}: {history: SettlementHistoryE
             const expectedFinalizeSec = startedSec + 168 * 3600;
             const drift = h.finalizeAt ? Number(h.finalizeAt) - expectedFinalizeSec : null;
             const driftTone =
-              drift === null ? C.faint : Math.abs(drift) > 10 ? C.red : C.green;
+              drift === null
+                ? C.faint
+                : Math.abs(drift) > SETTLEMENT_DRIFT_TOLERANCE_SEC
+                ? C.red
+                : C.green;
             return (
               <div
                 key={h.seasonId}
