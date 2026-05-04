@@ -80,6 +80,7 @@ contract CreatorFeeDistributor {
     error AlreadyRegistered();
     error UnknownToken();
     error UnverifiedTransfer();
+    error Disabled();
 
     modifier onlyLauncher() {
         if (msg.sender != launcher) revert NotLauncher();
@@ -146,9 +147,11 @@ contract CreatorFeeDistributor {
         }
     }
 
-    /// @notice Multisig-only emergency disable. Redirects future fees to treasury for a single
-    ///         token. Use case: the registered recipient address is sanctioned, compromised, or
-    ///         otherwise disqualified from receiving protocol fees. Idempotent.
+    /// @notice Multisig-only emergency disable. Redirects future fees to treasury AND sweeps any
+    ///         already-accrued pending balance to treasury so a sanctioned recipient cannot pull
+    ///         pre-disable funds via `claim`. Use case: the registered recipient is sanctioned,
+    ///         compromised, or otherwise disqualified. Idempotent (the second call has no
+    ///         pending balance to sweep because notifyFee redirects directly when disabled).
     /// @dev    Authority is read live from `Ownable(launcher).owner()` — same pattern as the
     ///         vault's live-oracle read (audit H-2). An ownership transfer on the launcher
     ///         takes effect on this gate immediately, no per-distributor wire.
@@ -156,9 +159,19 @@ contract CreatorFeeDistributor {
         if (msg.sender != Ownable(launcher).owner()) revert NotMultisig();
         if (!registered[token]) revert UnknownToken();
         TokenInfo storage info = _info[token];
-        if (!info.disabled) {
-            info.disabled = true;
-            emit CreatorFeeDisabled(token);
+        if (info.disabled) return;
+        info.disabled = true;
+        emit CreatorFeeDisabled(token);
+
+        // Sweep pending: closes the gap where a sanctioned recipient could still call
+        // `claim` and drain pre-disable accrual to the very address the disable was meant
+        // to lock out. Treasury captures it instead, mirroring the disabled `notifyFee` path.
+        uint256 pending = info.accrued - info.claimed;
+        if (pending > 0) {
+            info.claimed = info.accrued;
+            lastSeenBalance -= pending;
+            IERC20(weth).safeTransfer(treasury, pending);
+            emit CreatorFeeRedirected(token, pending);
         }
     }
 
@@ -176,6 +189,7 @@ contract CreatorFeeDistributor {
     function claim(address token) external returns (uint256 amount) {
         TokenInfo storage info = _info[token];
         if (!registered[token]) revert UnknownToken();
+        if (info.disabled) revert Disabled();
         address creator = registry.creatorOf(token);
         if (msg.sender != creator) revert NotCreator();
         address recipient = registry.recipientOf(token);

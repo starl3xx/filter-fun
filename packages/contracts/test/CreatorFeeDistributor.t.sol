@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {CreatorFeeDistributor} from "../src/CreatorFeeDistributor.sol";
@@ -245,22 +245,63 @@ contract CreatorFeeDistributorTest is Test {
         assertEq(weth.balanceOf(treasury) - treasuryBefore, 1 ether, "redirected to treasury");
     }
 
-    /// @notice Pre-disable accrual stays claimable; post-disable fees redirect. Mirrors the
-    ///         emergency-disable scenario where a creator earns honestly for months and then
-    ///         their recipient becomes sanctioned mid-life.
-    function test_NotifyFee_PreDisableClaimable_PostDisableRedirected() public {
+    /// @notice Disable sweeps PRE-disable accrual to treasury and redirects post-disable fees.
+    ///         Pre-fix this test asserted that pre-disable accrual remained claimable — that was
+    ///         the bugbot finding (Medium): a sanctioned recipient could still pull pre-disable
+    ///         WETH via `claim()`, defeating the emergency. Now both halves go to treasury.
+    function test_DisableCreatorFee_SweepsPendingAndRedirectsFuture() public {
         _registerToken(tokenA, creatorA);
 
         _notifyFee(tokenA, 0.4 ether);
         assertEq(distributor.pendingClaim(tokenA), 0.4 ether);
 
+        uint256 treasuryBefore = weth.balanceOf(treasury);
+        vm.prank(multisig);
+        distributor.disableCreatorFee(tokenA);
+        assertEq(distributor.pendingClaim(tokenA), 0, "pre-disable accrual swept to treasury");
+        assertEq(weth.balanceOf(treasury) - treasuryBefore, 0.4 ether, "treasury captured pending");
+
+        // Post-disable fees still flow to treasury, on top of the swept pending.
+        _notifyFee(tokenA, 0.6 ether);
+        assertEq(distributor.pendingClaim(tokenA), 0, "no creator credit when disabled");
+        assertEq(weth.balanceOf(treasury) - treasuryBefore, 1 ether, "treasury captured both halves");
+    }
+
+    /// @notice The sweep should fire only when there's something pending — disable on a
+    ///         freshly-registered token emits only `CreatorFeeDisabled`, no `CreatorFeeRedirected`.
+    function test_DisableCreatorFee_NoSweepEventWhenNothingPending() public {
+        _registerToken(tokenA, creatorA);
+        // Capture: only CreatorFeeDisabled should be emitted.
+        vm.recordLogs();
+        vm.prank(multisig);
+        distributor.disableCreatorFee(tokenA);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        // Exactly one event from the distributor; transferring 0 WETH would emit a Transfer too,
+        // so we assert by topic on the distributor's own events only.
+        bytes32 disabledSig = keccak256("CreatorFeeDisabled(address)");
+        bytes32 redirectedSig = keccak256("CreatorFeeRedirected(address,uint256)");
+        uint256 disabledCount;
+        uint256 redirectedCount;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(distributor)) continue;
+            if (logs[i].topics[0] == disabledSig) disabledCount++;
+            if (logs[i].topics[0] == redirectedSig) redirectedCount++;
+        }
+        assertEq(disabledCount, 1, "one disable event");
+        assertEq(redirectedCount, 0, "no spurious redirect when pending == 0");
+    }
+
+    /// @notice Once disabled, `claim()` reverts — even for the registered creator, even when
+    ///         pre-disable accrual existed. Closes the bugbot Medium-severity gap.
+    function test_Claim_RevertsWhenDisabled() public {
+        _registerToken(tokenA, creatorA);
+        _notifyFee(tokenA, 1 ether);
         vm.prank(multisig);
         distributor.disableCreatorFee(tokenA);
 
-        uint256 treasuryBefore = weth.balanceOf(treasury);
-        _notifyFee(tokenA, 0.6 ether);
-        assertEq(distributor.pendingClaim(tokenA), 0.4 ether, "pre-disable accrual preserved");
-        assertEq(weth.balanceOf(treasury) - treasuryBefore, 0.6 ether);
+        vm.prank(creatorA);
+        vm.expectRevert(CreatorFeeDistributor.Disabled.selector);
+        distributor.claim(tokenA);
     }
 
     // ============================================================ Claim
