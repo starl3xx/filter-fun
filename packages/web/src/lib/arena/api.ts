@@ -641,6 +641,12 @@ export async function submitUsername(args: {
 ///   - web:     `test/profile/SetUsernameMessageParity.test.ts`
 /// If you change this string, change BOTH and update both tests in the same
 /// commit — drift on either side will fail its own test before merge.
+///
+/// PR #102 pass-17: callers SHOULD pass an already-lowered `username` (the
+/// modal passes `value.toLowerCase()` and the server passes
+/// `formatResult.canonical`). The internal `.toLowerCase()` is the safety
+/// net pinned by both parity tests; the symmetric call shape across web
+/// and indexer is what makes future refactors loud instead of silent.
 export function buildSetUsernameMessage(
   address: `0x${string}`,
   username: string,

@@ -141,6 +141,13 @@ export function isWithinCooldown(
 ///   - web:     `test/profile/SetUsernameMessageParity.test.ts`
 /// If you change this string, change BOTH and update both tests in the same
 /// commit.
+///
+/// PR #102 pass-17: callers SHOULD pass an already-lowered `username` (the
+/// server passes `formatResult.canonical`, the web modal passes
+/// `value.toLowerCase()`). The internal `.toLowerCase()` here is the
+/// load-bearing safety net — both parity tests exist precisely to catch a
+/// future refactor that drops it. If you ever do drop it, both literal-
+/// format tests fail simultaneously; the symmetry is intentional.
 export function buildSetUsernameMessage(
   address: `0x${string}`,
   username: string,

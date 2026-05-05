@@ -111,7 +111,18 @@ export function SetUsernameModal({address, initial, onClose, onSuccess}: SetUser
     setSubmitError(null);
     try {
       const nonce = makeNonce();
-      const message = buildSetUsernameMessage(address, value, nonce);
+      // Bugbot L PR #102 pass-17: pass the already-lowered canonical to
+      // `buildSetUsernameMessage` so the call shape mirrors the server
+      // (`buildSetUsernameMessage(addr, formatResult.canonical, nonce)`).
+      // The function still lowercases internally — pinned by the parity
+      // tests on both packages — but expressing the canonical at the
+      // call site makes the invariant visible and prevents drift if a
+      // future refactor moves the lowercasing to the caller's
+      // responsibility. The POST body still ships the raw `value` so
+      // the server receives what the user typed and can mirror the
+      // display casing on the response (`usernameDisplay`).
+      const canonical = value.toLowerCase();
+      const message = buildSetUsernameMessage(address, canonical, nonce);
       let signature: `0x${string}`;
       try {
         signature = (await signMessageAsync({message, account: address})) as `0x${string}`;
