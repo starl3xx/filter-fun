@@ -1597,21 +1597,28 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
         if (pr.hp > cur) peakByToken.set(lower, pr.hp);
       }
 
-      // 5. Holders-at-filter — count of distinct CUT/FINALIZE-tagged holderSnapshot
-      // rows per token whose trigger matches the filter round.
+      // 5. Holders-at-filter — count of distinct CUT-tagged holderSnapshot rows
+      // per token. Bugbot PR #103 pass-3: detail and index must agree on this
+      // count. Use CUT-tagged rows for ALL graveyard tokens because:
+      //   - CUT-filtered tokens: only have CUT-tagged holder data (the cut
+      //     event handler in SeasonVault writes CUT-tagged rows for survivors).
+      //   - Finalists (FINALIZE-filtered): only CUT-tagged holder data exists
+      //     for them too — FINALIZE-tagged holderSnapshot is winner-only.
+      // Matching on `trigger.trigger` (the filter round) silently produced 0
+      // for finalists; CUT-only is the actual ground truth across both rounds.
       const holderRows = await db
         .select()
         .from(holderSnapshot)
-        .where(inArray(holderSnapshot.token, tokenAddrs));
+        .where(
+          and(
+            inArray(holderSnapshot.token, tokenAddrs),
+            eq(holderSnapshot.trigger, "CUT"),
+          ),
+        );
       const holdersByToken = new Map<string, number>();
       for (const hr of holderRows) {
         const lower = hr.token.toLowerCase();
-        const trigger = triggerByToken.get(lower);
-        // Count rows whose trigger matches the filter trigger so we report
-        // the holder count at that moment specifically.
-        if (trigger && hr.trigger === trigger.trigger) {
-          holdersByToken.set(lower, (holdersByToken.get(lower) ?? 0) + 1);
-        }
+        holdersByToken.set(lower, (holdersByToken.get(lower) ?? 0) + 1);
       }
 
       // 6. Per-season cut line — min(hp) over CUT-tagged rows for CUT-survivors
@@ -1722,15 +1729,14 @@ function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
       }));
     },
     holderSeriesForToken: async (addr) => {
-      // Holder count per CUT/FINALIZE snapshot trigger. Group rows by
-      // (trigger, blockTimestamp) and count distinct holders. The
-      // holder_snapshot table writes one row per holder per trigger, so the
-      // count of rows with the same blockTimestamp = holder count at that
-      // moment.
+      // CUT-tagged holderSnapshot rows only — see the matching comment in
+      // buildGraveyardQueries.filteredTokens (bugbot PR #103 pass-3). Detail
+      // and index must agree on the holder count; FINALIZE-tagged rows in
+      // holder_snapshot are winner-only and never apply to graveyard tokens.
       const rows = await db
         .select()
         .from(holderSnapshot)
-        .where(eq(holderSnapshot.token, addr));
+        .where(and(eq(holderSnapshot.token, addr), eq(holderSnapshot.trigger, "CUT")));
       const byTs = new Map<bigint, number>();
       for (const r of rows) {
         byTs.set(r.blockTimestamp, (byTs.get(r.blockTimestamp) ?? 0) + 1);
@@ -1818,32 +1824,55 @@ function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
 function buildWinnersQueries(db: ApiDb): WinnersQueries {
   return {
     winnerTokens: async () => {
-      // Every season with a finalized winner.
-      const finalizedSeasons = await db
+      // Bugbot PR #103 pass-3: prior implementation issued `1 + 3N` DB queries
+      // (token + cohort + FINALIZE-rows per season). Batched to 4 total: one
+      // pass each over season, token (winners), token (cohort), hpSnapshot.
+      const finalizedSeasons = await db.select().from(season);
+      const winnerSeasons = finalizedSeasons.filter((s) => s.winner !== null);
+      if (winnerSeasons.length === 0) return [];
+      const winnerAddrs = winnerSeasons.map((s) => s.winner!);
+      const seasonIds = winnerSeasons.map((s) => s.id);
+      const [winnerTokenRows, cohortTokens] = await Promise.all([
+        db.select().from(token).where(inArray(token.id, winnerAddrs)),
+        db.select().from(token).where(inArray(token.seasonId, seasonIds)),
+      ]);
+      const cohortAddrs = cohortTokens.map((r) => r.id);
+      const finalizeRows = cohortAddrs.length === 0 ? [] : await db
         .select()
-        .from(season);
-      const out = [];
-      for (const s of finalizedSeasons) {
-        if (!s.winner) continue;
-        const tokenRows = await db.select().from(token).where(eq(token.id, s.winner)).limit(1);
-        const t = tokenRows[0];
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, cohortAddrs),
+            eq(hpSnapshot.trigger, "FINALIZE"),
+          ),
+        );
+      const winnerByAddr = new Map(winnerTokenRows.map((r) => [r.id.toLowerCase(), r]));
+      const cohortBySeason = new Map<bigint, typeof cohortTokens>();
+      for (const c of cohortTokens) {
+        const arr = cohortBySeason.get(c.seasonId) ?? [];
+        arr.push(c);
+        cohortBySeason.set(c.seasonId, arr);
+      }
+      const finalizeBySeason = new Map<bigint, typeof finalizeRows>();
+      const seasonByToken = new Map<string, bigint>();
+      for (const c of cohortTokens) seasonByToken.set(c.id.toLowerCase(), c.seasonId);
+      for (const fr of finalizeRows) {
+        const sid = seasonByToken.get(fr.token.toLowerCase());
+        if (sid === undefined) continue;
+        const arr = finalizeBySeason.get(sid) ?? [];
+        arr.push(fr);
+        finalizeBySeason.set(sid, arr);
+      }
+      const out: Awaited<ReturnType<WinnersQueries["winnerTokens"]>> = [];
+      for (const s of winnerSeasons) {
+        const winner = s.winner!;
+        const t = winnerByAddr.get(winner.toLowerCase());
         if (!t) continue;
-        // FINALIZE-tagged hp rows for the season cohort.
-        const cohort = await db.select().from(token).where(eq(token.seasonId, s.id));
-        const cohortAddrs = cohort.map((r) => r.id);
-        const finalizeRows = await db
-          .select()
-          .from(hpSnapshot)
-          .where(
-            and(
-              inArray(hpSnapshot.token, cohortAddrs),
-              eq(hpSnapshot.trigger, "FINALIZE"),
-            ),
-          );
         let winningHp = 0;
         let secondPlaceHp: number | null = null;
-        const winnerLower = s.winner.toLowerCase();
-        for (const fr of finalizeRows) {
+        const winnerLower = winner.toLowerCase();
+        const seasonFinalizeRows = finalizeBySeason.get(s.id) ?? [];
+        for (const fr of seasonFinalizeRows) {
           const lower = fr.token.toLowerCase();
           if (lower === winnerLower) {
             if (fr.hp > winningHp) winningHp = fr.hp;

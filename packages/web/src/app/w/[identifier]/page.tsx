@@ -16,7 +16,6 @@ import Link from "next/link";
 
 import {C, F} from "@/lib/tokens";
 import {
-  fetchSeason,
   fetchWinnerMetrics,
   tradeTokenUrl,
   INDEXER_URL,
@@ -93,9 +92,6 @@ function ResolveSeasonId({rawId}: {rawId: string}) {
     return () => {
       cancelled = true;
     };
-    // fetchSeason is referenced for parity with the rest of the page but
-    // unused here; void it so the linter doesn't warn the import is dead.
-    void fetchSeason;
   }, [rawId, router]);
 
   if (error) {
