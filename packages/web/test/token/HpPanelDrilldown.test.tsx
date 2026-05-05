@@ -148,5 +148,11 @@ describe("HpPanel — component drilldown (Epic 1.23)", () => {
     const txLink = container.querySelector('a[href*="basescan.org/tx/"]');
     expect(txLink).not.toBeNull();
     expect(txLink!.getAttribute("href")).toContain("0xdeadbeef");
+    // Bugbot M PR #102: the taker handle MUST link to the public profile
+    // route `/p/<addr>` (Epic 1.24), not the legacy `/profile/<addr>`
+    // path which never had a web page mounted.
+    const takerLink = container.querySelector('a[href^="/p/0xabc1"]');
+    expect(takerLink).not.toBeNull();
+    expect(container.querySelector('a[href^="/profile/"]')).toBeNull();
   });
 });

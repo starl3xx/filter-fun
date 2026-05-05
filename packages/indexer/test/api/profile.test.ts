@@ -391,24 +391,31 @@ describe("/profile — tournament-tier badges (issue #35)", () => {
     expect(badges).not.toContain("ANNUAL_FINALIST");
   });
 
-  it("ANNUAL_* badges ship in the surface even though §33.8 leaves them dormant", async () => {
-    // Spec §33.8 decision: do not trigger annual settlement. The indexer + handler
-    // still surface annual badges so the day annual gets activated, the surface "just
-    // works" with no API change. Today this path returns false flags in practice.
+  it("ANNUAL_* badges are stripped at the indexer (Epic 1.24, spec §33.8 defense-in-depth)", async () => {
+    // Spec §33.8 (revisited 2026-05-04 with Epic 1.24): annual settlement is
+    // deferred indefinitely. ANNUAL_* badges therefore MUST NOT ship on the
+    // wire — even if the underlying tournament-flag query somehow returns
+    // them (partial registry write, operator experiment), the badge derivation
+    // strips them. Web layer filters too; this is the server half of belt-
+    // and-suspenders. If/when annual gets re-activated, drop the strip and
+    // remove this test's negative assertions.
     const r = await getProfileHandler(
       fixtureQueries({
         tourney: {
           quarterlyFinalist: true,
           quarterlyChampion: true,
           annualFinalist: true, // hypothetical — would only flip if oracle activates
-          annualChampion: false,
+          annualChampion: true,
         },
       }),
       addr(0xe),
       fixedNow,
     );
     const badges = (r.body as ProfileResponse).badges;
-    expect(badges).toContain("ANNUAL_FINALIST");
+    expect(badges).toContain("QUARTERLY_FINALIST");
+    expect(badges).toContain("QUARTERLY_CHAMPION");
+    expect(badges).not.toContain("ANNUAL_FINALIST");
+    expect(badges).not.toContain("ANNUAL_CHAMPION");
   });
 });
 
@@ -443,6 +450,57 @@ describe("/profile — tournament status overrides WEEKLY_WINNER on createdToken
     // and the CHAMPION_CREATOR badge, which is the opposite of the intended reward.
     expect(body.stats.wins).toBe(1);
     expect(body.badges).toContain("CHAMPION_CREATOR");
+  });
+
+  it("ANNUAL_* statuses on tournamentStatus are stripped from createdTokens (PR #102 pass-9 defense-in-depth)", async () => {
+    // Bugbot L PR #102 pass-9: spec §33.8 deferred annual settlement
+    // indefinitely. `deriveBadges` already strips ANNUAL_* from the
+    // badges array; `createdTokenStatus` had to mirror that on the
+    // per-token status field, otherwise an ANNUAL_FINALIST registry row
+    // would still show up on the wire even though the equivalent badge
+    // was suppressed. Asserts the stripping happens for both variants
+    // and that the surfaced status falls back through the WEEKLY_WINNER
+    // / ACTIVE branch as appropriate.
+    const seasonWinnerTok = addr(0xfa11);
+    const plainTok = addr(0xfa12);
+    const r = await getProfileHandler(
+      fixtureQueries({
+        created: [
+          {
+            id: seasonWinnerTok,
+            symbol: "WIN",
+            seasonId: 1n,
+            liquidated: false,
+            isFinalist: true,
+            createdAt: 1_700_000_000n,
+            seasonWinner: seasonWinnerTok,
+            rank: 1,
+            tournamentStatus: "ANNUAL_CHAMPION", // should be stripped
+          },
+          {
+            id: plainTok,
+            symbol: "PLN",
+            seasonId: 1n,
+            liquidated: false,
+            isFinalist: false,
+            createdAt: 1_700_000_001n,
+            seasonWinner: null,
+            rank: null,
+            tournamentStatus: "ANNUAL_FINALIST", // should be stripped
+          },
+        ],
+      }),
+      addr(0xfacade),
+      fixedNow,
+    );
+    const body = r.body as ProfileResponse;
+    // First token is a season winner so it falls through to WEEKLY_WINNER.
+    expect(body.createdTokens[0]?.status).toBe("WEEKLY_WINNER");
+    // Second token has no season-winner signal, falls through to ACTIVE.
+    expect(body.createdTokens[1]?.status).toBe("ACTIVE");
+    // Defense-in-depth: never on the wire, regardless of registry state.
+    expect(body.createdTokens.map((t) => t.status)).not.toContain("ANNUAL_CHAMPION");
+    expect(body.createdTokens.map((t) => t.status)).not.toContain("ANNUAL_FINALIST");
   });
 
   it("FILTERED still wins over tournament status (a liquidated token can't be a champion)", async () => {

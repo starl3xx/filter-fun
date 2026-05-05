@@ -26,6 +26,8 @@ import {C, F} from "@/lib/tokens";
 
 import {Card} from "./Card";
 
+import {ProfileCtaLink} from "@/components/profile/ProfileCtaLink";
+
 export type PastTokensPanelProps = {
   /// The wallet whose past launches should render. Null when wagmi reports
   /// no connection — the panel renders a muted hint in that case.
@@ -124,6 +126,14 @@ function PastTokensPanelInner({
 
   return (
     <Card label="Your launches">
+      {/* Epic 1.24 — surface a CTA into the connected admin's profile.
+          Sits above the list so it's discoverable without forcing it into
+          the row layout. */}
+      {walletAddress ? (
+        <div style={{marginBottom: 8}}>
+          <ProfileCtaLink address={walletAddress} label="View your profile →" />
+        </div>
+      ) : null}
       <ul
         style={{
           listStyle: "none",

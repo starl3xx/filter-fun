@@ -145,8 +145,36 @@ describe("PastTokensPanel", () => {
     const {container} = render(
       <PastTokensPanel walletAddress={WALLET} isAdmin={true} currentToken={TOK_A} />,
     );
-    await waitFor(() => expect(container.querySelector("a")).not.toBeNull());
-    const link = container.querySelector("a")!;
+    // Epic 1.24: a "View your profile →" link now sits above the row list,
+    // so we look for the row link by its specific token-admin href rather
+    // than the first <a>.
+    await waitFor(() =>
+      expect(container.querySelector(`a[href="/token/${TOK_B}/admin"]`)).not.toBeNull(),
+    );
+    const link = container.querySelector(`a[href="/token/${TOK_B}/admin"]`)!;
     expect(link.getAttribute("href")).toBe(`/token/${TOK_B}/admin`);
+  });
+
+  it("Epic 1.24: renders a 'View your profile' CTA into /p/<wallet>", async () => {
+    fetchMock.mockResolvedValue(
+      profileFixture({
+        createdTokens: [
+          {
+            token: TOK_B,
+            ticker: "$XYZ",
+            seasonId: 5,
+            rank: 1,
+            status: "WEEKLY_WINNER",
+            launchedAt: "2026-04-20T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const {container} = render(
+      <PastTokensPanel walletAddress={WALLET} isAdmin={true} currentToken={TOK_A} />,
+    );
+    await waitFor(() =>
+      expect(container.querySelector(`a[href="/p/${WALLET}"]`)).not.toBeNull(),
+    );
   });
 });

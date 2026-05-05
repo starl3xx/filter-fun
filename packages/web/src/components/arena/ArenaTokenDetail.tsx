@@ -16,6 +16,7 @@
 /// The custom V4 swap UI is explicitly deferred (see PR body / spec §19.8).
 
 import {Triangle} from "@/components/Triangle";
+import {CreatorChip} from "@/components/profile/CreatorChip";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
@@ -79,6 +80,15 @@ function Detail({token, trend, season, chain}: {token: TokenResponse; trend: num
   return (
     <>
       <Heading token={token} />
+
+      {/* Epic 1.24 — clickable creator chip into /p/<creator>. Sourced from
+          token.bagLock.creator (the creator-of-record). The chip is opt-in
+          for viewers — it doesn't displace existing detail content; it sits
+          on its own row immediately under the heading. */}
+      <div style={{display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: C.dim, fontFamily: F.mono}}>
+        <span style={{letterSpacing: "0.06em"}}>BUILT BY</span>
+        <CreatorChip address={token.bagLock.creator} ariaLabel={`Creator of ${token.ticker}`} />
+      </div>
 
       <PriceLine hasPrice={hasPrice} priceNum={priceNum} change={token.priceChange24h} />
 
