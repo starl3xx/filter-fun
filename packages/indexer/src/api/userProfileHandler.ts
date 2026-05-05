@@ -129,6 +129,20 @@ function parseSetUsernameRequest(body: unknown): SetUsernameRequest | string {
   if (b.nonce.length > 256) {
     return "nonce too long (max 256 chars)";
   }
+  // Bugbot M PR #102 pass-16: nonce is interpolated verbatim into the
+  // colon-delimited signed message body
+  // (`filter.fun:set-username:<addr>:<username>:<nonce>`). A nonce that
+  // contains `:` could shift the field boundaries when a future protocol
+  // version adds a trailing field, creating ambiguity between "v1-signed
+  // with colon-stuffed nonce" and "v2-signed". Restrict to the character
+  // class the legitimate client generates (`n-<hex>` plus the fallback
+  // `n-<hex>-<hex>` form): ASCII alphanumeric, dot, hyphen, underscore.
+  // This is intentionally narrow; if a future signer needs broader
+  // characters, the safe move is to switch the message format from
+  // colon-delimited to length-prefixed.
+  if (!/^[A-Za-z0-9._-]+$/.test(b.nonce)) {
+    return "nonce must be alphanumeric (with `.`, `-`, `_` allowed)";
+  }
   return {username: b.username, signature: b.signature as `0x${string}`, nonce: b.nonce};
 }
 

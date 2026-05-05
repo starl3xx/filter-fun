@@ -107,6 +107,30 @@ describe("setUsernameHandler", () => {
     expect(r.status).toBe(400);
   });
 
+  it("rejects a nonce containing the message-format delimiter (PR #102 pass-16)", async () => {
+    // Bugbot M PR #102 pass-16: the signed message format
+    // `filter.fun:set-username:<addr>:<username>:<nonce>` is colon-
+    // delimited. A nonce with embedded colons (e.g. `evil:0xfoo:bar`)
+    // could shift the field boundaries and create ambiguity when
+    // a future protocol revision adds a trailing field. We reject at
+    // the parse layer before any crypto work; the caller sees 400.
+    const store = createInMemoryUserProfileStore();
+    let recoverCalled = false;
+    const recoverSpy: RecoverFn = async () => {
+      recoverCalled = true;
+      return ADDR_A;
+    };
+    const r = await setUsernameHandler({
+      store,
+      recover: recoverSpy,
+      rawAddress: ADDR_A,
+      body: {username: "starbreaker", signature: ZERO_SIG, nonce: "evil:0xfoo:bar"},
+      now: fixedNow,
+    });
+    expect(r.status).toBe(400);
+    expect(recoverCalled).toBe(false);
+  });
+
   it("rejects body with missing fields", async () => {
     const store = createInMemoryUserProfileStore();
     const r = await setUsernameHandler({
