@@ -11,7 +11,7 @@
 
 import {describe, expect, it} from "vitest";
 
-import {shouldShowEmptyState} from "@/app/p/[identifier]/page";
+import {shouldShowEmptyState} from "@/app/p/[identifier]/emptyStateGate";
 import type {ProfileResponse} from "@/lib/arena/api";
 
 const ADDR = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as `0x${string}`;
