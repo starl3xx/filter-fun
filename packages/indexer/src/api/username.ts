@@ -66,6 +66,12 @@ export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
   "genesis",
   "bankr",
   "starl3xx",
+  // Bugbot M PR #102 pass-15: collides with the literal API path segment
+  // `/profile/username/:username/available`. A user with handle `username`
+  // would still resolve correctly at `/profile/:identifier` via the
+  // single-path-segment matcher, but reserving it removes the human-side
+  // confusion (URL gymnastics + future support questions).
+  "username",
 ]);
 
 export type UsernameFormatError =

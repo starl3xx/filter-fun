@@ -189,6 +189,14 @@ export async function setUsernameHandler(args: {
 
   // Everything below this point assumes the request is authenticated. Now
   // run the full rejection chain against the store.
+  //
+  // Bugbot L PR #102 pass-15: pin a single `commitNow` for every store
+  // call in this request. The `now()` clock was previously called once
+  // for `evaluateSetUsername` and again for `store.upsertUsername`, so
+  // the verdict's cooldown calculation and the row's stamp drifted by
+  // however long the intervening reads took. Pinning makes the verdict
+  // and the row consistent within a request.
+  const commitNow = now();
   const existing = await store.getByAddress(address);
   const operatorBlocked = await store.isOperatorBlocked(formatResult.canonical);
 
@@ -214,6 +222,14 @@ export async function setUsernameHandler(args: {
   // column and `updated_at`. Without this, a casing-fix request was
   // silently dropped — the user had to change their handle to something
   // else and back, burning two 30-day cooldowns for a cosmetic fix.
+  //
+  // Bugbot M PR #102 pass-15: the display-case write path is gated by
+  // (a) the wallet-signature requirement (each POST needs a fresh signed
+  // message), and (b) `applyHttpRateLimit`. The 30-day cooldown is
+  // intentionally NOT enforced here so users can iterate on casing
+  // without being locked out. If display-case write load ever shows up
+  // in practice, the right place to add a finer-grain bucket is
+  // middleware (per-address per-method), not this handler.
   if (
     existing &&
     existing.username === formatResult.canonical &&
@@ -228,7 +244,7 @@ export async function setUsernameHandler(args: {
     const updated = await store.updateDisplayCase({
       address,
       display: formatResult.display,
-      now: now(),
+      now: commitNow,
     });
     if (updated !== null) {
       return {
@@ -247,7 +263,7 @@ export async function setUsernameHandler(args: {
     {lastUpdatedAt: existing?.usernameUpdatedAt ?? null, cooldownMs},
     {takenByOther},
     {operatorBlocked},
-    now(),
+    commitNow,
   );
   if ("error" in verdict) {
     // Bugbot M PR #102: exhaustive switch over the rejection union. The
@@ -285,7 +301,7 @@ export async function setUsernameHandler(args: {
     address,
     canonical: formatResult.canonical,
     display: formatResult.display,
-    now: now(),
+    now: commitNow,
     cooldownMs,
   });
   if (result.ok) {
