@@ -53,6 +53,7 @@ import {
   launchEscrowSummary,
   liquidation,
   pendingRefund,
+  phaseChange,
   reservation,
   rolloverClaim,
   season,
@@ -1015,10 +1016,12 @@ function buildQueries(db: ApiDb): ApiQueries {
     /// FINALIZE-tagged hpSnapshot rows for the cohort, joined to the `token`
     /// table to identify the winning row. Pre-CUT all three integers are null;
     /// post-CUT cutLineHp populates; post-FINALIZE winningHp + secondPlaceHp
-    /// populate too. The cut line is `min(hp)` over CUT-tagged rows that
-    /// belong to surviving tokens (`token.liquidated = false` at the time of
-    /// the snapshot — or, equivalently for genesis volumes, tokens whose
-    /// `liquidated` flag is false today since post-CUT survivors are stable).
+    /// populate too. The cut line is `min(hp)` over CUT-tagged rows belonging
+    /// to CUT-survivors (winner + finalists), where survivors are derived by
+    /// bucketing each token's `liquidation.blockTimestamp` against the season's
+    /// `Settlement` phase change — anything liquidated BEFORE Settlement was
+    /// CUT-filtered. Bugbot PR #103: prior code keyed off `token.liquidated`
+    /// directly, which incorrectly excluded finalists (liquidated at FINALIZE).
     marginInputsForSeason: async (seasonId) => {
       // Resolve season's winner address (if any).
       const seasonRows = await db
@@ -1035,9 +1038,6 @@ function buildQueries(db: ApiDb): ApiQueries {
         return {cutLineHp: null, winningHp: null, secondPlaceHp: null};
       }
       const tokenAddrs = tokenRows.map((r) => r.id);
-      const liquidatedSet = new Set(
-        tokenRows.filter((r) => r.liquidated).map((r) => r.id.toLowerCase()),
-      );
       // Pull CUT and FINALIZE-tagged rows for the cohort.
       const cutOrFinalRows = await db
         .select()
@@ -1048,21 +1048,23 @@ function buildQueries(db: ApiDb): ApiQueries {
             inArray(hpSnapshot.trigger, ["CUT", "FINALIZE"]),
           ),
         );
+      // Cut-filtered set = tokens whose `liquidation.blockTimestamp` falls in
+      // the CUT phase (before Settlement). Bugbot PR #103: the prior code
+      // used `liquidated=true`, which conflates CUT-eliminated tokens with
+      // FINALIZE-eliminated finalists — finalists were CUT-time survivors, so
+      // their CUT-tagged HP belongs in the cut-line `min(hp)` calculation.
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, [seasonId]);
+      const cutFilteredSet = cutFilteredBySeason.get(seasonId) ?? new Set<string>();
       let cutLineHp: number | null = null;
       let winningHp: number | null = null;
       let secondPlaceHp: number | null = null;
       const winnerAddr = seasonRow.winner ? seasonRow.winner.toLowerCase() : null;
-      // Cut line = min(hp) over CUT-tagged rows belonging to NON-liquidated
-      // tokens (the survivors). Tokens that were filtered AT cut have
-      // `liquidated = true`; tokens filtered later (FINALIZE round) had
-      // `liquidated = false` AT the cut moment but flip to true at FINALIZE.
-      // For the cut-line we want survivors at h96; conservatively use the
-      // condition `not in liquidated_set` which covers the CUT-time survivors
-      // (the FINALIZE-only filtrations don't ship CUT-tagged rows for those
-      // tokens because the snapshot writer tags by trigger, not by status).
+      // Cut line = min(hp) over CUT-tagged rows for CUT-survivors (winner +
+      // finalists). Excluding only CUT-filtered tokens; finalists' CUT HP is
+      // load-bearing for the survivor floor.
       for (const r of cutOrFinalRows) {
         if (r.trigger === "CUT") {
-          if (!liquidatedSet.has(r.token.toLowerCase())) {
+          if (!cutFilteredSet.has(r.token.toLowerCase())) {
             if (cutLineHp === null || r.hp < cutLineHp) cutLineHp = r.hp;
           }
         }
@@ -1432,6 +1434,59 @@ function buildComponentDeltasQueries(db: ApiDb): ComponentDeltasQueries {
 
 // ============================================================ Graveyard + winners adapters (Epic 1.25/1.26/1.27)
 
+/// Returns lowercased token addresses that were filtered AT CUT (h96), as
+/// distinct from finalists who were filtered at FINALIZE (h168).
+///
+/// Bugbot PR #103: the cut-line `min(hp)` calculation must include finalists'
+/// CUT-tagged HP rows — finalists were CUT-time survivors, so their HP at h96
+/// belongs in the survivor min. The earlier code excluded all `liquidated=true`
+/// tokens, which collapsed the survivor set to just the winner and inflated
+/// `cutLineHp` (causing real near-misses to fail the `isNearMiss` gate).
+///
+/// Bucketing rule: `liquidation.blockTimestamp < settlementPhaseTs` ⇒
+/// CUT-filtered. The `Settlement` phase change marks the FINALIZE moment, so
+/// any liquidation BEFORE that boundary fired during CUT phase. If the season
+/// hasn't reached `Settlement` yet, every liquidation is CUT-filtered (no
+/// finalists exist before FINALIZE).
+async function buildCutFilteredAddrsBySeasons(
+  db: ApiDb,
+  seasonIds: ReadonlyArray<bigint>,
+): Promise<Map<bigint, Set<string>>> {
+  const out = new Map<bigint, Set<string>>();
+  if (seasonIds.length === 0) return out;
+  // Drizzle's `inArray` rejects readonly arrays — copy to mutable.
+  const mutableSeasonIds = [...seasonIds];
+  const settlementRows = await db
+    .select()
+    .from(phaseChange)
+    .where(
+      and(
+        inArray(phaseChange.seasonId, mutableSeasonIds),
+        eq(phaseChange.newPhase, "Settlement"),
+      ),
+    );
+  const settlementBySeason = new Map<bigint, bigint>();
+  for (const r of settlementRows) {
+    // Earliest Settlement transition wins (defensive — there should be only one).
+    const cur = settlementBySeason.get(r.seasonId);
+    if (cur === undefined || r.blockTimestamp < cur) {
+      settlementBySeason.set(r.seasonId, r.blockTimestamp);
+    }
+  }
+  const liqRows = await db
+    .select()
+    .from(liquidation)
+    .where(inArray(liquidation.seasonId, mutableSeasonIds));
+  for (const sid of mutableSeasonIds) out.set(sid, new Set<string>());
+  for (const lr of liqRows) {
+    const ts = settlementBySeason.get(lr.seasonId);
+    if (ts === undefined || lr.blockTimestamp < ts) {
+      out.get(lr.seasonId)?.add(lr.token.toLowerCase());
+    }
+  }
+  return out;
+}
+
 /// Bulk creator-profile lookup. Iterates the unique address set and calls
 /// `getByAddress` per entry. The off-chain identity layer is optional — if
 /// `DATABASE_URL` isn't set in dev, the lookup short-circuits to an empty map
@@ -1558,16 +1613,16 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
         }
       }
 
-      // 6. Per-season cut line — min(hp) over CUT-tagged rows for survivors
-      // (tokens that were NOT in the filtered set at the time of the cut).
-      // We approximate by "tokens whose final state is non-liquidated" since
-      // the genesis flow doesn't promote a token from filtered back to
-      // surviving.
+      // 6. Per-season cut line — min(hp) over CUT-tagged rows for CUT-survivors
+      // (winner + finalists). Bugbot PR #103: skipping the entire `liquidated`
+      // set excluded finalists, collapsing the survivor pool to just the
+      // winner and inflating the cut line. Finalists were CUT-time survivors;
+      // their CUT-tagged HP rows belong in the floor.
       const allSeasonTokens = await db
         .select()
         .from(token)
         .where(inArray(token.seasonId, seasonIds));
-      const filteredSet = new Set(filteredRows.map((r) => r.id.toLowerCase()));
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, seasonIds);
       const allSeasonAddrs = allSeasonTokens.map((r) => r.id);
       const allCutRows = await db
         .select()
@@ -1584,9 +1639,10 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
       for (const t of allSeasonTokens) seasonByToken.set(t.id.toLowerCase(), t.seasonId);
       for (const cr of allCutRows) {
         const lower = cr.token.toLowerCase();
-        if (filteredSet.has(lower)) continue; // skip filtered (we want survivors only)
         const sid = seasonByToken.get(lower);
         if (sid === undefined) continue;
+        const cutFiltered = cutFilteredBySeason.get(sid);
+        if (cutFiltered?.has(lower)) continue; // skip CUT-filtered only; finalists stay
         const cur = cutLineBySeason.get(sid);
         if (cur === undefined || cur === null || cr.hp < cur) {
           cutLineBySeason.set(sid, cr.hp);
@@ -1697,15 +1753,15 @@ function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
       }));
     },
     cutLineForSeason: async (seasonId) => {
-      // Reuse the marginInputsForSeason path's cut-line — a smaller dedicated
-      // query keeps the per-token detail page from re-deriving the cohort.
+      // Cut line = min(hp) over CUT-tagged rows for CUT-survivors (winner +
+      // finalists). Bugbot PR #103: don't exclude finalists; their CUT HP is
+      // the load-bearing floor for the survivor pool.
       const seasonRows = await db.select().from(season).where(eq(season.id, seasonId)).limit(1);
       if (!seasonRows[0]) return null;
       const cohortTokens = await db.select().from(token).where(eq(token.seasonId, seasonId));
       if (cohortTokens.length === 0) return null;
-      const filteredAddrs = new Set(
-        cohortTokens.filter((r) => r.liquidated).map((r) => r.id.toLowerCase()),
-      );
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, [seasonId]);
+      const cutFilteredAddrs = cutFilteredBySeason.get(seasonId) ?? new Set<string>();
       const cohortAddrs = cohortTokens.map((r) => r.id);
       const cutRows = await db
         .select()
@@ -1718,7 +1774,7 @@ function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
         );
       let cutLine: number | null = null;
       for (const r of cutRows) {
-        if (filteredAddrs.has(r.token.toLowerCase())) continue;
+        if (cutFilteredAddrs.has(r.token.toLowerCase())) continue;
         if (cutLine === null || r.hp < cutLine) cutLine = r.hp;
       }
       return cutLine;

@@ -19,6 +19,7 @@ import {
   fetchSeason,
   fetchWinnerMetrics,
   tradeTokenUrl,
+  INDEXER_URL,
   type WinnerMetricsResponse,
 } from "@/lib/arena/api";
 import {deploymentMeta} from "@/lib/addresses";
@@ -61,7 +62,10 @@ function ResolveSeasonId({rawId}: {rawId: string}) {
       try {
         // Re-use fetchSeason (which hits /season/latest) only as a fallback
         // when the id matches latest; otherwise issue a raw fetch.
-        const res = await fetch(`${process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:42069"}/season/${rawId}`, {cache: "no-store"});
+        // Bugbot PR #103: reuse the shared `INDEXER_URL` constant so we get
+        // the trailing-slash strip; the prior inline `process.env.…` form
+        // could yield `https://host//season/7` if the env var ended with `/`.
+        const res = await fetch(`${INDEXER_URL}/season/${rawId}`, {cache: "no-store"});
         if (!res.ok) throw new Error(`/season/${rawId} → ${res.status}`);
         const body = (await res.json()) as {status: string; season: {seasonId: number} | null};
         if (cancelled) return;
@@ -71,7 +75,7 @@ function ResolveSeasonId({rawId}: {rawId: string}) {
         }
         // Indexer doesn't surface the winner address on /season/:id today;
         // fall through to /winners and find by season id.
-        const winnersRes = await fetch(`${process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:42069"}/winners`, {cache: "no-store"});
+        const winnersRes = await fetch(`${INDEXER_URL}/winners`, {cache: "no-store"});
         if (!winnersRes.ok) throw new Error(`/winners → ${winnersRes.status}`);
         const winnersBody = (await winnersRes.json()) as {winners: Array<{address: `0x${string}`; season: number}>};
         const match = winnersBody.winners.find((w) => w.season === Number(rawId));
