@@ -8,6 +8,7 @@ import Link from "next/link";
 
 import {C, F} from "@/lib/tokens";
 import {fetchWinners, type WinnerRow, type WinnersResponse} from "@/lib/arena/api";
+import {shortAddr} from "@/lib/launch/format";
 
 import {NearMissChip, formatMarginHp} from "@/components/graveyard/NearMissChip";
 
@@ -218,10 +219,6 @@ function WinnerRowCard({row}: {row: WinnerRow}) {
       </span>
     </Link>
   );
-}
-
-function shortAddr(a: string): string {
-  return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
 function Loading() {

@@ -271,6 +271,24 @@ describe("/graveyard", () => {
     expect(body.tokens[0]?.ticker).toBe("$DOOM");
   });
 
+  it("?ticker=$DOOM also matches (crypto-native form with $ prefix)", async () => {
+    // Bugbot PR #103 pass-18: prior to the fix, the query's `$` was preserved
+    // and the row's `$` was stripped, breaking symmetry → no match.
+    const r = await getGraveyardHandler(
+      fixtureQueries({
+        rows: [
+          mkRow({address: addr(0xa1), symbol: "DOOM"}),
+          mkRow({address: addr(0xb2), symbol: "ZZZ"}),
+        ],
+      }),
+      {ticker: "$DOOM"},
+      fixedNow,
+    );
+    const body = r.body as GraveyardResponse;
+    expect(body.tokens).toHaveLength(1);
+    expect(body.tokens[0]?.ticker).toBe("$DOOM");
+  });
+
   it("?sort=nearMissMargin sorts smallest-margin-first; nulls last", async () => {
     const r = await getGraveyardHandler(
       fixtureQueries({

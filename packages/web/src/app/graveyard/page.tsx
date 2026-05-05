@@ -16,6 +16,7 @@ import {
   type GraveyardSort,
   type GraveyardTokenRow,
 } from "@/lib/arena/api";
+import {shortAddr} from "@/lib/launch/format";
 
 import {NearMissChip} from "@/components/graveyard/NearMissChip";
 
@@ -427,10 +428,6 @@ function GraveyardRow({row}: {row: GraveyardTokenRow}) {
       )}
     </Link>
   );
-}
-
-function shortAddr(a: string): string {
-  return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
 function Pagination({

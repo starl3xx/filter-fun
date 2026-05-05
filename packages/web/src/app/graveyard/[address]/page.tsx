@@ -17,6 +17,7 @@ import {
   type GraveyardDetailResponse,
 } from "@/lib/arena/api";
 import {deploymentMeta} from "@/lib/addresses";
+import {shortAddr} from "@/lib/launch/format";
 
 import {NearMissChip, formatMarginHp} from "@/components/graveyard/NearMissChip";
 import {HpTrajectoryChart} from "@/components/graveyard/HpTrajectoryChart";
@@ -353,7 +354,7 @@ function Panel({title, children}: {title: string; children: React.ReactNode}) {
 }
 
 function RecapCard({data}: {data: GraveyardDetailResponse}) {
-  const {finalHp, finalRank, peakHp, peakHpAt, filteredAt, nearMissMarginHp, filterRound} = data.lifecycle;
+  const {finalHp, finalRank, peakHp, peakHpAt, filteredAt, nearMissMarginHp, isNearMiss, filterRound} = data.lifecycle;
   // Generate the natural-language recap. Spec-compliant phrasing — no
   // manufactured drama (don't-change posture from §36.3.3).
   const sentences: string[] = [];
@@ -366,11 +367,15 @@ function RecapCard({data}: {data: GraveyardDetailResponse}) {
       `${data.token.ticker} was filtered in Week ${data.season.id} with ${finalHp} HP.`,
     );
   }
-  if (nearMissMarginHp !== null && nearMissMarginHp > 0) {
+  // Bugbot PR #103 pass-18: gate the cut-line copy on isNearMiss so a
+  // data anomaly (finalHp > cutLineHp clamps nearMissMarginHp to 0 with
+  // isNearMiss=false) doesn't surface "It finished exactly at the cut line."
+  // for a token that finished above it. Mirrors the LifecycleBanner gate.
+  if (isNearMiss && nearMissMarginHp !== null && nearMissMarginHp > 0) {
     sentences.push(
       `That was ${formatMarginHp(nearMissMarginHp)} behind the cut line.`,
     );
-  } else if (nearMissMarginHp === 0) {
+  } else if (isNearMiss && nearMissMarginHp === 0) {
     sentences.push("It finished exactly at the cut line.");
   }
   if (peakHpAt !== null) {
@@ -567,10 +572,6 @@ function NotFound() {
       </Link>
     </main>
   );
-}
-
-function shortAddr(a: string): string {
-  return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
 function ordinal(n: number): string {

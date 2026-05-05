@@ -238,7 +238,7 @@ export async function getGraveyardHandler(
 
   const tickerFilter =
     params.ticker !== undefined && params.ticker.length > 0
-      ? params.ticker.toUpperCase()
+      ? params.ticker.toUpperCase().replace(/^\$/, "")
       : null;
   const nearMissOnly = params.nearMiss === "true" || params.nearMiss === "1";
 
