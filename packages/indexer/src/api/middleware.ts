@@ -164,7 +164,7 @@ export function clientIpFromContext(c: MwContext): string {
   return resolveClientIp(xff, socket, rateCfg.trustProxy, fingerprint);
 }
 
-// ============================================================ Rate-limit (GET)
+// ============================================================ Rate-limit (HTTP)
 
 export interface RateLimitDecision {
   allowed: boolean;
@@ -177,16 +177,23 @@ export interface RateLimitDecision {
 
 /// Consume one token from `ip`'s bucket and return the decision. Caller writes the
 /// `RateLimit-Remaining` header on success and the 429 + headers on deny.
-export function checkGetRateLimit(ip: string, nowMs: number = Date.now()): RateLimitDecision {
+///
+/// Bugbot L PR #102 pass-6: renamed from `checkGetRateLimit` — the underlying
+/// bucket is method-agnostic, so the GET-only naming was misleading once the
+/// identity layer's `POST /profile/:address/username` wired into the same
+/// limiter. Reads and writes share the per-IP bucket today; if read traffic
+/// ever starves writes in production, split into per-method buckets here.
+export function checkHttpRateLimit(ip: string, nowMs: number = Date.now()): RateLimitDecision {
   const r = consumeBucket(bucketState, ip, rateCfg, nowMs);
   return {allowed: r.allowed, remaining: r.remaining, retryAfterSec: r.retryAfterSec};
 }
 
-/// Convenience wrapper for GET routes. Resolves IP, checks the bucket, writes headers.
-/// Returns null if allowed (caller proceeds), or a 429 Response if denied.
-export function applyGetRateLimit(c: MwContext): Response | null {
+/// Convenience wrapper for HTTP routes (GET + POST share the bucket today).
+/// Resolves IP, checks the bucket, writes headers. Returns null if allowed
+/// (caller proceeds), or a 429 Response if denied.
+export function applyHttpRateLimit(c: MwContext): Response | null {
   const ip = clientIpFromContext(c);
-  const decision = checkGetRateLimit(ip);
+  const decision = checkHttpRateLimit(ip);
   // RateLimit-Remaining belongs on every response (RFC draft) so clients can pace
   // themselves before they hit 429.
   c.header("RateLimit-Remaining", String(decision.remaining));

@@ -277,7 +277,20 @@ function createdTokenStatus(r: CreatedTokenRow): CreatedTokenStatus {
   // Tournament tier outranks the WEEKLY_WINNER fallback — once a token has won a
   // quarterly Filter Bowl or annual championship, the registry row promotes its
   // status above the season-level winner label.
-  if (r.tournamentStatus && r.tournamentStatus !== "ACTIVE") {
+  //
+  // Bugbot L PR #102 pass-9: defense-in-depth strip of ANNUAL_* on this
+  // wire field, mirroring `deriveBadges`. Spec §33.8 deferred annual
+  // settlement indefinitely; the registry should never carry ANNUAL_*
+  // today, but if a stale row or future re-activation populates one, we
+  // don't want it leaking out the per-token status channel while the
+  // badge channel strips it. Treat ANNUAL_* as if it were absent and
+  // fall through to the WEEKLY_WINNER / ACTIVE branch.
+  if (
+    r.tournamentStatus &&
+    r.tournamentStatus !== "ACTIVE" &&
+    r.tournamentStatus !== "ANNUAL_FINALIST" &&
+    r.tournamentStatus !== "ANNUAL_CHAMPION"
+  ) {
     // Defensive: don't surface `FILTERED` from the registry if our local `liquidated`
     // flag disagrees — covered above. WEEKLY_WINNER from the registry equates to the
     // legacy season-winner check; either path is correct.
@@ -302,7 +315,16 @@ function deriveBadges(
   if (holder.filterSurvivor) badges.add("FILTER_SURVIVOR");
   if (tourney.quarterlyFinalist) badges.add("QUARTERLY_FINALIST");
   if (tourney.quarterlyChampion) badges.add("QUARTERLY_CHAMPION");
-  if (tourney.annualFinalist) badges.add("ANNUAL_FINALIST");
-  if (tourney.annualChampion) badges.add("ANNUAL_CHAMPION");
+  // Epic 1.24 (2026-05-04): ANNUAL_* are NEVER surfaced on the wire — spec
+  // §33.8 deferred annual settlement indefinitely. The flags from the
+  // tournament registry are read (so the query path stays warm against the
+  // schema) but never added to the badge set. The web layer (ProfileBadges)
+  // applies the actual defense-in-depth filter against untrusted wire input;
+  // mirroring it here would only guard same-function code, which bugbot
+  // (PR #102 pass-4 L) correctly flagged as dead. To re-activate annual,
+  // add `badges.add("ANNUAL_FINALIST")` / `ANNUAL_CHAMPION` below and drop
+  // the corresponding entries from the web filter.
+  void tourney.annualFinalist;
+  void tourney.annualChampion;
   return [...badges];
 }

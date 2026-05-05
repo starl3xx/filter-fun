@@ -85,7 +85,7 @@ import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js"
 import {buildScoringWeightsResponse} from "./scoringWeights.js";
 import {getTokenHistoryHandler, type HistoryQueries, type HpSnapshotRow} from "./history.js";
 import {
-  applyGetRateLimit,
+  applyHttpRateLimit,
   historyCacheKey,
   historyResponseCache,
   holdingsCacheKey,
@@ -125,6 +125,16 @@ import {
   type SnapshotRow,
   type SwapJoinRow,
 } from "./componentDeltas.js";
+import {
+  checkUsernameAvailability,
+  resolveProfileIdentifier,
+  setUsernameHandler,
+  userProfileBlockFromRow,
+} from "./userProfileHandler.js";
+import {
+  createPgUserProfileStore,
+  type UserProfileStore,
+} from "./userProfileStore.js";
 
 /// Audit H-6 (Phase 1, 2026-05-01): CORS middleware. Origin allow-list is loaded from
 /// env at module-import time via `CORS_ALLOWED_ORIGINS` (comma-separated); falls back
@@ -147,16 +157,79 @@ ponder.use(
   "*",
   cors({
     origin: (origin) => originAllowed(origin, corsCfg),
-    allowMethods: ["GET", "OPTIONS"],
+    allowMethods: ["GET", "POST", "OPTIONS"],
     allowHeaders: ["Content-Type"],
     exposeHeaders: ["RateLimit-Remaining", "Retry-After", "X-Cache"],
     maxAge: 600,
   }),
 );
 
+/// Epic 1.24 — off-chain `userProfile` store.
+///
+/// Bootstrapped lazily on first request because:
+///   - Ponder's API server may start before `DATABASE_URL` is honored by the
+///     indexer process (PGlite fallback in dev with no env var); we want to
+///     avoid a hard `pg.Pool` instantiation at module-load time when the
+///     env may not yet point at a real Postgres.
+///   - Tests import this module without a DATABASE_URL and shouldn't pay
+///     for a connection attempt that's irrelevant to the route under test.
+///
+/// In production (Railway), `DATABASE_URL` is set; the first
+/// `getUserProfileStore()` call constructs a `pg.Pool` and runs the idempotent
+/// `CREATE TABLE IF NOT EXISTS` migration. In dev without `DATABASE_URL`,
+/// `getUserProfileStore()` throws on first call — POST/availability routes
+/// surface a 503 ("identity layer unavailable"), GET /profile/:identifier
+/// degrades to address-only (the username path is unreachable, but address
+/// lookups continue to work as before via the existing handler).
+/// Bugbot L PR #102: cache the in-flight `Promise`, not the resolved store,
+/// so two concurrent first requests share the same boot work. Pre-fix, the
+/// guard was `if (singleton !== null) return singleton` — both racers see
+/// `null`, both `import("pg")`, both `new Pool()`, both `ensureSchema()`,
+/// and the second-to-resolve overwrites the singleton. The first pool (up
+/// to 4 connections) leaks for the lifetime of the process. Caching the
+/// promise turns the second caller into an `await` of the first.
+let userProfileStorePromise: Promise<UserProfileStore> | null = null;
+
+async function getUserProfileStore(): Promise<UserProfileStore> {
+  if (userProfileStorePromise !== null) return userProfileStorePromise;
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    // Don't cache the failure — env can be set after process boot in some
+    // dev workflows (loaded later by a wrapper). Each call will re-check
+    // until DATABASE_URL appears, then transition to the cached-promise
+    // path. The error itself is identity-stable so callers branching on
+    // it produce stable HTTP responses.
+    throw new Error(
+      "userProfile store requires DATABASE_URL — identity layer unavailable",
+    );
+  }
+  userProfileStorePromise = (async () => {
+    // Dynamic import avoids loading `pg` until a route actually needs it.
+    // We don't carry @types/pg — cast through `unknown` to the minimal shape
+    // `userProfileStore.ts` consumes (a `Pool.query` method).
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore -- no @types/pg installed; runtime types verified at boundary.
+    const pgModule = await import("pg");
+    const PoolCtor = (pgModule as {Pool: new (cfg: unknown) => unknown}).Pool;
+    const pool = new PoolCtor({connectionString: url, max: 4});
+    const store = createPgUserProfileStore(pool as import("./userProfileStore.js").Pool);
+    await store.ensureSchema();
+    return store;
+  })().catch((err) => {
+    // A construction failure (e.g. ensureSchema rejection on a malformed
+    // DATABASE_URL) MUST clear the cached promise — otherwise every future
+    // request resolves a permanently-rejected promise even after the
+    // operator fixes the env. Setting back to null lets the next call
+    // attempt boot fresh.
+    userProfileStorePromise = null;
+    throw err;
+  });
+  return userProfileStorePromise;
+}
+
 ponder.get("/season", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const bypass = shouldBypassCache(mw);
   const r = await cached(
@@ -172,7 +245,7 @@ ponder.get("/season", async (c) => {
 
 ponder.get("/tokens", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const bypass = shouldBypassCache(mw);
   const r = await cached(
@@ -190,7 +263,7 @@ ponder.get("/tokens", async (c) => {
 
 ponder.get("/token/:address", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const result = await getTokenDetailHandler(buildQueries(c.db), c.req.param("address") ?? "");
   return c.json(result.body, result.status as 200 | 400 | 404);
@@ -202,7 +275,7 @@ ponder.get("/token/:address", async (c) => {
 /// UI's still-earning badge can render against any token without special-casing absence.
 ponder.get("/tokens/:address/creator-earnings", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const result = await getCreatorEarningsHandler(buildQueries(c.db), c.req.param("address") ?? "");
   return c.json(result.body, result.status as 200 | 400 | 404);
@@ -210,7 +283,7 @@ ponder.get("/tokens/:address/creator-earnings", async (c) => {
 
 ponder.get("/tokens/:address/history", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
   const normalized = raw.toLowerCase();
@@ -283,7 +356,7 @@ ponder.get("/readiness", async (c) => {
 /// middleware (PR #61).
 ponder.get("/scoring/weights", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   return c.json(buildScoringWeightsResponse(process.env), 200);
 });
@@ -314,7 +387,7 @@ ponder.get("/scoring/weights", async (c) => {
 /// branches on the body's `ok` enum. 400 is reserved for malformed REQUESTS.
 ponder.get("/season/:id/tickers/check", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
 
   const seasonIdRaw = c.req.param("id") ?? "";
@@ -425,7 +498,7 @@ ponder.get("/season/:id/tickers/check", async (c) => {
 ///   been started, or the indexer hasn't ingested the SeasonStarted yet).
 ponder.get("/season/:id/launch-status", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
 
   const seasonIdRaw = c.req.param("id") ?? "";
@@ -486,7 +559,7 @@ ponder.get("/season/:id/launch-status", async (c) => {
 /// seasons piled up).
 ponder.get("/wallet/:address/pending-refunds", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
 
   const raw = c.req.param("address") ?? "";
@@ -514,23 +587,137 @@ ponder.get("/wallet/:address/pending-refunds", async (c) => {
   );
 });
 
-ponder.get("/profile/:address", async (c) => {
+/// Epic 1.24 — username availability check. Strictly informational; the
+/// POST endpoint re-runs every check at write time, so a slow client can hold
+/// an "available" verdict that's stale by the time the user submits. Cheap
+/// enough to skip the response cache (no DB-shape derivation, just a couple
+/// of indexed lookups).
+ponder.get("/profile/username/:username/available", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
-  const raw = c.req.param("address") ?? "";
-  // Validate before computing the cache key so invalid addresses can't pollute cache
-  // entries / get parked under a 400-shaped value.
-  const normalized = raw.toLowerCase();
-  if (!isAddressLike(normalized)) {
-    return c.json({error: "invalid address"}, 400);
+  const raw = c.req.param("username") ?? "";
+  let store: UserProfileStore;
+  try {
+    store = await getUserProfileStore();
+  } catch {
+    return c.json({error: "identity layer unavailable"}, 503);
   }
+  const r = await checkUsernameAvailability(store, raw);
+  return c.json(r, 200);
+});
+
+/// Epic 1.24 — `POST /profile/:address/username`.
+///
+/// Signed-message authentication. The signed payload format is owned by
+/// `buildSetUsernameMessage`; the wallet client constructs the same string
+/// and `personal_sign`s it. Recovery happens server-side via viem; the path
+/// address is the authoritative `actor` (we don't trust a "from" field in
+/// the body — the only way to set X's username is to sign as X).
+///
+/// Bugbot follow-up reservation: this is the load-bearing security boundary
+/// of the identity layer. Any change to the message format MUST be backed by
+/// a wallet-client release, since deployed signers will continue to produce
+/// the old format until upgraded.
+ponder.post("/profile/:address/username", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  let store: UserProfileStore;
+  try {
+    store = await getUserProfileStore();
+  } catch {
+    return c.json({error: "identity layer unavailable"}, 503);
+  }
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({error: "invalid JSON body"}, 400);
+  }
+  const {recoverMessageAddress} = await import("viem");
+  const r = await setUsernameHandler({
+    store,
+    recover: ({message, signature}) =>
+      recoverMessageAddress({message, signature}) as Promise<`0x${string}`>,
+    rawAddress: c.req.param("address") ?? "",
+    body,
+    now: () => new Date(),
+  });
+  // After a successful write, the cached `/profile/:address` response is
+  // stale (the userProfile block changed). Drop the entry from the cache so
+  // the next read re-derives. Two cache keys exist per address (role=all and
+  // role=creator); invalidate both.
+  if (r.status === 200) {
+    const lowered = (c.req.param("address") ?? "").toLowerCase() as `0x${string}`;
+    profileResponseCache.delete(profileCacheKey(lowered, {role: "all"}));
+    profileResponseCache.delete(profileCacheKey(lowered, {role: "creator"}));
+  }
+  return c.json(r.body as object, r.status as 200 | 400 | 401 | 409 | 500);
+});
+
+/// Epic 1.24 — identifier-aware profile lookup.
+///
+/// The route param `:identifier` accepts EITHER a 0x-prefixed 40-char
+/// address OR a username. Disambiguation is by shape (`classifyIdentifier`).
+/// Username path 404s if the handle doesn't resolve; address path preserves
+/// the legacy "200 with all-zero shape for unknown wallets" behaviour
+/// (spec §22 — avoid leaking participation status via HTTP code; the web
+/// page applies its own no-activity gate to render a 404 page).
+///
+/// The response body extends the existing `/profile/:address` shape with a
+/// `userProfile` block containing the username + display + hasUsername fields
+/// (Epic 1.24). Existing callers that ignore unknown fields continue to work.
+ponder.get("/profile/:identifier", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const raw = c.req.param("identifier") ?? "";
+
+  // Resolve identifier → (address, profileRow). The userProfile store is
+  // optional: if the identity layer is unavailable (no DATABASE_URL in dev),
+  // address-shaped identifiers continue to resolve via a fallback path so
+  // the legacy `/profile/:address` behaviour is preserved.
+  let address: `0x${string}` | null = null;
+  let profileRow: Awaited<ReturnType<UserProfileStore["getByAddress"]>> = null;
+  // Bugbot M PR #102 pass-12: track whether the identity layer answered
+  // this request. On a transient failure we previously attached a null-
+  // derived `userProfile` block (`{hasUsername: false}`), which actively
+  // claimed the user had no username — even if they actually had one.
+  // Omitting the field instead lets the client distinguish "not known"
+  // (field absent) from "explicitly no username" (`hasUsername: false`).
+  let identityLayerOk = false;
+  try {
+    const store = await getUserProfileStore();
+    const resolved = await resolveProfileIdentifier(store, raw);
+    identityLayerOk = true;
+    if (resolved === null) {
+      // Address-shaped identifiers always resolve at the helper level;
+      // null means username-not-found (or syntactically-invalid).
+      const lowered = raw.toLowerCase();
+      if (!isAddressLike(lowered)) {
+        return c.json({error: "profile not found"}, 404);
+      }
+      // shouldn't happen — address-shaped should resolve. Defensive fallback.
+      address = lowered as `0x${string}`;
+      profileRow = null;
+    } else {
+      address = resolved.address;
+      profileRow = resolved.profileRow;
+    }
+  } catch {
+    // Identity layer unavailable. Address-shaped identifiers still work.
+    const lowered = raw.toLowerCase();
+    if (!isAddressLike(lowered)) {
+      return c.json({error: "identity layer unavailable"}, 503);
+    }
+    address = lowered as `0x${string}`;
+    profileRow = null;
+    identityLayerOk = false;
+  }
+
   const url = new URL(mw.req.url);
   const roleParam = url.searchParams.get("role");
-  // Epic 1.23: `?role=creator` narrows `createdTokens` to tokens this wallet
-  // created (vs. the default which already keys on creator anyway, but the
-  // explicit param lets the admin console request a stable filter for the
-  // past-tokens panel without depending on default behaviour).
   const role: ProfileRoleFilter = roleParam === "creator" ? "creator" : null;
   if (roleParam !== null && role === null) {
     return c.json({error: `unsupported role filter: ${roleParam}`}, 400);
@@ -538,13 +725,43 @@ ponder.get("/profile/:address", async (c) => {
   const bypass = shouldBypassCache(mw);
   const r = await cached(
     profileResponseCache,
-    profileCacheKey(normalized as `0x${string}`, {role: role ?? "all"}),
+    profileCacheKey(address!, {role: role ?? "all"}),
     async () =>
-      getProfileHandler(buildProfileQueries(c.db), normalized, () => new Date(), {role}),
+      getProfileHandler(buildProfileQueries(c.db), address!, () => new Date(), {role}),
     {bypass},
   );
   mw.header("X-Cache", r.status);
-  return c.json(r.value.body as ProfileResponse | {error: string}, r.value.status as 200);
+  // Attach the userProfile block to a successful response. The legacy
+  // /profile/:address shape grows a new object field; old clients that
+  // ignore unknown fields are unaffected.
+  if (r.value.status === 200) {
+    const body = r.value.body as ProfileResponse;
+    // Only attach the userProfile block when the identity layer answered.
+    // A transient failure shouldn't actively flip `hasUsername` to false
+    // for users who own a handle (PR #102 pass-12 fix).
+    if (identityLayerOk) {
+      return c.json(
+        {
+          ...body,
+          userProfile: userProfileBlockFromRow(address!, profileRow ?? null),
+        },
+        200,
+      );
+    }
+    return c.json(body, 200);
+  }
+  // Bugbot L PR #102 pass-5: this branch is currently unreachable —
+  // `address!` is already validated by `isAddressLike` upstream, so
+  // `getProfileHandler` cannot return its 400 path. The original code cast
+  // status `as 200` which was misleading: if a future variant is added to
+  // the handler (e.g. a 403 for soft-suspended addresses), the cast would
+  // silently serve the error body with a wrong type annotation. Widen to
+  // the actual contract so a new variant surfaces as a TS build failure
+  // here instead of as a silent wire bug.
+  return c.json(
+    r.value.body as ProfileResponse | {error: string},
+    r.value.status as 200 | 400,
+  );
 });
 
 /// Epic 1.23 — per-token HP-component swap-impact drilldown. Powers the
@@ -552,7 +769,7 @@ ponder.get("/profile/:address", async (c) => {
 /// See `componentDeltas.ts` for the threshold + windowing rules.
 ponder.get("/tokens/:address/component-deltas", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
   const normalized = raw.toLowerCase();
@@ -580,7 +797,7 @@ ponder.get("/tokens/:address/component-deltas", async (c) => {
 /// `holdings.ts` for the projection math + null-result semantics.
 ponder.get("/wallets/:address/holdings", async (c) => {
   const mw = toMwContext(c);
-  const limited = applyGetRateLimit(mw);
+  const limited = applyHttpRateLimit(mw);
   if (limited) return limited;
   const raw = c.req.param("address") ?? "";
   const normalized = raw.toLowerCase();
