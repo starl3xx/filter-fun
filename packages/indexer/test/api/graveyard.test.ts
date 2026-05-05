@@ -492,10 +492,9 @@ describe("/graveyard/:address", () => {
     expect(body.lifecycle.isNearMiss).toBe(true);
   });
 
-  it("samples holders at peak + at filter", async () => {
+  it("samples holders at filter (peak anchor dropped — see bugbot PR #103 pass-10)", async () => {
     const r = await getGraveyardDetailHandler(detailFixture(), addr(0xa1));
     const body = r.body as GraveyardDetailResponse;
-    expect(body.lifecycle.holdersAtPeak).toBe(412);
     expect(body.lifecycle.holdersAtFilter).toBe(287);
     expect(body.lifecycle.holdersAtLaunch).toBe(0);
   });

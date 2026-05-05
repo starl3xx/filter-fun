@@ -779,7 +779,6 @@ export type GraveyardLifecycle = {
   nearMissMarginHp: number | null;
   isNearMiss: boolean;
   holdersAtLaunch: number;
-  holdersAtPeak: number;
   holdersAtFilter: number;
 };
 

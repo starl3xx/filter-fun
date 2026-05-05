@@ -432,7 +432,11 @@ export interface GraveyardLifecycle {
   nearMissMarginHp: number | null;
   isNearMiss: boolean;
   holdersAtLaunch: number;
-  holdersAtPeak: number;
+  /// Holder count at the filter trigger. Bugbot PR #103 pass-10: dropped
+  /// the prior `holdersAtPeak` field — the holder series is CUT-tagged
+  /// only and peak HP almost always precedes CUT, so the sample at peak
+  /// would be 0 in production. Kept the launch + filter anchors which
+  /// are derivable from the data we actually have.
   holdersAtFilter: number;
 }
 
@@ -620,12 +624,12 @@ export async function getGraveyardDetailHandler(
     nearMissMarginHp !== null &&
     nearMissMarginHp <= NEAR_MISS_THRESHOLD_HP;
 
-  // Holder counts at three lifecycle anchors: launch (0 by definition — no
-  // ERC-20 transfers fired yet), peak (count at peakHpAt), and filter
-  // (latest holder count BEFORE OR AT the filter timestamp). The series is
-  // sparse; pick the closest preceding sample to each anchor.
+  // Holder counts at two lifecycle anchors: launch (0 by definition — no
+  // ERC-20 transfers fired yet) and filter (latest holder count before or
+  // at the filter timestamp). The CUT-tagged holder series only has data
+  // at h96, so peak-time sampling isn't reliable; that anchor was dropped
+  // (bugbot PR #103 pass-10).
   const holdersAtLaunch = 0;
-  const holdersAtPeak = sampleHoldersAt(holderRows, peakHpAt);
   const holdersAtFilter = sampleHoldersAt(holderRows, filteredAtSec);
 
   return {
@@ -658,7 +662,6 @@ export async function getGraveyardDetailHandler(
         nearMissMarginHp,
         isNearMiss,
         holdersAtLaunch,
-        holdersAtPeak,
         holdersAtFilter,
       },
       hpTrajectory: hpRows.map((r) => ({

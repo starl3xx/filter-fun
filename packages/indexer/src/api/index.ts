@@ -1977,6 +1977,10 @@ function buildWinnerMetricsQueries(db: ApiDb): WinnerMetricsQueries {
       if (!s || !s.winner) return null;
       const cohort = await db.select().from(token).where(eq(token.seasonId, seasonId));
       const cohortAddrs = cohort.map((r) => r.id);
+      // Bugbot PR #103 pass-10: drizzle's `inArray([])` generates invalid
+      // SQL (`WHERE col IN ()`), so guard the empty case explicitly. Mirrors
+      // the pattern in `winnerTokens`.
+      if (cohortAddrs.length === 0) return null;
       const finalizeRows = await db
         .select()
         .from(hpSnapshot)
