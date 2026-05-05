@@ -418,6 +418,7 @@ function mkRow(opts: Partial<GraveyardSourceRow>): GraveyardSourceRow {
 
 function detailFixture(overrides: Partial<{
   liquidated: boolean;
+  isFinalist: boolean;
   hpSeries: Array<{timestamp: bigint; hp: number; trigger: string}>;
   holderSeries: Array<{timestamp: bigint; holders: number}>;
   lpEvents: Array<{timestamp: bigint; kind: "MINT" | "BURN"; amountWeth: bigint}>;
@@ -433,7 +434,7 @@ function detailFixture(overrides: Partial<{
         creator: addr(0xaaa),
         seasonId: 7n,
         isProtocolLaunched: false,
-        isFinalist: false,
+        isFinalist: overrides.isFinalist ?? false,
         liquidated: overrides.liquidated ?? true,
         createdAt: 1728_000_000n,
       },
@@ -514,6 +515,44 @@ describe("/graveyard/:address", () => {
     const r = await getGraveyardDetailHandler(detailFixture(), addr(0xa1));
     const body = r.body as GraveyardDetailResponse;
     expect(body.tradableNow).toBe(true);
+  });
+
+  it("finalist token picks FINALIZE-tagged trigger row, not CUT (bugbot pass-7)", async () => {
+    // A finalist survived CUT and was filtered at FINALIZE. Both CUT and
+    // FINALIZE hpSnapshot rows exist; the FINALIZE row is the authoritative
+    // filter event for finalists.
+    const r = await getGraveyardDetailHandler(
+      detailFixture({
+        isFinalist: true,
+        hpSeries: [
+          {timestamp: 1728_500_000n, hp: 6500, trigger: "BLOCK_TICK"},
+          {timestamp: 1729_000_000n, hp: 5800, trigger: "CUT"}, // survived CUT
+          {timestamp: 1729_500_000n, hp: 4200, trigger: "FINALIZE"}, // filtered at FINALIZE
+        ],
+      }),
+      addr(0xa1),
+    );
+    const body = r.body as GraveyardDetailResponse;
+    expect(body.lifecycle.filterRound).toBe("FINALIZE");
+    expect(body.lifecycle.finalHp).toBe(4200);
+    expect(body.lifecycle.filteredAt).toBe(1729_500_000);
+  });
+
+  it("non-finalist token picks CUT-tagged trigger row (bugbot pass-7)", async () => {
+    const r = await getGraveyardDetailHandler(
+      detailFixture({
+        isFinalist: false,
+        hpSeries: [
+          {timestamp: 1729_000_000n, hp: 4900, trigger: "CUT"}, // filtered at CUT
+          {timestamp: 1729_500_000n, hp: 0, trigger: "FINALIZE"}, // already-liquidated post-CUT
+        ],
+      }),
+      addr(0xa1),
+    );
+    const body = r.body as GraveyardDetailResponse;
+    expect(body.lifecycle.filterRound).toBe("CUT");
+    expect(body.lifecycle.finalHp).toBe(4900);
+    expect(body.lifecycle.filteredAt).toBe(1729_000_000);
   });
 
   it("isNearMiss=false on cutLineHp anomaly — symmetric with index (bugbot pass-6)", async () => {

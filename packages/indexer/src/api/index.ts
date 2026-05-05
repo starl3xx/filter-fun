@@ -1559,32 +1559,45 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
           ),
         );
       // Pick the trigger row that represents the actual filter moment per
-      // token: prefer CUT (h96), fall back to FINALIZE (h168 — finals
-      // filter). For ties within a trigger, take the earliest.
-      const triggerByToken = new Map<
-        string,
-        {hp: number; rank: number; trigger: "CUT" | "FINALIZE"; ts: bigint}
-      >();
+      // token. Bugbot PR #103 pass-7: every token in the cohort has BOTH a
+      // CUT-tagged and a FINALIZE-tagged row (the writer is cohort-wide). The
+      // authoritative filter row is:
+      //   - finalists → FINALIZE (they survived CUT, lost at h168)
+      //   - everyone else (CUT-filtered) → CUT
+      // For ties within a trigger, take the earliest.
+      type TriggerCandidate = {
+        hp: number;
+        rank: number;
+        trigger: "CUT" | "FINALIZE";
+        ts: bigint;
+      };
+      const cutByToken = new Map<string, TriggerCandidate>();
+      const finalizeByToken = new Map<string, TriggerCandidate>();
       for (const tr of triggerRows) {
         const lower = tr.token.toLowerCase();
-        const existing = triggerByToken.get(lower);
-        const isCut = tr.trigger === "CUT";
-        const candidate = {
+        const candidate: TriggerCandidate = {
           hp: tr.hp,
           rank: tr.rank,
           trigger: tr.trigger as "CUT" | "FINALIZE",
           ts: tr.snapshotAtSec,
         };
-        if (!existing) {
-          triggerByToken.set(lower, candidate);
-        } else {
-          // CUT beats FINALIZE; same trigger → earliest timestamp wins.
-          if (isCut && existing.trigger === "FINALIZE") {
-            triggerByToken.set(lower, candidate);
-          } else if (existing.trigger === tr.trigger && tr.snapshotAtSec < existing.ts) {
-            triggerByToken.set(lower, candidate);
-          }
+        const map = tr.trigger === "CUT" ? cutByToken : finalizeByToken;
+        const existing = map.get(lower);
+        if (!existing || tr.snapshotAtSec < existing.ts) {
+          map.set(lower, candidate);
         }
+      }
+      const isFinalistByToken = new Map<string, boolean>();
+      for (const r of filteredRows) {
+        isFinalistByToken.set(r.id.toLowerCase(), r.isFinalist);
+      }
+      const triggerByToken = new Map<string, TriggerCandidate>();
+      for (const lower of new Set([...cutByToken.keys(), ...finalizeByToken.keys()])) {
+        const cut = cutByToken.get(lower);
+        const finalize = finalizeByToken.get(lower);
+        const finalist = isFinalistByToken.get(lower) ?? false;
+        const picked = finalist ? finalize ?? cut : cut ?? finalize;
+        if (picked) triggerByToken.set(lower, picked);
       }
 
       // 4. Per-token peakHp — `max(hp)` across the full hp series.

@@ -566,9 +566,11 @@ export async function getGraveyardDetailHandler(
     q.creatorProfile(tas.token.creator),
   ]);
 
-  // Resolve filter trigger row (CUT or FINALIZE) — the LATEST trigger-tagged
-  // snapshot is what we use for finalHp + filteredAt.
-  const triggerRow = pickFilterTriggerRow(hpRows);
+  // Resolve filter trigger row (CUT or FINALIZE) — the snapshot whose
+  // trigger MATCHES the token's actual filter event. Bugbot PR #103 pass-7:
+  // finalists survived CUT and were filtered at FINALIZE, so their FINALIZE
+  // row is the authoritative one; CUT-filtered tokens use their CUT row.
+  const triggerRow = pickFilterTriggerRow(hpRows, tas.token.isFinalist);
   const finalHp = triggerRow?.hp ?? 0;
   const filterRound: "CUT" | "FINALIZE" | null =
     triggerRow?.trigger === "CUT" || triggerRow?.trigger === "FINALIZE"
@@ -665,12 +667,18 @@ export async function getGraveyardDetailHandler(
   };
 }
 
-/// Pick the row that represents the filter trigger. CUT-tagged rows take
-/// precedence over FINALIZE-tagged (a finals-week filter happens at FINALIZE,
-/// but a token filtered at CUT also shows up in FINALIZE-tagged rows for the
-/// post-cut spectator view; the CUT row is the authoritative one).
+/// Pick the row that represents the filter trigger. The hpSnapshot writer is
+/// cohort-wide for both CUT and FINALIZE triggers, so EVERY token in the
+/// season has both a CUT-tagged and a FINALIZE-tagged row regardless of when
+/// it was actually filtered. We disambiguate via `isFinalist`:
+///   - finalists were filtered AT FINALIZE → prefer FINALIZE row
+///   - everyone else (CUT-filtered) → prefer CUT row
+/// Bugbot PR #103 pass-7: prior unconditional CUT-preference misattributed
+/// finalists' filter metadata to the CUT moment when they actually survived
+/// CUT and were eliminated at FINALIZE.
 function pickFilterTriggerRow(
   rows: ReadonlyArray<{timestamp: bigint; hp: number; trigger: string}>,
+  isFinalist: boolean,
 ): {timestamp: bigint; hp: number; trigger: string} | null {
   let cut: typeof rows[number] | null = null;
   let finalize: typeof rows[number] | null = null;
@@ -682,7 +690,7 @@ function pickFilterTriggerRow(
       if (finalize === null || r.timestamp < finalize.timestamp) finalize = r;
     }
   }
-  return cut ?? finalize;
+  return isFinalist ? finalize ?? cut : cut ?? finalize;
 }
 
 /// Sample the holder series at `targetSec`, returning the holder count from
