@@ -1859,7 +1859,14 @@ function buildWinnersQueries(db: ApiDb): WinnersQueries {
       // (token + cohort + FINALIZE-rows per season). Batched to 4 total: one
       // pass each over season, token (winners), token (cohort), hpSnapshot.
       const finalizedSeasons = await db.select().from(season);
-      const winnerSeasons = finalizedSeasons.filter((s) => s.winner !== null);
+      // Bugbot PR #103 pass-11: gate on BOTH winner AND winnerSettledAt so a
+      // mid-settlement season (winner committed via submitWinner but the
+      // settle-side flow not yet complete) doesn't surface as a final winner
+      // on /winners. The downstream WinnerRow surface displays settledAt as
+      // a header pin; rendering null there reads as "winner unverified."
+      const winnerSeasons = finalizedSeasons.filter(
+        (s) => s.winner !== null && s.winnerSettledAt !== null,
+      );
       if (winnerSeasons.length === 0) return [];
       const winnerAddrs = winnerSeasons.map((s) => s.winner!);
       const seasonIds = winnerSeasons.map((s) => s.id);
