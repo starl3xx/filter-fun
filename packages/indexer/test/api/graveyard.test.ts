@@ -72,6 +72,7 @@ describe("/graveyard", () => {
             filterRound: "CUT",
             holdersAtFilter: 50,
             cutLineHp: 5000,
+            finalRank: null,
           },
           {
             address: tokB,
@@ -86,6 +87,7 @@ describe("/graveyard", () => {
             filterRound: "CUT",
             holdersAtFilter: 30,
             cutLineHp: 5000,
+            finalRank: null,
           },
           {
             address: tokC,
@@ -100,6 +102,7 @@ describe("/graveyard", () => {
             filterRound: "CUT",
             holdersAtFilter: 10,
             cutLineHp: 5000,
+            finalRank: null,
           },
         ],
       }),
@@ -139,6 +142,7 @@ describe("/graveyard", () => {
             filterRound: "CUT",
             holdersAtFilter: 50,
             cutLineHp: 5000, // below finalHp
+            finalRank: null,
           },
         ],
       }),
@@ -168,6 +172,7 @@ describe("/graveyard", () => {
             filterRound: "CUT",
             holdersAtFilter: 50,
             cutLineHp: null,
+            finalRank: null,
           },
         ],
       }),
@@ -178,6 +183,25 @@ describe("/graveyard", () => {
     expect(body.tokens[0]?.nearMissMarginHp).toBeNull();
     // Spec §36.3.3 don't-change: never flag near-miss before cut has resolved.
     expect(body.tokens[0]?.isNearMiss).toBe(false);
+  });
+
+  it("plumbs finalRank from source row → response (bugbot PR #103 pass-2)", async () => {
+    const r = await getGraveyardHandler(
+      fixtureQueries({
+        rows: [
+          mkRow({address: addr(0xa1), symbol: "AAA", finalRank: 9}),
+          mkRow({address: addr(0xb2), symbol: "BBB", finalRank: 11}),
+          mkRow({address: addr(0xc3), symbol: "CCC", finalRank: null}),
+        ],
+      }),
+      {},
+      fixedNow,
+    );
+    const body = r.body as GraveyardResponse;
+    const byTicker = new Map(body.tokens.map((t) => [t.ticker, t]));
+    expect(byTicker.get("$AAA")?.finalRank).toBe(9);
+    expect(byTicker.get("$BBB")?.finalRank).toBe(11);
+    expect(byTicker.get("$CCC")?.finalRank).toBeNull();
   });
 
   it("?nearMiss=true filters to only near-miss rows", async () => {
@@ -385,6 +409,7 @@ function mkRow(opts: Partial<GraveyardSourceRow>): GraveyardSourceRow {
     filterRound: opts.filterRound ?? "CUT",
     holdersAtFilter: opts.holdersAtFilter ?? 0,
     cutLineHp: opts.cutLineHp ?? 5000,
+    finalRank: opts.finalRank ?? null,
   };
 }
 

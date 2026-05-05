@@ -151,6 +151,11 @@ export interface GraveyardSourceRow {
   /// where the producing token did NOT get filtered at CUT (i.e. survivors).
   /// Null when the season hasn't reached CUT yet.
   cutLineHp: number | null;
+  /// Rank from the filter-trigger snapshot (the row that produced finalHp).
+  /// Null when the trigger row's rank is unset (0 in storage). Powers the
+  /// graveyard index "rank #N" caption per row — without this, the page
+  /// rendered "rank #—" for every entry. Bugbot PR #103 pass-2.
+  finalRank: number | null;
 }
 
 /// Profile lookup for creator avatar/username decoration. Mirrors the Epic 1.24
@@ -321,7 +326,7 @@ function decorateRow(r: GraveyardSourceRow): GraveyardTokenRow {
     creator: r.creator,
     creatorUsername: null, // decorated post-paging
     creatorAvatarUrl: null,
-    finalRank: null, // resolved from cohort sort by builder; not load-bearing
+    finalRank: r.finalRank,
     filterRound: r.filterRound,
     filteredAt: r.filteredAt === null ? null : Number(r.filteredAt),
     peakHp: r.peakHp,

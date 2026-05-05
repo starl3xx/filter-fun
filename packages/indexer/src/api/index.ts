@@ -1561,7 +1561,7 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
       // filter). For ties within a trigger, take the earliest.
       const triggerByToken = new Map<
         string,
-        {hp: number; trigger: "CUT" | "FINALIZE"; ts: bigint}
+        {hp: number; rank: number; trigger: "CUT" | "FINALIZE"; ts: bigint}
       >();
       for (const tr of triggerRows) {
         const lower = tr.token.toLowerCase();
@@ -1569,6 +1569,7 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
         const isCut = tr.trigger === "CUT";
         const candidate = {
           hp: tr.hp,
+          rank: tr.rank,
           trigger: tr.trigger as "CUT" | "FINALIZE",
           ts: tr.snapshotAtSec,
         };
@@ -1667,6 +1668,9 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
           filterRound: trigger?.trigger ?? null,
           holdersAtFilter: holdersByToken.get(lower) ?? 0,
           cutLineHp: cutLineBySeason.get(r.seasonId) ?? null,
+          // 0 in storage means "rank unset" — surface as null so the UI
+          // renders "rank #—" rather than "rank #0".
+          finalRank: trigger && trigger.rank > 0 ? trigger.rank : null,
         };
       });
     },

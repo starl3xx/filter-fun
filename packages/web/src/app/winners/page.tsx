@@ -9,7 +9,7 @@ import Link from "next/link";
 import {C, F} from "@/lib/tokens";
 import {fetchWinners, type WinnerRow, type WinnersResponse} from "@/lib/arena/api";
 
-import {NearMissChip} from "@/components/graveyard/NearMissChip";
+import {NearMissChip, formatMarginHp} from "@/components/graveyard/NearMissChip";
 
 type FetchState =
   | {state: "loading"}
@@ -206,7 +206,7 @@ function WinnerRowCard({row}: {row: WinnerRow}) {
         <NearMissChip marginHp={row.winMarginHp} variant="won" />
       ) : (
         <span style={{fontSize: 11, color: C.faint, fontFamily: F.mono}}>
-          {row.winMarginHp !== null ? `+${row.winMarginHp} HP` : "—"}
+          {row.winMarginHp !== null ? `+${formatMarginHp(row.winMarginHp)}` : "—"}
         </span>
       )}
       <span style={{fontSize: 11, color: C.cyan, fontFamily: F.mono}}>
