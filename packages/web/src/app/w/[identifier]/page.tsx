@@ -65,6 +65,14 @@ function ResolveSeasonId({rawId}: {rawId: string}) {
         // the trailing-slash strip; the prior inline `process.env.…` form
         // could yield `https://host//season/7` if the env var ended with `/`.
         const res = await fetch(`${INDEXER_URL}/season/${rawId}`, {cache: "no-store"});
+        // Bugbot PR #103 pass-12: /season/:id now returns 404 for unknown
+        // ids (formerly 200 + "not-ready", which conflated "doesn't exist"
+        // with "not yet indexed"). Treat 404 as a distinct user-facing
+        // message so spectators see "no such season" not a generic error.
+        if (res.status === 404) {
+          if (!cancelled) setError("That season doesn't exist.");
+          return;
+        }
         if (!res.ok) throw new Error(`/season/${rawId} → ${res.status}`);
         const body = (await res.json()) as {status: string; season: {seasonId: number} | null};
         if (cancelled) return;

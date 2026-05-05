@@ -162,7 +162,13 @@ export async function getSeasonByIdHandler(
     return {status: 400, body: {error: "invalid season id"}};
   }
   const row = await q.seasonById(seasonId);
-  if (!row) return ok({status: "not-ready", season: null});
+  // Bugbot PR #103 pass-12: an explicit ID lookup that misses is genuinely
+  // 404, not "not-ready". The "not-ready" envelope made sense for /season
+  // (latest) where "no season indexed yet" is a valid state — but a numeric
+  // ID either exists or doesn't. Returning 200+not-ready here misled the
+  // /w/[identifier] resolver into showing "Season not yet indexed" for a
+  // season that simply never existed.
+  if (!row) return {status: 404, body: {error: "season not found"}};
   const [launchCount, margins] = await Promise.all([
     q.publicLaunchCount(row.id),
     q.marginInputsForSeason(row.id),
