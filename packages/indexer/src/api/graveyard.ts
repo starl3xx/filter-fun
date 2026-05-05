@@ -589,13 +589,21 @@ export async function getGraveyardDetailHandler(
   }
 
   // Margin: cutLineHp - finalHp (clamped at 0). Null when no cut line yet.
+  // Bugbot PR #103 pass-6: mirror decorateRow's `cutLineAnomaly` guard so
+  // index and detail return identical isNearMiss for the same token. A
+  // clamped-from-anomaly margin (raw < 0) is data inconsistency, not a real
+  // close call — surface margin=0 for honesty but keep isNearMiss=false.
   let nearMissMarginHp: number | null = null;
+  let cutLineAnomaly = false;
   if (cutLineHp !== null) {
     const raw = cutLineHp - finalHp;
     nearMissMarginHp = raw >= 0 ? raw : 0;
+    cutLineAnomaly = raw < 0;
   }
   const isNearMiss =
-    nearMissMarginHp !== null && nearMissMarginHp <= NEAR_MISS_THRESHOLD_HP;
+    !cutLineAnomaly &&
+    nearMissMarginHp !== null &&
+    nearMissMarginHp <= NEAR_MISS_THRESHOLD_HP;
 
   // Holder counts at three lifecycle anchors: launch (0 by definition — no
   // ERC-20 transfers fired yet), peak (count at peakHpAt), and filter

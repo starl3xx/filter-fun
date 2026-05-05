@@ -515,4 +515,24 @@ describe("/graveyard/:address", () => {
     const body = r.body as GraveyardDetailResponse;
     expect(body.tradableNow).toBe(true);
   });
+
+  it("isNearMiss=false on cutLineHp anomaly — symmetric with index (bugbot pass-6)", async () => {
+    // finalHp > cutLineHp ⇒ raw margin negative ⇒ clamp to 0. The detail
+    // handler must return the same isNearMiss=false as decorateRow on the
+    // index, otherwise the same token contradicts itself across surfaces.
+    const r = await getGraveyardDetailHandler(
+      detailFixture({
+        hpSeries: [
+          {timestamp: 1728_500_000n, hp: 6000, trigger: "BLOCK_TICK"},
+          // CUT-tagged finalHp=6000 sits above the cut line — a data anomaly.
+          {timestamp: 1729_000_000n, hp: 6000, trigger: "CUT"},
+        ],
+        cutLine: 5000,
+      }),
+      addr(0xa1),
+    );
+    const body = r.body as GraveyardDetailResponse;
+    expect(body.lifecycle.nearMissMarginHp).toBe(0);
+    expect(body.lifecycle.isNearMiss).toBe(false);
+  });
 });
