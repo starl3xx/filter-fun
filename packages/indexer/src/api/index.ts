@@ -1073,13 +1073,16 @@ function buildQueries(db: ApiDb): ApiQueries {
       // Winner HP + second-place HP from FINALIZE-tagged rows. The winner is
       // identified by `season.winner`; second place is the highest HP over
       // FINALIZE-tagged rows that aren't the winner.
+      // Bugbot PR #103 pass-17: CUT-filtered tokens have HP=0 FINALIZE rows
+      // (cohort-wide writer); excluding them prevents false runner-up rows
+      // and `secondPlaceHp=0` in single-token finales.
       if (winnerAddr) {
         for (const r of cutOrFinalRows) {
           if (r.trigger !== "FINALIZE") continue;
           const lower = r.token.toLowerCase();
           if (lower === winnerAddr) {
             if (winningHp === null || r.hp > winningHp) winningHp = r.hp;
-          } else {
+          } else if (!cutFilteredSet.has(lower)) {
             if (secondPlaceHp === null || r.hp > secondPlaceHp) secondPlaceHp = r.hp;
           }
         }
@@ -1888,6 +1891,11 @@ function buildWinnersQueries(db: ApiDb): WinnersQueries {
             eq(hpSnapshot.trigger, "FINALIZE"),
           ),
         );
+      // Bugbot PR #103 pass-17: CUT-filtered tokens have HP=0 FINALIZE rows
+      // from the cohort-wide writer; their inclusion drives `secondPlaceHp=0`
+      // in single-token finales (or surfaces a CUT-filtered token as the
+      // runner-up in `runnerUpForSeason`). Exclude per-season.
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, seasonIds);
       const winnerByAddr = new Map(winnerTokenRows.map((r) => [r.id.toLowerCase(), r]));
       const cohortBySeason = new Map<bigint, typeof cohortTokens>();
       for (const c of cohortTokens) {
@@ -1914,11 +1922,12 @@ function buildWinnersQueries(db: ApiDb): WinnersQueries {
         let secondPlaceHp: number | null = null;
         const winnerLower = winner.toLowerCase();
         const seasonFinalizeRows = finalizeBySeason.get(s.id) ?? [];
+        const cutFilteredSet = cutFilteredBySeason.get(s.id) ?? new Set<string>();
         for (const fr of seasonFinalizeRows) {
           const lower = fr.token.toLowerCase();
           if (lower === winnerLower) {
             if (fr.hp > winningHp) winningHp = fr.hp;
-          } else {
+          } else if (!cutFilteredSet.has(lower)) {
             if (secondPlaceHp === null || fr.hp > secondPlaceHp) secondPlaceHp = fr.hp;
           }
         }
@@ -2001,12 +2010,19 @@ function buildWinnerMetricsQueries(db: ApiDb): WinnerMetricsQueries {
             eq(hpSnapshot.trigger, "FINALIZE"),
           ),
         );
+      // Bugbot PR #103 pass-17: CUT-filtered tokens have HP=0 FINALIZE rows
+      // from the cohort-wide writer. The pre-fix `bestHp = -1` guard let any
+      // CUT-filtered token win the runner-up slot (since 0 > -1) in seasons
+      // with no real second-place finalist. Filter them explicitly.
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, [seasonId]);
+      const cutFilteredSet = cutFilteredBySeason.get(seasonId) ?? new Set<string>();
       let bestAddr: `0x${string}` | null = null;
       let bestHp = -1;
       const winnerLower = s.winner.toLowerCase();
       for (const fr of finalizeRows) {
         const lower = fr.token.toLowerCase();
         if (lower === winnerLower) continue;
+        if (cutFilteredSet.has(lower)) continue;
         if (fr.hp > bestHp) {
           bestHp = fr.hp;
           bestAddr = fr.token;
