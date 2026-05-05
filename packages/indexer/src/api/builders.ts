@@ -25,6 +25,13 @@ export interface SeasonRow {
   /// pool routing fees to POL now?" in a single read against `/season` instead of poking
   /// the locker directly.
   winnerSettledAt: bigint | null;
+  /// Winning token address committed via `submitWinner`, or null while the season is
+  /// still active. Bugbot PR #103 pass-4: lifted onto the SeasonRow abstraction so any
+  /// caller of `buildSeasonByIdLookup` (or future seasonRow consumers) reads a single
+  /// shape. `marginInputsForSeason` already does its own season query for the same
+  /// field; the row-level field keeps that path future-proof if it migrates to the
+  /// shared lookup.
+  winner: `0x${string}` | null;
 }
 
 export interface SeasonResponse {

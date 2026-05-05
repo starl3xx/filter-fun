@@ -930,6 +930,7 @@ function buildQueries(db: ApiDb): ApiQueries {
         // Epic 1.16: surface the on-chain post-settlement marker so /season consumers can
         // resolve "is the winner pool routing to POL now?" without dereferencing the locker.
         winnerSettledAt: row.winnerSettledAt ?? null,
+        winner: row.winner ?? null,
       };
     },
     publicLaunchCount: async (seasonId) => {
@@ -1102,6 +1103,7 @@ function buildSeasonByIdLookup(db: ApiDb): (id: bigint) => Promise<SeasonRow | n
       totalPot: r.totalPot,
       bonusReserve: r.bonusReserve,
       winnerSettledAt: r.winnerSettledAt ?? null,
+      winner: r.winner ?? null,
     };
   };
 }

@@ -11,6 +11,10 @@ import {fetchWinners, type WinnerRow, type WinnersResponse} from "@/lib/arena/ap
 
 import {NearMissChip, formatMarginHp} from "@/components/graveyard/NearMissChip";
 
+/// Mirror of indexer's NEAR_MISS_THRESHOLD_HP (spec §36.3.3, 5pp on the
+/// `[0, 10000]` int10k composite scale).
+const SQUEAKER_THRESHOLD_HP = 500;
+
 type FetchState =
   | {state: "loading"}
   | {state: "ready"; data: WinnersResponse}
@@ -137,7 +141,7 @@ function SqueakerStrip({rows}: {rows: ReadonlyArray<WinnerRow>}) {
           fontWeight: 700,
         }}
       >
-        Squeakers · won by ≤5 HP
+        Squeakers · won by ≤{formatMarginHp(SQUEAKER_THRESHOLD_HP)}
       </div>
       <div
         style={{

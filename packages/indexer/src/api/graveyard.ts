@@ -312,12 +312,21 @@ function decorateRow(r: GraveyardSourceRow): GraveyardTokenRow {
   // shouldn't appear in this list (it survived); guard with max(0, …) so a
   // data anomaly produces a 0 margin rather than a negative.
   let nearMissMarginHp: number | null = null;
+  let cutLineAnomaly = false;
   if (r.cutLineHp !== null) {
     const raw = r.cutLineHp - r.finalHp;
     nearMissMarginHp = raw >= 0 ? raw : 0;
+    cutLineAnomaly = raw < 0;
   }
+  // Bugbot PR #103 pass-4: a clamped-from-anomaly margin (raw < 0) shouldn't
+  // be flagged as a near-miss — the row reflects a data inconsistency, not a
+  // legitimately-close-to-the-cut filter event. Surface margin=0 (clamped)
+  // for honesty but keep isNearMiss=false so the narrative flag isn't a false
+  // positive.
   const isNearMiss =
-    nearMissMarginHp !== null && nearMissMarginHp <= NEAR_MISS_THRESHOLD_HP;
+    !cutLineAnomaly &&
+    nearMissMarginHp !== null &&
+    nearMissMarginHp <= NEAR_MISS_THRESHOLD_HP;
 
   return {
     address: r.address,

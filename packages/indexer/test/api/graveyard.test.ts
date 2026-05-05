@@ -121,10 +121,13 @@ describe("/graveyard", () => {
     expect(byTicker.get("$CCC")?.isNearMiss).toBe(true);
   });
 
-  it("nearMissMarginHp clamps to 0 when finalHp > cutLineHp (defensive)", async () => {
+  it("nearMissMarginHp clamps to 0 when finalHp > cutLineHp (data anomaly)", async () => {
     // A token whose finalHp landed above the cut line shouldn't appear in
     // this list (it survived). If a data anomaly produces this, the margin
-    // should clamp at 0 rather than go negative.
+    // clamps at 0 rather than going negative — but `isNearMiss` is false
+    // (bugbot PR #103 pass-4): we don't surface a "narrowest-possible-miss"
+    // narrative for a row that reflects an inconsistency rather than a real
+    // close call.
     const tokA = addr(0xa1);
     const r = await getGraveyardHandler(
       fixtureQueries({
@@ -151,7 +154,7 @@ describe("/graveyard", () => {
     );
     const body = r.body as GraveyardResponse;
     expect(body.tokens[0]?.nearMissMarginHp).toBe(0);
-    expect(body.tokens[0]?.isNearMiss).toBe(true);
+    expect(body.tokens[0]?.isNearMiss).toBe(false);
   });
 
   it("returns nearMissMarginHp=null when cutLineHp is null (pre-CUT season)", async () => {

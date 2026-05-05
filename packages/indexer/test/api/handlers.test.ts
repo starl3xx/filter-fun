@@ -39,6 +39,7 @@ function mkSeason(over: Partial<SeasonRow> = {}): SeasonRow {
     // Epic 1.16 (spec §9.4): null pre-settlement; populated to a Unix-seconds bigint
     // post-`submitWinner`. Default null since most legacy tests run mid-season.
     winnerSettledAt: null,
+    winner: null,
     ...over,
   };
 }
