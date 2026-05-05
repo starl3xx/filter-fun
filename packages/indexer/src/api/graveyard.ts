@@ -423,6 +423,12 @@ export interface GraveyardLifecycle {
   peakHpAt: number | null;
   finalHp: number;
   finalRank: number | null;
+  /// Cut line for the season as a raw integer on the [0, 10000] composite
+  /// scale. Bugbot PR #103 pass-8: surfaced directly so the chart's dashed
+  /// cut-line marker uses the actual value rather than reconstructing
+  /// `finalHp + nearMissMarginHp` (which is wrong when margin clamped from
+  /// an anomaly). Null when the season hasn't reached CUT.
+  cutLineHp: number | null;
   nearMissMarginHp: number | null;
   isNearMiss: boolean;
   holdersAtLaunch: number;
@@ -530,8 +536,15 @@ export interface GraveyardDetailQueries {
   /// snapshots. Null pre-CUT.
   cutLineForSeason: (seasonId: bigint) => Promise<number | null>;
   /// Final cohort rank for the token. Null when the token wasn't scored at
-  /// the trigger boundary.
-  finalRankForToken: (addr: `0x${string}`) => Promise<number | null>;
+  /// the trigger boundary. Bugbot PR #103 pass-8: takes `isFinalist` so the
+  /// implementation reads the CUT-tagged row for non-finalists (CUT-filtered)
+  /// and the FINALIZE-tagged row for finalists, mirroring `pickFilterTriggerRow`.
+  /// Without the flag, ordering by snapshotAtSec always returned the FINALIZE
+  /// row's rank — which is 0 (already-liquidated) for CUT-filtered tokens.
+  finalRankForToken: (
+    addr: `0x${string}`,
+    isFinalist: boolean,
+  ) => Promise<number | null>;
   /// Single-creator profile lookup (Epic 1.24).
   creatorProfile: (addr: `0x${string}`) => Promise<CreatorProfileLookup | null>;
 }
@@ -562,7 +575,7 @@ export async function getGraveyardDetailHandler(
     q.holderSeriesForToken(addr),
     q.lpEventsForToken(addr),
     q.cutLineForSeason(tas.token.seasonId),
-    q.finalRankForToken(addr),
+    q.finalRankForToken(addr, tas.token.isFinalist),
     q.creatorProfile(tas.token.creator),
   ]);
 
@@ -641,6 +654,7 @@ export async function getGraveyardDetailHandler(
         peakHpAt,
         finalHp,
         finalRank,
+        cutLineHp,
         nearMissMarginHp,
         isNearMiss,
         holdersAtLaunch,

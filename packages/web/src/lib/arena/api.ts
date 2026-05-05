@@ -775,6 +775,7 @@ export type GraveyardLifecycle = {
   peakHpAt: number | null;
   finalHp: number;
   finalRank: number | null;
+  cutLineHp: number | null;
   nearMissMarginHp: number | null;
   isNearMiss: boolean;
   holdersAtLaunch: number;

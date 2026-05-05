@@ -1804,20 +1804,34 @@ function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
       }
       return cutLine;
     },
-    finalRankForToken: async (addr) => {
-      // Rank from the latest CUT/FINALIZE-tagged snapshot for the token.
-      const rows = await db
+    finalRankForToken: async (addr, isFinalist) => {
+      // Bugbot PR #103 pass-8: pick the trigger row that matches the token's
+      // actual filter event — CUT row for CUT-filtered tokens, FINALIZE row
+      // for finalists. Sorting purely by snapshotAtSec returned FINALIZE for
+      // every token (it's strictly later), but FINALIZE-row rank is 0 for
+      // already-liquidated CUT-filtered tokens, so the function returned null
+      // when it should have returned the CUT-row rank.
+      const wantTrigger: "CUT" | "FINALIZE" = isFinalist ? "FINALIZE" : "CUT";
+      const primary = await db
         .select()
         .from(hpSnapshot)
-        .where(
-          and(
-            eq(hpSnapshot.token, addr),
-            inArray(hpSnapshot.trigger, ["CUT", "FINALIZE"]),
-          ),
-        )
+        .where(and(eq(hpSnapshot.token, addr), eq(hpSnapshot.trigger, wantTrigger)))
         .orderBy(desc(hpSnapshot.snapshotAtSec))
         .limit(1);
-      const r = rows[0];
+      let r = primary[0];
+      if (!r) {
+        // Defensive fallback: if the preferred trigger row isn't indexed yet,
+        // try the other trigger so the rank surface degrades gracefully
+        // rather than dropping to null on partial indexer state.
+        const otherTrigger: "CUT" | "FINALIZE" = isFinalist ? "CUT" : "FINALIZE";
+        const fallback = await db
+          .select()
+          .from(hpSnapshot)
+          .where(and(eq(hpSnapshot.token, addr), eq(hpSnapshot.trigger, otherTrigger)))
+          .orderBy(desc(hpSnapshot.snapshotAtSec))
+          .limit(1);
+        r = fallback[0];
+      }
       if (!r) return null;
       return r.rank > 0 ? r.rank : null;
     },

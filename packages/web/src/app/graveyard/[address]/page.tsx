@@ -211,7 +211,7 @@ function CenterColumn({data}: {data: GraveyardDetailResponse}) {
       <Panel title="HP trajectory">
         <HpTrajectoryChart
           points={data.hpTrajectory}
-          cutLineHp={cutLineFromMargin(data.lifecycle.finalHp, data.lifecycle.nearMissMarginHp)}
+          cutLineHp={data.lifecycle.cutLineHp}
           filteredAtSec={data.lifecycle.filteredAt}
           peakHp={data.lifecycle.peakHp}
           peakAtSec={data.lifecycle.peakHpAt}
@@ -598,7 +598,3 @@ function formatTimestamp(unixSec: number): string {
   });
 }
 
-function cutLineFromMargin(finalHp: number, marginHp: number | null): number | null {
-  if (marginHp === null) return null;
-  return finalHp + marginHp;
-}
