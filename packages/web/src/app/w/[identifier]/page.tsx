@@ -25,6 +25,7 @@ import {deploymentMeta} from "@/lib/addresses";
 
 import {NearMissChip, formatMarginHp} from "@/components/graveyard/NearMissChip";
 import {TimeSeriesChart} from "@/components/winner/TimeSeriesChart";
+import {shortAddr} from "@/lib/launch/format";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const SEASON_ID_RE = /^[0-9]+$/;
@@ -642,10 +643,6 @@ function NotFound() {
       </Link>
     </main>
   );
-}
-
-function shortAddr(a: string): string {
-  return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
 function formatTimestamp(unixSec: number): string {

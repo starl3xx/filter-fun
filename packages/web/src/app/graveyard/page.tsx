@@ -38,6 +38,19 @@ function Graveyard() {
   const [page, setPage] = useState<number>(1);
   const PER_PAGE = 50;
 
+  // Bugbot PR #103 pass-19: debounce text inputs so typing "DOOM" no longer
+  // fires four sequential /graveyard fetches. Toggles + sort + page still
+  // fire immediately; only the free-text fields (season/ticker) wait.
+  const [debouncedSeason, setDebouncedSeason] = useState<string>("");
+  const [debouncedTicker, setDebouncedTicker] = useState<string>("");
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedSeason(season);
+      setDebouncedTicker(ticker);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [season, ticker]);
+
   useEffect(() => {
     let cancelled = false;
     setData({state: "loading"});
@@ -45,8 +58,8 @@ function Graveyard() {
       sort,
       page,
       perPage: PER_PAGE,
-      season: season ? Number(season) : null,
-      ticker: ticker.length > 0 ? ticker : null,
+      season: debouncedSeason ? Number(debouncedSeason) : null,
+      ticker: debouncedTicker.length > 0 ? debouncedTicker : null,
       nearMiss: nearMissOnly,
     })
       .then((resp) => {
@@ -62,7 +75,7 @@ function Graveyard() {
     return () => {
       cancelled = true;
     };
-  }, [sort, page, season, ticker, nearMissOnly]);
+  }, [sort, page, debouncedSeason, debouncedTicker, nearMissOnly]);
 
   // Closest near-misses across the current page. The dispatch calls for a
   // cross-season hero strip; for genesis volumes (a few seasons) the current
