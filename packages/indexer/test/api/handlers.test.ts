@@ -243,6 +243,24 @@ describe("/season", () => {
       const env = r.body as unknown as {status: string; season: Record<string, unknown>};
       expect(env.season.winMarginHp).toBeNull();
     });
+
+    it("season.winner surfaces on the response so /w/<id> can resolve without a /winners round-trip", async () => {
+      const winnerAddr = "0x000000000000000000000000000000000000abcd" as `0x${string}`;
+      const q = fixtureQueries({
+        season: mkSeason({phase: "Settlement", winner: winnerAddr}),
+      });
+      const r = await getSeasonHandler(q);
+      const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+      expect(env.season.winner).toBe(winnerAddr);
+    });
+
+    it("season.winner is null pre-finalize", async () => {
+      const r = await getSeasonHandler(
+        fixtureQueries({season: mkSeason({phase: "Filter", winner: null})}),
+      );
+      const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+      expect(env.season.winner).toBeNull();
+    });
   });
 });
 

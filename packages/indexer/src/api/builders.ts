@@ -61,6 +61,11 @@ export interface SeasonResponse {
   /// `winningHp - secondPlaceHp`. Null when either operand is null. Drives the
   /// "won by 2.4 HP" squeaker callout on `/w/[address]`.
   winMarginHp: number | null;
+  /// Winning token address committed via `submitWinner`, mirrored from the
+  /// underlying `season.winner` row. Null while the season is still active.
+  /// Surfaced so `/w/<season-id>` can resolve identifier→winner without a
+  /// second `/winners` round trip (bugbot PR #103 pass-16 follow-up).
+  winner: `0x${string}` | null;
 }
 
 export const MAX_LAUNCHES = 12 as const;
@@ -111,6 +116,7 @@ export function buildSeasonResponse(
     winningHp: margins.winningHp,
     secondPlaceHp: margins.secondPlaceHp,
     winMarginHp,
+    winner: season.winner,
   };
 }
 

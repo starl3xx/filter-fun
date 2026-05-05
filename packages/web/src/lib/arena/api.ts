@@ -57,6 +57,10 @@ export type SeasonResponse = {
   winningHp?: number | null;
   secondPlaceHp?: number | null;
   winMarginHp?: number | null;
+  /// Winner address committed via `submitWinner`, or null pre-finalize.
+  /// Surfaced so `/w/<season-id>` can resolve the redirect target without
+  /// a second `/winners` round-trip. Optional — older indexer versions omit.
+  winner?: `0x${string}` | null;
 };
 
 // ============================================================ /tokens

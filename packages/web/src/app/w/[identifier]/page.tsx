@@ -74,24 +74,23 @@ function ResolveSeasonId({rawId}: {rawId: string}) {
           return;
         }
         if (!res.ok) throw new Error(`/season/${rawId} → ${res.status}`);
-        const body = (await res.json()) as {status: string; season: {seasonId: number} | null};
+        const body = (await res.json()) as {
+          status: string;
+          season: {seasonId: number; winner?: `0x${string}` | null} | null;
+        };
         if (cancelled) return;
         if (body.status !== "ready" || !body.season) {
           setError("Season not yet indexed.");
           return;
         }
-        // Indexer doesn't surface the winner address on /season/:id today;
-        // fall through to /winners and find by season id.
-        const winnersRes = await fetch(`${INDEXER_URL}/winners`, {cache: "no-store"});
-        if (!winnersRes.ok) throw new Error(`/winners → ${winnersRes.status}`);
-        const winnersBody = (await winnersRes.json()) as {winners: Array<{address: `0x${string}`; season: number}>};
-        const match = winnersBody.winners.find((w) => w.season === Number(rawId));
-        if (cancelled) return;
-        if (!match) {
+        // Bugbot PR #103 pass-16: /season/:id now surfaces `winner`, so
+        // resolve the redirect target inline. Skip the redundant /winners
+        // fetch the previous version did to look up the same address.
+        if (!body.season.winner) {
           setError("That season hasn't finalized yet.");
           return;
         }
-        router.replace(`/w/${match.address}`);
+        router.replace(`/w/${body.season.winner}`);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to resolve season.");

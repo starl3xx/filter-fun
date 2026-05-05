@@ -1649,7 +1649,11 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
         .where(inArray(token.seasonId, seasonIds));
       const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, seasonIds);
       const allSeasonAddrs = allSeasonTokens.map((r) => r.id);
-      const allCutRows = await db
+      // Bugbot PR #103 pass-16: empty-array guard parallel to the one in
+      // runnerUpForSeason. Drizzle's inArray([]) generates `WHERE col IN ()`
+      // which most SQL engines reject. Filtered seasons normally have tokens,
+      // but a schema inconsistency or partial state could empty this set.
+      const allCutRows = allSeasonAddrs.length === 0 ? [] : await db
         .select()
         .from(hpSnapshot)
         .where(
