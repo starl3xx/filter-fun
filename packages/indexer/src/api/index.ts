@@ -39,7 +39,7 @@
 /// per-IP budget.
 
 import {ponder, type ApiContext} from "@/generated";
-import {and, count, desc, eq, gte, inArray, lte} from "@ponder/core";
+import {and, count, desc, eq, gte, inArray, lte, max} from "@ponder/core";
 import {cors} from "hono/cors";
 
 import {
@@ -1600,16 +1600,18 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
         if (picked) triggerByToken.set(lower, picked);
       }
 
-      // 4. Per-token peakHp — `max(hp)` across the full hp series.
+      // 4. Per-token peakHp — `max(hp)` across the full hp series. Bugbot
+      // PR #103 pass-9: pushed the aggregate into SQL so we don't pull
+      // hundreds of BLOCK_TICK / SWAP / HOLDER_SNAPSHOT rows per token into
+      // JS just to take the max.
       const peakRows = await db
-        .select()
+        .select({token: hpSnapshot.token, peakHp: max(hpSnapshot.hp)})
         .from(hpSnapshot)
-        .where(inArray(hpSnapshot.token, tokenAddrs));
+        .where(inArray(hpSnapshot.token, tokenAddrs))
+        .groupBy(hpSnapshot.token);
       const peakByToken = new Map<string, number>();
       for (const pr of peakRows) {
-        const lower = pr.token.toLowerCase();
-        const cur = peakByToken.get(lower) ?? 0;
-        if (pr.hp > cur) peakByToken.set(lower, pr.hp);
+        peakByToken.set(pr.token.toLowerCase(), Number(pr.peakHp ?? 0));
       }
 
       // 5. Holders-at-filter — count of distinct CUT-tagged holderSnapshot rows
@@ -1945,18 +1947,20 @@ function buildWinnerMetricsQueries(db: ApiDb): WinnerMetricsQueries {
       if (!s || !s.winner) return null;
       // Confirm this address is actually the season's winner.
       if (s.winner.toLowerCase() !== addr.toLowerCase()) return null;
+      // Bugbot PR #103 pass-9: align with `winnerTokens`, which takes
+      // max(hp) over FINALIZE rows. The two surfaces previously disagreed
+      // when duplicate FINALIZE rows existed (latest-by-snapshotAtSec vs
+      // max-by-hp). Both now use the SQL max aggregate.
       const finalizeRows = await db
-        .select()
+        .select({peakHp: max(hpSnapshot.hp)})
         .from(hpSnapshot)
         .where(
           and(
             eq(hpSnapshot.token, addr),
             eq(hpSnapshot.trigger, "FINALIZE"),
           ),
-        )
-        .orderBy(desc(hpSnapshot.snapshotAtSec))
-        .limit(1);
-      const winningHp = finalizeRows[0]?.hp ?? 0;
+        );
+      const winningHp = Number(finalizeRows[0]?.peakHp ?? 0);
       return {
         address: t.id,
         symbol: t.symbol,
