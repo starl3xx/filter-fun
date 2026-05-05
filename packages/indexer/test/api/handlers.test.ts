@@ -229,6 +229,20 @@ describe("/season", () => {
       const env = r.body as unknown as {status: string; season: Record<string, unknown>};
       expect(env.season.winMarginHp).toBeNull();
     });
+
+    it("winMarginHp clamped to null when raw margin would be negative (anomaly)", async () => {
+      // Mirrors clamps in /winners and /winners/:address/metrics so all three
+      // endpoints agree on the same season under indexer-lag.
+      const q = fixtureQueries({season: mkSeason({phase: "Settlement"})});
+      q.marginInputsForSeason = async () => ({
+        cutLineHp: 5000,
+        winningHp: 0,
+        secondPlaceHp: 8000,
+      });
+      const r = await getSeasonHandler(q);
+      const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+      expect(env.season.winMarginHp).toBeNull();
+    });
   });
 });
 

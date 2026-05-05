@@ -92,10 +92,11 @@ export function buildSeasonResponse(
 ): SeasonResponse {
   const apiPhase = toApiPhase(season.phase);
   const championPotWei = max0(season.totalPot - season.bonusReserve);
-  const winMarginHp =
+  const rawMargin =
     margins.winningHp !== null && margins.secondPlaceHp !== null
       ? margins.winningHp - margins.secondPlaceHp
       : null;
+  const winMarginHp = rawMargin !== null && rawMargin < 0 ? null : rawMargin;
   return {
     seasonId: Number(season.id),
     phase: apiPhase,
