@@ -44,6 +44,38 @@ beforeEach(() => {
   submitMock.mockReset();
 });
 
+describe("SetUsernameModal — submit gated on availability (PR #102 pass-18)", () => {
+  it("disables the submit button during the 'Checking…' gap, not just on explicit unavailability", async () => {
+    // Bugbot M PR #102 pass-18: the previous `submitDisabled` condition
+    // only blocked submit on an explicit "unavailable" verdict. With
+    // pass-14's `setAvailability(null)` on every keystroke, the button
+    // re-enabled in the gap before the new fetch resolved — the user
+    // could sign during "Checking…" for a value the server might reject.
+    // Use a slow fetch mock so the resolution stays pending while we
+    // assert the disabled state.
+    fetchMock.mockImplementation(
+      () => new Promise(() => {}), // never resolves
+    );
+    const {container, getByText} = render(
+      <SetUsernameModal
+        address={ADDR}
+        initial={initial}
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+      />,
+    );
+    const input = container.querySelector("input")!;
+    await act(async () => {
+      fireEvent.change(input, {target: {value: "starbreaker"}});
+    });
+    // Wait for the Checking… state (debounce + fetch in flight).
+    await waitFor(() => expect(container.textContent).toContain("Checking"));
+    const submitBtn = getByText("Sign and save") as HTMLButtonElement;
+    // Submit must NOT be enabled while we don't have a verdict.
+    expect(submitBtn.disabled).toBe(true);
+  });
+});
+
 describe("SetUsernameModal — availability hint stale-reset (PR #102 pass-14)", () => {
   it("clears stale Available verdict immediately when the value changes", async () => {
     // Bugbot L PR #102 pass-14: prior to the fix, the previous availability

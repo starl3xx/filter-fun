@@ -156,10 +156,19 @@ export function SetUsernameModal({address, initial, onClose, onSuccess}: SetUser
     }
   }, [submitting, value, availability, address, signMessageAsync, onSuccess]);
 
+  // Bugbot M PR #102 pass-18: disable submit during the "Checking…" gap
+  // (when `availability === null`), not just on an explicit "unavailable"
+  // verdict. Pass-14 deliberately nulls availability on every keystroke so
+  // the stale "Available" hint can't linger; this fix complements that by
+  // blocking the submit button during the same window. Without it, a user
+  // who'd typed an Available value and then kept typing could click + sign
+  // a wallet message in the gap before the new fetch resolves — server
+  // would 409, the wallet round-trip is wasted UX.
   const submitDisabled =
     submitting ||
     value.length === 0 ||
-    (availability !== null && !availability.available);
+    availability === null ||
+    !availability.available;
 
   return (
     <div
