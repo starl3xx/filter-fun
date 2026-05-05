@@ -40,6 +40,20 @@ export interface SeasonResponse {
   /// `null` while the season is still active. Frontend gates the "POL slice" copy on
   /// `winnerSettledAt != null`.
   winnerSettledAt: number | null;
+  /// Epic 1.25/1.27 (spec §36.3.3) — integer HP of the lowest token that survived the
+  /// CUT trigger (the "cut line"). Null pre-CUT. Powers the graveyard's near-miss
+  /// margin computation and the finals-week runner-up callouts.
+  cutLineHp: number | null;
+  /// Epic 1.26 (spec §10.3) — integer HP of the winning token at FINALIZE. Null
+  /// pre-FINALIZE.
+  winningHp: number | null;
+  /// Epic 1.26 (spec §36.3.3) — integer HP of the second-place finals token at
+  /// FINALIZE. Null pre-FINALIZE or when the cohort had no second-place row
+  /// (single-token finale).
+  secondPlaceHp: number | null;
+  /// `winningHp - secondPlaceHp`. Null when either operand is null. Drives the
+  /// "won by 2.4 HP" squeaker callout on `/w/[address]`.
+  winMarginHp: number | null;
 }
 
 export const MAX_LAUNCHES = 12 as const;
@@ -58,12 +72,23 @@ export const MAX_LAUNCHES = 12 as const;
 /// `polReserve` is currently always "0" — POL slice is not yet indexed. Surfaced explicitly
 /// so the UI can render the field; will track real POLManager / SeasonPOLReserve events
 /// once the indexer expansion lands.
+///
+/// Margin fields (Epic 1.25/1.26/1.27, spec §36.3.3) flow in from the route adapter as
+/// pre-computed integers (cut line / winning HP / second-place HP). Pre-CUT they're null;
+/// post-CUT `cutLineHp` populates; post-FINALIZE `winningHp` + `secondPlaceHp` +
+/// `winMarginHp` populate. Backwards-compatible (additive); existing consumers ignore
+/// the new fields.
 export function buildSeasonResponse(
   season: SeasonRow,
   launchCount: number,
+  margins: SeasonMargins = {cutLineHp: null, winningHp: null, secondPlaceHp: null},
 ): SeasonResponse {
   const apiPhase = toApiPhase(season.phase);
   const championPotWei = max0(season.totalPot - season.bonusReserve);
+  const winMarginHp =
+    margins.winningHp !== null && margins.secondPlaceHp !== null
+      ? margins.winningHp - margins.secondPlaceHp
+      : null;
   return {
     seasonId: Number(season.id),
     phase: apiPhase,
@@ -74,7 +99,18 @@ export function buildSeasonResponse(
     championPool: weiToDecimalEther(championPotWei),
     polReserve: weiToDecimalEther(0n),
     winnerSettledAt: season.winnerSettledAt === null ? null : Number(season.winnerSettledAt),
+    cutLineHp: margins.cutLineHp,
+    winningHp: margins.winningHp,
+    secondPlaceHp: margins.secondPlaceHp,
+    winMarginHp,
   };
+}
+
+/// Margin inputs for `buildSeasonResponse` (Epic 1.25/1.26/1.27).
+export interface SeasonMargins {
+  cutLineHp: number | null;
+  winningHp: number | null;
+  secondPlaceHp: number | null;
 }
 
 // ============================================================ /tokens

@@ -46,10 +46,12 @@ import {
   bonusClaim,
   creatorEarning,
   creatorLock,
+  feeAccrual,
   holderBalance,
   holderSnapshot,
   hpSnapshot,
   launchEscrowSummary,
+  liquidation,
   pendingRefund,
   reservation,
   rolloverClaim,
@@ -64,7 +66,7 @@ import {
   winnerTickerReservation,
 } from "../../ponder.schema";
 
-import {isAddressLike} from "./builders.js";
+import {isAddressLike, type SeasonMargins, type SeasonRow} from "./builders.js";
 import {cached} from "./cache.js";
 import {loadCorsConfigFromEnv, originAllowed} from "./cors.js";
 import {toMwContext} from "./mwContext.js";
@@ -72,6 +74,7 @@ import {checkAndLogCadence, consoleCadenceLogger} from "./snapshotCadence.js";
 import {
   getCreatorEarningsHandler,
   getReadinessHandler,
+  getSeasonByIdHandler,
   getSeasonHandler,
   getTokenDetailHandler,
   getTokensHandler,
@@ -80,6 +83,18 @@ import {
   type CreatorEarningRow,
   type TokenDetailRow,
 } from "./handlers.js";
+import {
+  getGraveyardDetailHandler,
+  getGraveyardHandler,
+  type GraveyardDetailQueries,
+  type GraveyardQueries,
+} from "./graveyard.js";
+import {
+  getWinnerMetricsHandler,
+  getWinnersHandler,
+  type WinnerMetricsQueries,
+  type WinnersQueries,
+} from "./winners.js";
 import {fetchProjectionInputsFromDb} from "./hp.js";
 import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
 import {buildScoringWeightsResponse} from "./scoringWeights.js";
@@ -241,6 +256,83 @@ ponder.get("/season", async (c) => {
   mw.header("X-Cache", r.status);
   // Audit H-2: /season always returns 200 (envelope discriminates ready vs not-ready).
   return c.json(r.value.body, r.value.status as 200);
+});
+
+/// Epic 1.25/1.26/1.27 — `GET /season/:id` (specific season).
+///
+/// Returns the same envelope as `/season` but addressed by id. Unlike the
+/// `/season/:id/launch-status` and `/season/:id/tickers/check` siblings, this
+/// endpoint returns the full `SeasonResponse` body — including the new margin
+/// fields (`cutLineHp` / `winningHp` / `secondPlaceHp` / `winMarginHp`) used by
+/// the graveyard's near-miss math + the winner detail page's squeaker callout.
+/// Param shape collision with `/season/:id/...` routes is impossible (the more-
+/// specific routes register paths with extra segments and Ponder/Hono routes
+/// longest-prefix first).
+ponder.get("/season/:id", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const queries = buildQueries(c.db);
+  const seasonById = buildSeasonByIdLookup(c.db);
+  const r = await getSeasonByIdHandler({...queries, seasonById}, c.req.param("id") ?? "");
+  return c.json(r.body as object, r.status as 200 | 400);
+});
+
+/// Epic 1.25 — graveyard archive index.
+///
+/// Aggregate index of every filtered token across every indexed season. Powers
+/// the `/graveyard` web page. Pagination + filter + sort are query-driven.
+ponder.get("/graveyard", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const url = new URL(mw.req.url);
+  const params = {
+    season: url.searchParams.get("season") ?? undefined,
+    creator: url.searchParams.get("creator") ?? undefined,
+    ticker: url.searchParams.get("ticker") ?? undefined,
+    nearMiss: url.searchParams.get("nearMiss") ?? undefined,
+    sort: url.searchParams.get("sort") ?? undefined,
+    page: url.searchParams.get("page") ?? undefined,
+    perPage: url.searchParams.get("perPage") ?? undefined,
+  };
+  const r = await getGraveyardHandler(buildGraveyardQueries(c.db), params, () =>
+    Math.floor(Date.now() / 1000),
+  );
+  return c.json(r.body, r.status as 200 | 400);
+});
+
+/// Epic 1.25 — per-token historical (graveyard detail).
+ponder.get("/graveyard/:address", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const r = await getGraveyardDetailHandler(
+    buildGraveyardDetailQueries(c.db),
+    c.req.param("address") ?? "",
+  );
+  return c.json(r.body, r.status as 200 | 400 | 404);
+});
+
+/// Epic 1.26 — list of all season winners.
+ponder.get("/winners", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const r = await getWinnersHandler(buildWinnersQueries(c.db));
+  return c.json(r.body, r.status as 200);
+});
+
+/// Epic 1.26 — long-tail metrics for a single winner.
+ponder.get("/winners/:address/metrics", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const r = await getWinnerMetricsHandler(
+    buildWinnerMetricsQueries(c.db),
+    c.req.param("address") ?? "",
+  );
+  return c.json(r.body, r.status as 200 | 400 | 404);
 });
 
 ponder.get("/tokens", async (c) => {
@@ -919,6 +1011,96 @@ function buildQueries(db: ApiDb): ApiQueries {
     projectionInputsForCohort: async (tokens, currentTime) => {
       return fetchProjectionInputsFromDb(db, tokens, currentTime);
     },
+    /// Epic 1.25/1.26/1.27 — margin inputs for the season. Reads CUT and
+    /// FINALIZE-tagged hpSnapshot rows for the cohort, joined to the `token`
+    /// table to identify the winning row. Pre-CUT all three integers are null;
+    /// post-CUT cutLineHp populates; post-FINALIZE winningHp + secondPlaceHp
+    /// populate too. The cut line is `min(hp)` over CUT-tagged rows that
+    /// belong to surviving tokens (`token.liquidated = false` at the time of
+    /// the snapshot — or, equivalently for genesis volumes, tokens whose
+    /// `liquidated` flag is false today since post-CUT survivors are stable).
+    marginInputsForSeason: async (seasonId) => {
+      // Resolve season's winner address (if any).
+      const seasonRows = await db
+        .select()
+        .from(season)
+        .where(eq(season.id, seasonId))
+        .limit(1);
+      const seasonRow = seasonRows[0];
+      if (!seasonRow) {
+        return {cutLineHp: null, winningHp: null, secondPlaceHp: null};
+      }
+      const tokenRows = await db.select().from(token).where(eq(token.seasonId, seasonId));
+      if (tokenRows.length === 0) {
+        return {cutLineHp: null, winningHp: null, secondPlaceHp: null};
+      }
+      const tokenAddrs = tokenRows.map((r) => r.id);
+      const liquidatedSet = new Set(
+        tokenRows.filter((r) => r.liquidated).map((r) => r.id.toLowerCase()),
+      );
+      // Pull CUT and FINALIZE-tagged rows for the cohort.
+      const cutOrFinalRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, tokenAddrs),
+            inArray(hpSnapshot.trigger, ["CUT", "FINALIZE"]),
+          ),
+        );
+      let cutLineHp: number | null = null;
+      let winningHp: number | null = null;
+      let secondPlaceHp: number | null = null;
+      const winnerAddr = seasonRow.winner ? seasonRow.winner.toLowerCase() : null;
+      // Cut line = min(hp) over CUT-tagged rows belonging to NON-liquidated
+      // tokens (the survivors). Tokens that were filtered AT cut have
+      // `liquidated = true`; tokens filtered later (FINALIZE round) had
+      // `liquidated = false` AT the cut moment but flip to true at FINALIZE.
+      // For the cut-line we want survivors at h96; conservatively use the
+      // condition `not in liquidated_set` which covers the CUT-time survivors
+      // (the FINALIZE-only filtrations don't ship CUT-tagged rows for those
+      // tokens because the snapshot writer tags by trigger, not by status).
+      for (const r of cutOrFinalRows) {
+        if (r.trigger === "CUT") {
+          if (!liquidatedSet.has(r.token.toLowerCase())) {
+            if (cutLineHp === null || r.hp < cutLineHp) cutLineHp = r.hp;
+          }
+        }
+      }
+      // Winner HP + second-place HP from FINALIZE-tagged rows. The winner is
+      // identified by `season.winner`; second place is the highest HP over
+      // FINALIZE-tagged rows that aren't the winner.
+      if (winnerAddr) {
+        for (const r of cutOrFinalRows) {
+          if (r.trigger !== "FINALIZE") continue;
+          const lower = r.token.toLowerCase();
+          if (lower === winnerAddr) {
+            if (winningHp === null || r.hp > winningHp) winningHp = r.hp;
+          } else {
+            if (secondPlaceHp === null || r.hp > secondPlaceHp) secondPlaceHp = r.hp;
+          }
+        }
+      }
+      return {cutLineHp, winningHp, secondPlaceHp};
+    },
+  };
+}
+
+/// Lookup an arbitrary season by id. Used by `/season/:id` (Epic 1.25/1.26/1.27)
+/// — distinct from `latestSeason` which always returns the highest id.
+function buildSeasonByIdLookup(db: ApiDb): (id: bigint) => Promise<SeasonRow | null> {
+  return async (id) => {
+    const rows = await db.select().from(season).where(eq(season.id, id)).limit(1);
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      id: r.id,
+      startedAt: r.startedAt,
+      phase: r.phase,
+      totalPot: r.totalPot,
+      bonusReserve: r.bonusReserve,
+      winnerSettledAt: r.winnerSettledAt ?? null,
+    };
   };
 }
 
@@ -1244,6 +1426,524 @@ function buildComponentDeltasQueries(db: ApiDb): ComponentDeltasQueries {
         blockNumber: r.blockNumber,
         blockTimestamp: r.blockTimestamp,
       }));
+    },
+  };
+}
+
+// ============================================================ Graveyard + winners adapters (Epic 1.25/1.26/1.27)
+
+/// Bulk creator-profile lookup. Iterates the unique address set and calls
+/// `getByAddress` per entry. The off-chain identity layer is optional — if
+/// `DATABASE_URL` isn't set in dev, the lookup short-circuits to an empty map
+/// and the response degrades to address-only display.
+async function fetchCreatorProfiles(
+  addresses: ReadonlyArray<`0x${string}`>,
+): Promise<Map<string, {username: string | null; avatarUrl: string | null}>> {
+  const out = new Map<string, {username: string | null; avatarUrl: string | null}>();
+  if (addresses.length === 0) return out;
+  let store: UserProfileStore;
+  try {
+    store = await getUserProfileStore();
+  } catch {
+    return out;
+  }
+  // Genesis volume: per-page address sets are small (≤50). Sequential
+  // `getByAddress` is fine; switch to a batch query if this gets hot.
+  await Promise.all(
+    addresses.map(async (a) => {
+      const lower = a.toLowerCase() as `0x${string}`;
+      const row = await store.getByAddress(lower).catch(() => null);
+      if (row && row.username !== null) {
+        out.set(lower, {
+          username: row.usernameDisplay ?? row.username,
+          avatarUrl: null, // Forward-compat — today avatars are derived client-side from address.
+        });
+      }
+    }),
+  );
+  return out;
+}
+
+/// `/graveyard` queries adapter. Pulls every filtered token + season cohort
+/// joins. For genesis volumes (≤12 launches × ~10 seasons = 120 rows) the
+/// "no pagination at the SQL layer" approach is fine; if the archive ever
+/// grows past ~1k rows, push pagination into the SELECT instead of in JS.
+function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
+  return {
+    filteredTokens: async () => {
+      // 1. All filtered tokens.
+      const filteredRows = await db
+        .select()
+        .from(token)
+        .where(eq(token.liquidated, true));
+      if (filteredRows.length === 0) return [];
+
+      const tokenAddrs = filteredRows.map((r) => r.id);
+      const seasonIds = [...new Set(filteredRows.map((r) => r.seasonId))];
+
+      // 2. Liquidation rows (one per filtered token) — gives us `filteredAt`.
+      const liquidationRows = await db
+        .select()
+        .from(liquidation)
+        .where(inArray(liquidation.token, tokenAddrs));
+      const liquidationByToken = new Map<string, (typeof liquidationRows)[number]>();
+      for (const lr of liquidationRows) {
+        liquidationByToken.set(lr.token.toLowerCase(), lr);
+      }
+
+      // 3. Per-token CUT/FINALIZE-tagged HP snapshots — gives us finalHp + filterRound.
+      const triggerRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, tokenAddrs),
+            inArray(hpSnapshot.trigger, ["CUT", "FINALIZE"]),
+          ),
+        );
+      // Pick the trigger row that represents the actual filter moment per
+      // token: prefer CUT (h96), fall back to FINALIZE (h168 — finals
+      // filter). For ties within a trigger, take the earliest.
+      const triggerByToken = new Map<
+        string,
+        {hp: number; trigger: "CUT" | "FINALIZE"; ts: bigint}
+      >();
+      for (const tr of triggerRows) {
+        const lower = tr.token.toLowerCase();
+        const existing = triggerByToken.get(lower);
+        const isCut = tr.trigger === "CUT";
+        const candidate = {
+          hp: tr.hp,
+          trigger: tr.trigger as "CUT" | "FINALIZE",
+          ts: tr.snapshotAtSec,
+        };
+        if (!existing) {
+          triggerByToken.set(lower, candidate);
+        } else {
+          // CUT beats FINALIZE; same trigger → earliest timestamp wins.
+          if (isCut && existing.trigger === "FINALIZE") {
+            triggerByToken.set(lower, candidate);
+          } else if (existing.trigger === tr.trigger && tr.snapshotAtSec < existing.ts) {
+            triggerByToken.set(lower, candidate);
+          }
+        }
+      }
+
+      // 4. Per-token peakHp — `max(hp)` across the full hp series.
+      const peakRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(inArray(hpSnapshot.token, tokenAddrs));
+      const peakByToken = new Map<string, number>();
+      for (const pr of peakRows) {
+        const lower = pr.token.toLowerCase();
+        const cur = peakByToken.get(lower) ?? 0;
+        if (pr.hp > cur) peakByToken.set(lower, pr.hp);
+      }
+
+      // 5. Holders-at-filter — count of distinct CUT/FINALIZE-tagged holderSnapshot
+      // rows per token whose trigger matches the filter round.
+      const holderRows = await db
+        .select()
+        .from(holderSnapshot)
+        .where(inArray(holderSnapshot.token, tokenAddrs));
+      const holdersByToken = new Map<string, number>();
+      for (const hr of holderRows) {
+        const lower = hr.token.toLowerCase();
+        const trigger = triggerByToken.get(lower);
+        // Count rows whose trigger matches the filter trigger so we report
+        // the holder count at that moment specifically.
+        if (trigger && hr.trigger === trigger.trigger) {
+          holdersByToken.set(lower, (holdersByToken.get(lower) ?? 0) + 1);
+        }
+      }
+
+      // 6. Per-season cut line — min(hp) over CUT-tagged rows for survivors
+      // (tokens that were NOT in the filtered set at the time of the cut).
+      // We approximate by "tokens whose final state is non-liquidated" since
+      // the genesis flow doesn't promote a token from filtered back to
+      // surviving.
+      const allSeasonTokens = await db
+        .select()
+        .from(token)
+        .where(inArray(token.seasonId, seasonIds));
+      const filteredSet = new Set(filteredRows.map((r) => r.id.toLowerCase()));
+      const allSeasonAddrs = allSeasonTokens.map((r) => r.id);
+      const allCutRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, allSeasonAddrs),
+            eq(hpSnapshot.trigger, "CUT"),
+          ),
+        );
+      const cutLineBySeason = new Map<bigint, number | null>();
+      // Map every token → seasonId for the cut-line bucketing.
+      const seasonByToken = new Map<string, bigint>();
+      for (const t of allSeasonTokens) seasonByToken.set(t.id.toLowerCase(), t.seasonId);
+      for (const cr of allCutRows) {
+        const lower = cr.token.toLowerCase();
+        if (filteredSet.has(lower)) continue; // skip filtered (we want survivors only)
+        const sid = seasonByToken.get(lower);
+        if (sid === undefined) continue;
+        const cur = cutLineBySeason.get(sid);
+        if (cur === undefined || cur === null || cr.hp < cur) {
+          cutLineBySeason.set(sid, cr.hp);
+        }
+      }
+
+      // Compose source rows.
+      return filteredRows.map((r) => {
+        const lower = r.id.toLowerCase();
+        const trigger = triggerByToken.get(lower);
+        const liq = liquidationByToken.get(lower);
+        return {
+          address: r.id,
+          symbol: r.symbol,
+          seasonId: r.seasonId,
+          creator: r.creator,
+          isFinalist: r.isFinalist,
+          liquidationProceeds: r.liquidationProceeds ?? null,
+          filteredAt: liq?.blockTimestamp ?? null,
+          peakHp: peakByToken.get(lower) ?? 0,
+          finalHp: trigger?.hp ?? 0,
+          filterRound: trigger?.trigger ?? null,
+          holdersAtFilter: holdersByToken.get(lower) ?? 0,
+          cutLineHp: cutLineBySeason.get(r.seasonId) ?? null,
+        };
+      });
+    },
+    creatorProfilesFor: fetchCreatorProfiles,
+  };
+}
+
+/// `/graveyard/:address` queries adapter — fan-out reads against the existing
+/// indexes for the per-token detail view.
+function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
+  return {
+    tokenAndSeason: async (addr) => {
+      const tokenRows = await db.select().from(token).where(eq(token.id, addr)).limit(1);
+      const t = tokenRows[0];
+      if (!t) return null;
+      const seasonRows = await db.select().from(season).where(eq(season.id, t.seasonId)).limit(1);
+      const s = seasonRows[0];
+      if (!s) return null;
+      return {
+        token: {
+          address: t.id,
+          symbol: t.symbol,
+          name: t.name,
+          creator: t.creator,
+          seasonId: t.seasonId,
+          isProtocolLaunched: t.isProtocolLaunched,
+          isFinalist: t.isFinalist,
+          liquidated: t.liquidated,
+          createdAt: t.createdAt,
+        },
+        season: {
+          id: s.id,
+          startedAt: s.startedAt,
+          finalizedAt: s.finalizedAt ?? null,
+          winner: s.winner ?? null,
+        },
+      };
+    },
+    hpSeriesForToken: async (addr) => {
+      const rows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(eq(hpSnapshot.token, addr))
+        .orderBy(hpSnapshot.snapshotAtSec);
+      return rows.map((r) => ({
+        timestamp: r.snapshotAtSec,
+        hp: r.hp,
+        trigger: r.trigger,
+      }));
+    },
+    holderSeriesForToken: async (addr) => {
+      // Holder count per CUT/FINALIZE snapshot trigger. Group rows by
+      // (trigger, blockTimestamp) and count distinct holders. The
+      // holder_snapshot table writes one row per holder per trigger, so the
+      // count of rows with the same blockTimestamp = holder count at that
+      // moment.
+      const rows = await db
+        .select()
+        .from(holderSnapshot)
+        .where(eq(holderSnapshot.token, addr));
+      const byTs = new Map<bigint, number>();
+      for (const r of rows) {
+        byTs.set(r.blockTimestamp, (byTs.get(r.blockTimestamp) ?? 0) + 1);
+      }
+      const points = [...byTs.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([timestamp, holders]) => ({timestamp, holders}));
+      return points;
+    },
+    lpEventsForToken: async (addr) => {
+      // LP events: in genesis the only LP event surfaced per token is the
+      // BURN at filter time (the unwind). Mint events fire from
+      // FilterFactory at deploy but aren't yet in a dedicated table — pull
+      // from `liquidation` for now (BURN side). Future work: source MINT
+      // events from FilterFactory deploy logs.
+      const rows = await db
+        .select()
+        .from(liquidation)
+        .where(eq(liquidation.token, addr));
+      return rows.map((r) => ({
+        timestamp: r.blockTimestamp,
+        kind: "BURN" as const,
+        amountWeth: r.wethOut,
+      }));
+    },
+    cutLineForSeason: async (seasonId) => {
+      // Reuse the marginInputsForSeason path's cut-line — a smaller dedicated
+      // query keeps the per-token detail page from re-deriving the cohort.
+      const seasonRows = await db.select().from(season).where(eq(season.id, seasonId)).limit(1);
+      if (!seasonRows[0]) return null;
+      const cohortTokens = await db.select().from(token).where(eq(token.seasonId, seasonId));
+      if (cohortTokens.length === 0) return null;
+      const filteredAddrs = new Set(
+        cohortTokens.filter((r) => r.liquidated).map((r) => r.id.toLowerCase()),
+      );
+      const cohortAddrs = cohortTokens.map((r) => r.id);
+      const cutRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, cohortAddrs),
+            eq(hpSnapshot.trigger, "CUT"),
+          ),
+        );
+      let cutLine: number | null = null;
+      for (const r of cutRows) {
+        if (filteredAddrs.has(r.token.toLowerCase())) continue;
+        if (cutLine === null || r.hp < cutLine) cutLine = r.hp;
+      }
+      return cutLine;
+    },
+    finalRankForToken: async (addr) => {
+      // Rank from the latest CUT/FINALIZE-tagged snapshot for the token.
+      const rows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            eq(hpSnapshot.token, addr),
+            inArray(hpSnapshot.trigger, ["CUT", "FINALIZE"]),
+          ),
+        )
+        .orderBy(desc(hpSnapshot.snapshotAtSec))
+        .limit(1);
+      const r = rows[0];
+      if (!r) return null;
+      return r.rank > 0 ? r.rank : null;
+    },
+    creatorProfile: async (addr) => {
+      let store: UserProfileStore;
+      try {
+        store = await getUserProfileStore();
+      } catch {
+        return null;
+      }
+      const row = await store.getByAddress(addr).catch(() => null);
+      if (!row || row.username === null) return null;
+      return {username: row.usernameDisplay ?? row.username, avatarUrl: null};
+    },
+  };
+}
+
+/// `/winners` queries adapter.
+function buildWinnersQueries(db: ApiDb): WinnersQueries {
+  return {
+    winnerTokens: async () => {
+      // Every season with a finalized winner.
+      const finalizedSeasons = await db
+        .select()
+        .from(season);
+      const out = [];
+      for (const s of finalizedSeasons) {
+        if (!s.winner) continue;
+        const tokenRows = await db.select().from(token).where(eq(token.id, s.winner)).limit(1);
+        const t = tokenRows[0];
+        if (!t) continue;
+        // FINALIZE-tagged hp rows for the season cohort.
+        const cohort = await db.select().from(token).where(eq(token.seasonId, s.id));
+        const cohortAddrs = cohort.map((r) => r.id);
+        const finalizeRows = await db
+          .select()
+          .from(hpSnapshot)
+          .where(
+            and(
+              inArray(hpSnapshot.token, cohortAddrs),
+              eq(hpSnapshot.trigger, "FINALIZE"),
+            ),
+          );
+        let winningHp = 0;
+        let secondPlaceHp: number | null = null;
+        const winnerLower = s.winner.toLowerCase();
+        for (const fr of finalizeRows) {
+          const lower = fr.token.toLowerCase();
+          if (lower === winnerLower) {
+            if (fr.hp > winningHp) winningHp = fr.hp;
+          } else {
+            if (secondPlaceHp === null || fr.hp > secondPlaceHp) secondPlaceHp = fr.hp;
+          }
+        }
+        out.push({
+          address: t.id,
+          symbol: t.symbol,
+          seasonId: s.id,
+          creator: t.creator,
+          settledAt: s.winnerSettledAt ?? null,
+          winningHp,
+          secondPlaceHp,
+          // Spec §11.4 reserve aggregation isn't yet wired into a per-winner
+          // index; surface 0n until that layer lands. Same for current
+          // mcap (V4 reads pending). The web layer renders these as "—".
+          currentReserveWei: 0n,
+          currentMcapWei: 0n,
+        });
+      }
+      return out;
+    },
+    creatorProfilesFor: fetchCreatorProfiles,
+  };
+}
+
+/// `/winners/:address/metrics` queries adapter. Today the reserve / fee /
+/// holder time series rely on aggregates we can derive from existing tables;
+/// for surfaces that aren't yet indexed (e.g. POL routing per-day rollups),
+/// we return empty arrays so the UI renders "no data yet" rather than 404.
+function buildWinnerMetricsQueries(db: ApiDb): WinnerMetricsQueries {
+  return {
+    winnerSummary: async (addr) => {
+      const tokenRows = await db.select().from(token).where(eq(token.id, addr)).limit(1);
+      const t = tokenRows[0];
+      if (!t) return null;
+      const seasonRows = await db.select().from(season).where(eq(season.id, t.seasonId)).limit(1);
+      const s = seasonRows[0];
+      if (!s || !s.winner) return null;
+      // Confirm this address is actually the season's winner.
+      if (s.winner.toLowerCase() !== addr.toLowerCase()) return null;
+      const finalizeRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            eq(hpSnapshot.token, addr),
+            eq(hpSnapshot.trigger, "FINALIZE"),
+          ),
+        )
+        .orderBy(desc(hpSnapshot.snapshotAtSec))
+        .limit(1);
+      const winningHp = finalizeRows[0]?.hp ?? 0;
+      return {
+        address: t.id,
+        symbol: t.symbol,
+        name: t.name,
+        seasonId: t.seasonId,
+        creator: t.creator,
+        settledAt: s.winnerSettledAt ?? null,
+        winningHp,
+      };
+    },
+    runnerUpForSeason: async (seasonId) => {
+      const seasonRows = await db.select().from(season).where(eq(season.id, seasonId)).limit(1);
+      const s = seasonRows[0];
+      if (!s || !s.winner) return null;
+      const cohort = await db.select().from(token).where(eq(token.seasonId, seasonId));
+      const cohortAddrs = cohort.map((r) => r.id);
+      const finalizeRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, cohortAddrs),
+            eq(hpSnapshot.trigger, "FINALIZE"),
+          ),
+        );
+      let bestAddr: `0x${string}` | null = null;
+      let bestHp = -1;
+      const winnerLower = s.winner.toLowerCase();
+      for (const fr of finalizeRows) {
+        const lower = fr.token.toLowerCase();
+        if (lower === winnerLower) continue;
+        if (fr.hp > bestHp) {
+          bestHp = fr.hp;
+          bestAddr = fr.token;
+        }
+      }
+      if (!bestAddr || bestHp < 0) return null;
+      const tRows = await db.select().from(token).where(eq(token.id, bestAddr)).limit(1);
+      const t = tRows[0];
+      if (!t) return null;
+      return {
+        address: t.id,
+        symbol: t.symbol,
+        creator: t.creator,
+        finalHp: bestHp,
+      };
+    },
+    reserveSeriesForToken: async () => {
+      // Spec §11.4 — Filter Fund Liquidity Reserve growth. The post-settlement
+      // POL routing (Epic 1.16, PR #90) records per-fee-event entries in
+      // `feeAccrual` with `routing = "POST_SETTLEMENT"`, summing into the POL
+      // vault. Roll up by day for the chart.
+      // Returns empty for now; the per-day rollup is left as the
+      // higher-level chart render — a follow-up can sample by day from the
+      // `feeAccrual` table to populate this series.
+      return [];
+    },
+    feeAccrualSeries: async (addr) => {
+      // Per-day feeAccrual rollup — creator slice + POL slice.
+      const rows = await db
+        .select()
+        .from(feeAccrual)
+        .where(eq(feeAccrual.token, addr))
+        .orderBy(feeAccrual.blockTimestamp);
+      // Bucket by day (86400s).
+      const DAY_SEC = 86400n;
+      const byDay = new Map<bigint, {creator: bigint; pol: bigint}>();
+      for (const r of rows) {
+        const bucket = (r.blockTimestamp / DAY_SEC) * DAY_SEC;
+        const cur = byDay.get(bucket) ?? {creator: 0n, pol: 0n};
+        cur.creator += r.toCreator;
+        // Post-settlement routing: `toVault` lands in POLVault per spec §9.4.
+        if (r.routing === "POST_SETTLEMENT") cur.pol += r.toVault;
+        byDay.set(bucket, cur);
+      }
+      // Cumulative across days (the chart line is monotonically growing).
+      const sorted = [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      let cumCreator = 0n;
+      let cumPol = 0n;
+      return sorted.map(([timestamp, d]) => {
+        cumCreator += d.creator;
+        cumPol += d.pol;
+        return {
+          timestamp,
+          creatorEarnedWei: cumCreator,
+          polTopUpWei: cumPol,
+        };
+      });
+    },
+    holderRetentionSeries: async () => {
+      // Holder retention since settlement. Anchor: holders at FINALIZE.
+      // Implementation pending — sample `holderBalance` per day post-
+      // settlement against the FINALIZE-trigger holderSnapshot baseline.
+      return [];
+    },
+    creatorProfile: async (addr) => {
+      let store: UserProfileStore;
+      try {
+        store = await getUserProfileStore();
+      } catch {
+        return null;
+      }
+      const row = await store.getByAddress(addr).catch(() => null);
+      if (!row || row.username === null) return null;
+      return {username: row.usernameDisplay ?? row.username, avatarUrl: null};
     },
   };
 }

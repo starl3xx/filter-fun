@@ -46,9 +46,16 @@ export function CreatedTokensList({tokens}: {tokens: ReadonlyArray<ProfileCreate
 
 function CreatedTokenRow({token}: {token: ProfileCreatedToken}) {
   const meta = STATUS_META[token.status] ?? STATUS_META.ACTIVE!;
+  // Epic 1.27 cross-links — route by lifecycle status:
+  //   FILTERED         → /graveyard/<address>   (Epic 1.25 archive)
+  //   WEEKLY_WINNER+   → /w/<address>           (Epic 1.26 long-tail)
+  //   else (ACTIVE)    → /token/<address>/admin (existing creator console)
+  // Spec §36.1.2 + §36.1.6: filtered + winning tokens both have permanent
+  // surfaces; the admin console isn't the right destination for those.
+  const href = hrefForStatus(token.status, token.token);
   return (
     <Link
-      href={`/token/${token.token}/admin`}
+      href={href}
       style={{
         display: "grid",
         gridTemplateColumns: "minmax(0, 1fr) auto auto",
@@ -85,4 +92,16 @@ function CreatedTokenRow({token}: {token: ProfileCreatedToken}) {
       </span>
     </Link>
   );
+}
+
+function hrefForStatus(status: string, address: `0x${string}`): string {
+  if (status === "FILTERED") return `/graveyard/${address}`;
+  if (
+    status === "WEEKLY_WINNER" ||
+    status === "QUARTERLY_FINALIST" ||
+    status === "QUARTERLY_CHAMPION"
+  ) {
+    return `/w/${address}`;
+  }
+  return `/token/${address}/admin`;
 }

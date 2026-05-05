@@ -114,6 +114,37 @@ Live state of the current weekly season — drives Arena top-bar countdowns, pri
 | `finalSettlementAt` | derived | `startedAt + 168h` |
 | `championPool` | `totalPot − bonusReserve` | Both fields filled at `Finalized`; pre-finalize this is `0` |
 | `polReserve` | placeholder `0` | POL accruals not yet indexed — see "Known gaps" below |
+| `cutLineHp` | `min(hp)` over CUT-tagged hpSnapshot rows for survivors | Epic 1.25/1.27 — null pre-CUT |
+| `winningHp` | hp from FINALIZE-tagged row for the winner | Epic 1.26 — null pre-FINALIZE |
+| `secondPlaceHp` | `max(hp)` over FINALIZE-tagged rows excl. winner | Null pre-FINALIZE / single-token finale |
+| `winMarginHp` | `winningHp − secondPlaceHp` | Drives the squeaker callout on `/w/[address]` |
+
+### `GET /season/:id` (Epic 1.25/1.26/1.27)
+
+Per-season detail by id. Same envelope shape as `/season` (the latest); use this to fetch a specific past season's margin data.
+
+### `GET /graveyard` (Epic 1.25)
+
+Cross-season archive of every filtered token. Powers the `/graveyard` web page.
+
+Query params:
+
+- `?season=N` — filter by season id
+- `?creator=0x…` — filter by creator address
+- `?ticker=DOOM` — substring match on ticker (case-insensitive)
+- `?nearMiss=true` — only near-miss tokens (margin ≤500 HP per spec §36.3.3)
+- `?sort=recent | season | rank | nearMissMargin | peakHp | creator` (default `recent`)
+- `?page=1&perPage=50` (max 200)
+
+Each row carries `nearMissMarginHp` (HP gap to cut line, integer), `isNearMiss` (≤500), `holdersAtFilter`, `lpReturnedWeth`, and `tradableNow` (spec §36.1.2).
+
+### `GET /graveyard/:address` (Epic 1.25)
+
+Per-token historical view. Returns the full HP trajectory across the season, LP events, holder-count snapshots, and the "how it ended" lifecycle metadata.
+
+### `GET /winners` + `GET /winners/:address/metrics` (Epic 1.26)
+
+`/winners` lists all season winners with `winMarginHp` + `isSqueaker` (≤500). `/winners/:address/metrics` returns the long-tail Reserve growth, perpetual fee accrual, and holder retention series for a single winner.
 
 ### `GET /tokens`
 

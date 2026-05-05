@@ -86,6 +86,13 @@ function fixtureQueries(opts: {
     // to zero, which is what the legacy tests already assert against (they were
     // written under the genesis stub).
     projectionInputsForCohort: async () => new Map(),
+    // Epic 1.25/1.26/1.27 — null margin defaults so legacy season tests pin
+    // the not-yet-resolved state. Tests for the new fields override.
+    marginInputsForSeason: async () => ({
+      cutLineHp: null,
+      winningHp: null,
+      secondPlaceHp: null,
+    }),
   };
 }
 
@@ -164,6 +171,63 @@ describe("/season", () => {
       const env = r.body as unknown as {status: string; season: Record<string, unknown>};
       expect(env.season.phase).toBe("settled");
     }
+  });
+
+  // Epic 1.25/1.26/1.27 — margin extension fields. Backwards compatible
+  // (additive); legacy callers unaffected.
+  describe("margin fields (Epic 1.25/1.26/1.27)", () => {
+    it("pre-CUT: cutLineHp + winningHp + secondPlaceHp + winMarginHp all null", async () => {
+      const r = await getSeasonHandler(
+        fixtureQueries({season: mkSeason({phase: "Launch"})}),
+      );
+      const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+      expect(env.season.cutLineHp).toBeNull();
+      expect(env.season.winningHp).toBeNull();
+      expect(env.season.secondPlaceHp).toBeNull();
+      expect(env.season.winMarginHp).toBeNull();
+    });
+
+    it("post-CUT: cutLineHp populates, winningHp + secondPlaceHp still null", async () => {
+      const q = fixtureQueries({season: mkSeason({phase: "Filter"})});
+      // Override marginInputsForSeason so we don't rely on default behavior.
+      q.marginInputsForSeason = async () => ({
+        cutLineHp: 5000,
+        winningHp: null,
+        secondPlaceHp: null,
+      });
+      const r = await getSeasonHandler(q);
+      const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+      expect(env.season.cutLineHp).toBe(5000);
+      expect(env.season.winningHp).toBeNull();
+      expect(env.season.winMarginHp).toBeNull();
+    });
+
+    it("post-FINALIZE: all three populate; winMarginHp = winningHp - secondPlaceHp", async () => {
+      const q = fixtureQueries({season: mkSeason({phase: "Settlement"})});
+      q.marginInputsForSeason = async () => ({
+        cutLineHp: 5000,
+        winningHp: 8420,
+        secondPlaceHp: 8180,
+      });
+      const r = await getSeasonHandler(q);
+      const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+      expect(env.season.cutLineHp).toBe(5000);
+      expect(env.season.winningHp).toBe(8420);
+      expect(env.season.secondPlaceHp).toBe(8180);
+      expect(env.season.winMarginHp).toBe(240);
+    });
+
+    it("winMarginHp is null when secondPlaceHp is null (single-token finale)", async () => {
+      const q = fixtureQueries({season: mkSeason({phase: "Settlement"})});
+      q.marginInputsForSeason = async () => ({
+        cutLineHp: 5000,
+        winningHp: 9000,
+        secondPlaceHp: null,
+      });
+      const r = await getSeasonHandler(q);
+      const env = r.body as unknown as {status: string; season: Record<string, unknown>};
+      expect(env.season.winMarginHp).toBeNull();
+    });
   });
 });
 

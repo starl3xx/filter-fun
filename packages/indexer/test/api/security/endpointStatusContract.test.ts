@@ -29,6 +29,12 @@ function emptyQueries(): ApiQueries {
     creatorEarningsForToken: async () => null,
     // Epic 1.22b — empty projection map.
     projectionInputsForCohort: async () => new Map(),
+    // Epic 1.25/1.26/1.27 — null margin defaults.
+    marginInputsForSeason: async () => ({
+      cutLineHp: null,
+      winningHp: null,
+      secondPlaceHp: null,
+    }),
   };
 }
 
