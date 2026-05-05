@@ -99,6 +99,16 @@ describe("/winners", () => {
     expect(r.body.winners[0]?.isSqueaker).toBe(false);
   });
 
+  it("suppresses winMarginHp + isSqueaker when raw margin would be negative (anomaly clamp)", async () => {
+    const r = await getWinnersHandler(
+      fixtureQueries({
+        rows: [mkWinner({winningHp: 0, secondPlaceHp: 8000})],
+      }),
+    );
+    expect(r.body.winners[0]?.winMarginHp).toBeNull();
+    expect(r.body.winners[0]?.isSqueaker).toBe(false);
+  });
+
   it("sorts by settledAt descending (most recent first)", async () => {
     const r = await getWinnersHandler(
       fixtureQueries({

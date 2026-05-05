@@ -90,10 +90,21 @@ export async function getWinnersHandler(
 ): Promise<{status: number; body: WinnersResponse}> {
   const sourceRows = await q.winnerTokens();
   const decorated: WinnerRow[] = sourceRows.map((r) => {
-    const winMarginHp =
+    // Bugbot PR #103 pass-13: defend against the indexer-lag case where the
+    // winner's FINALIZE-tagged hpSnapshot row hasn't landed yet but the
+    // runner-up's has. winningHp would be 0 while secondPlaceHp populates,
+    // yielding negative winMarginHp — and `-N <= 500` flips isSqueaker on,
+    // so the UI would render "won by -80 HP" as a squeaker callout. Mirror
+    // graveyard's clamp-and-suppress: surface margin=null AND isSqueaker=
+    // false when the raw computation would go negative.
+    const rawMargin =
       r.secondPlaceHp === null ? null : r.winningHp - r.secondPlaceHp;
+    const winMarginAnomaly = rawMargin !== null && rawMargin < 0;
+    const winMarginHp = winMarginAnomaly ? null : rawMargin;
     const isSqueaker =
-      winMarginHp !== null && winMarginHp <= NEAR_MISS_THRESHOLD_HP;
+      !winMarginAnomaly &&
+      winMarginHp !== null &&
+      winMarginHp <= NEAR_MISS_THRESHOLD_HP;
     return {
       address: r.address,
       ticker: tickerWithDollar(r.symbol),

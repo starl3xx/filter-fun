@@ -276,7 +276,7 @@ ponder.get("/season/:id", async (c) => {
   const queries = buildQueries(c.db);
   const seasonById = buildSeasonByIdLookup(c.db);
   const r = await getSeasonByIdHandler({...queries, seasonById}, c.req.param("id") ?? "");
-  return c.json(r.body as object, r.status as 200 | 400);
+  return c.json(r.body as object, r.status as 200 | 400 | 404);
 });
 
 /// Epic 1.25 — graveyard archive index.
