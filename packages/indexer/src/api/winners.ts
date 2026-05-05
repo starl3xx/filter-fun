@@ -262,9 +262,13 @@ export async function getWinnerMetricsHandler(
     runnerUpProfile = await q.creatorProfile(runnerUp.creator).catch(() => null);
   }
 
-  const winMarginHp = runnerUp ? summary.winningHp - runnerUp.finalHp : null;
+  const rawMargin = runnerUp ? summary.winningHp - runnerUp.finalHp : null;
+  const winMarginAnomaly = rawMargin !== null && rawMargin < 0;
+  const winMarginHp = winMarginAnomaly ? null : rawMargin;
   const isSqueaker =
-    winMarginHp !== null && winMarginHp <= NEAR_MISS_THRESHOLD_HP;
+    !winMarginAnomaly &&
+    winMarginHp !== null &&
+    winMarginHp <= NEAR_MISS_THRESHOLD_HP;
 
   return {
     status: 200,

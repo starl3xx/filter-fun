@@ -247,6 +247,30 @@ describe("/winners/:address/metrics", () => {
     expect(body.isSqueaker).toBe(false);
   });
 
+  it("suppresses winMarginHp + isSqueaker when raw margin would be negative (anomaly clamp)", async () => {
+    // Mirrors the /winners list-endpoint clamp: indexer-lag may yield
+    // winningHp < runnerUp.finalHp; the two endpoints must agree.
+    const r = await getWinnerMetricsHandler(
+      {
+        ...metricsFixture({
+          summary: {
+            address: addr(0xa1),
+            symbol: "FILTER",
+            name: "Filter Token",
+            seasonId: 1n,
+            creator: addr(0xaaa),
+            settledAt: 1729_000_000n,
+            winningHp: 0, // anomalous default
+          },
+        }),
+      },
+      addr(0xa1),
+    );
+    const body = r.body as WinnerMetricsResponse;
+    expect(body.winMarginHp).toBeNull();
+    expect(body.isSqueaker).toBe(false);
+  });
+
   it("populates reserveGrowth as decimal-ether", async () => {
     const r = await getWinnerMetricsHandler(metricsFixture(), addr(0xa1));
     const body = r.body as WinnerMetricsResponse;

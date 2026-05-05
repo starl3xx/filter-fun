@@ -360,10 +360,15 @@ function CenterColumn({data}: {data: WinnerMetricsResponse}) {
       <Panel title="Where the money came from">
         <p style={{margin: 0, color: C.dim, fontSize: 12, fontFamily: F.mono, marginBottom: 8}}>
           Filter Fund (spec §11) at settlement: 2.5% creator bounty skimmed
-          off-the-top, then the remainder split 45/25/10/10/10.
+          off-the-top, then the remaining 97.5% split 45/25/10/10/10.
         </p>
         <ul style={{margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6}}>
           <Allocation pct="2.5%" label="Creator bounty" sub="off-the-top to this token's creator at h168" color={C.pink} />
+        </ul>
+        <p style={{margin: "12px 0 6px", color: C.dim, fontSize: 11, fontFamily: F.mono, textTransform: "uppercase", letterSpacing: 0.5}}>
+          Of the remaining 97.5%
+        </p>
+        <ul style={{margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6}}>
           <Allocation pct="45%" label="Rollover" sub="airdropped to filtered-token holders" color={C.purple} />
           <Allocation pct="25%" label="Hold bonus" sub="airdropped to this token's 14-day holders" color={C.yellow} />
           <Allocation pct="10%" label="Reserve" sub="this chart, perpetual" color={C.cyan} />
