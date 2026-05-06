@@ -1964,7 +1964,13 @@ function buildWinnerMetricsQueries(db: ApiDb): WinnerMetricsQueries {
       if (!t) return null;
       const seasonRows = await db.select().from(season).where(eq(season.id, t.seasonId)).limit(1);
       const s = seasonRows[0];
-      if (!s || !s.winner) return null;
+      // Bugbot PR #103 pass-20: gate on BOTH winner and winnerSettledAt to
+      // mirror `winnerTokens` in `/winners`. A mid-settlement season (winner
+      // committed via submitWinner but settle flow not yet complete) is
+      // intentionally absent from the list; it must also be absent here, or
+      // the detail page becomes reachable via a URL that the list doesn't
+      // surface.
+      if (!s || !s.winner || s.winnerSettledAt === null) return null;
       // Confirm this address is actually the season's winner.
       if (s.winner.toLowerCase() !== addr.toLowerCase()) return null;
       // Bugbot PR #103 pass-9: align with `winnerTokens`, which takes
