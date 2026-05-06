@@ -1056,20 +1056,13 @@ function buildQueries(db: ApiDb): ApiQueries {
       // their CUT-tagged HP belongs in the cut-line `min(hp)` calculation.
       const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, [seasonId]);
       const cutFilteredSet = cutFilteredBySeason.get(seasonId) ?? new Set<string>();
-      let cutLineHp: number | null = null;
       let winningHp: number | null = null;
       let secondPlaceHp: number | null = null;
       const winnerAddr = seasonRow.winner ? seasonRow.winner.toLowerCase() : null;
-      // Cut line = min(hp) over CUT-tagged rows for CUT-survivors (winner +
-      // finalists). Excluding only CUT-filtered tokens; finalists' CUT HP is
-      // load-bearing for the survivor floor.
-      for (const r of cutOrFinalRows) {
-        if (r.trigger === "CUT") {
-          if (!cutFilteredSet.has(r.token.toLowerCase())) {
-            if (cutLineHp === null || r.hp < cutLineHp) cutLineHp = r.hp;
-          }
-        }
-      }
+      const cutLineHp = pickCutLine(
+        cutOrFinalRows.filter((r) => r.trigger === "CUT"),
+        cutFilteredSet,
+      );
       // Winner HP + second-place HP from FINALIZE-tagged rows. The winner is
       // identified by `season.winner`; second place is the highest HP over
       // FINALIZE-tagged rows that aren't the winner.
@@ -1495,6 +1488,48 @@ async function buildCutFilteredAddrsBySeasons(
   return out;
 }
 
+/// Cut line = `min(hp)` over CUT-tagged hpSnapshot rows belonging to
+/// CUT-survivors (winner + finalists). CUT-filtered tokens are excluded —
+/// only the survivor floor matters for spectator-depth callouts.
+///
+/// Bugbot PR #103 pass-24: extracted from `marginInputsForSeason`,
+/// `cutLineForSeason`, and `buildGraveyardQueries.filteredTokens` so the
+/// algorithm has a single home. Caller supplies the already-loaded CUT rows
+/// + the per-season cut-filtered set (from
+/// `buildCutFilteredAddrsBySeasons`).
+function pickCutLine(
+  cutRows: ReadonlyArray<{token: string; hp: number}>,
+  cutFilteredSet: ReadonlySet<string>,
+): number | null {
+  let cutLine: number | null = null;
+  for (const r of cutRows) {
+    if (cutFilteredSet.has(r.token.toLowerCase())) continue;
+    if (cutLine === null || r.hp < cutLine) cutLine = r.hp;
+  }
+  return cutLine;
+}
+
+/// Multi-season variant of `pickCutLine`. Buckets each row to its season via
+/// `seasonByToken` and applies the per-season cut-filtered exclusion.
+function pickCutLinesBySeason(
+  cutRows: ReadonlyArray<{token: string; hp: number}>,
+  seasonByToken: ReadonlyMap<string, bigint>,
+  cutFilteredBySeason: ReadonlyMap<bigint, ReadonlySet<string>>,
+): Map<bigint, number | null> {
+  const cutLineBySeason = new Map<bigint, number | null>();
+  for (const r of cutRows) {
+    const lower = r.token.toLowerCase();
+    const sid = seasonByToken.get(lower);
+    if (sid === undefined) continue;
+    if (cutFilteredBySeason.get(sid)?.has(lower)) continue;
+    const cur = cutLineBySeason.get(sid);
+    if (cur === undefined || cur === null || r.hp < cur) {
+      cutLineBySeason.set(sid, r.hp);
+    }
+  }
+  return cutLineBySeason;
+}
+
 /// Bulk creator-profile lookup. Iterates the unique address set and calls
 /// `getByAddress` per entry. The off-chain identity layer is optional — if
 /// `DATABASE_URL` isn't set in dev, the lookup short-circuits to an empty map
@@ -1649,40 +1684,40 @@ function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
       // set excluded finalists, collapsing the survivor pool to just the
       // winner and inflating the cut line. Finalists were CUT-time survivors;
       // their CUT-tagged HP rows belong in the floor.
+      // Pass-24: query CUT only for survivor addresses (cohort minus
+      // CUT-filtered) so we don't redundantly load CUT rows for the filtered
+      // tokens we're about to discard. Algorithm shared with /season/:id
+      // and /graveyard/[address] via `pickCutLinesBySeason`.
       const allSeasonTokens = await db
         .select()
         .from(token)
         .where(inArray(token.seasonId, seasonIds));
       const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, seasonIds);
-      const allSeasonAddrs = allSeasonTokens.map((r) => r.id);
-      // Bugbot PR #103 pass-16: empty-array guard parallel to the one in
-      // runnerUpForSeason. Drizzle's inArray([]) generates `WHERE col IN ()`
-      // which most SQL engines reject. Filtered seasons normally have tokens,
-      // but a schema inconsistency or partial state could empty this set.
-      const allCutRows = allSeasonAddrs.length === 0 ? [] : await db
+      const seasonByToken = new Map<string, bigint>();
+      for (const t of allSeasonTokens) seasonByToken.set(t.id.toLowerCase(), t.seasonId);
+      const survivorAddrs: `0x${string}`[] = [];
+      for (const t of allSeasonTokens) {
+        const filteredAtCut = cutFilteredBySeason.get(t.seasonId);
+        if (!filteredAtCut?.has(t.id.toLowerCase())) survivorAddrs.push(t.id);
+      }
+      // Bugbot PR #103 pass-16/pass-24: empty-array guard for inArray, parallel
+      // to runnerUpForSeason. Filtered seasons normally have survivors, but a
+      // partial-state season (no FINALIZE yet, all liquidated) could empty
+      // this set.
+      const allCutRows = survivorAddrs.length === 0 ? [] : await db
         .select()
         .from(hpSnapshot)
         .where(
           and(
-            inArray(hpSnapshot.token, allSeasonAddrs),
+            inArray(hpSnapshot.token, survivorAddrs),
             eq(hpSnapshot.trigger, "CUT"),
           ),
         );
-      const cutLineBySeason = new Map<bigint, number | null>();
-      // Map every token → seasonId for the cut-line bucketing.
-      const seasonByToken = new Map<string, bigint>();
-      for (const t of allSeasonTokens) seasonByToken.set(t.id.toLowerCase(), t.seasonId);
-      for (const cr of allCutRows) {
-        const lower = cr.token.toLowerCase();
-        const sid = seasonByToken.get(lower);
-        if (sid === undefined) continue;
-        const cutFiltered = cutFilteredBySeason.get(sid);
-        if (cutFiltered?.has(lower)) continue; // skip CUT-filtered only; finalists stay
-        const cur = cutLineBySeason.get(sid);
-        if (cur === undefined || cur === null || cr.hp < cur) {
-          cutLineBySeason.set(sid, cr.hp);
-        }
-      }
+      const cutLineBySeason = pickCutLinesBySeason(
+        allCutRows,
+        seasonByToken,
+        cutFilteredBySeason,
+      );
 
       // Compose source rows.
       return filteredRows.map((r) => {
@@ -1792,7 +1827,8 @@ function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
     cutLineForSeason: async (seasonId) => {
       // Cut line = min(hp) over CUT-tagged rows for CUT-survivors (winner +
       // finalists). Bugbot PR #103: don't exclude finalists; their CUT HP is
-      // the load-bearing floor for the survivor pool.
+      // the load-bearing floor for the survivor pool. Algorithm shared with
+      // /season/:id and /graveyard list — see `pickCutLine` (pass-24).
       const seasonRows = await db.select().from(season).where(eq(season.id, seasonId)).limit(1);
       if (!seasonRows[0]) return null;
       const cohortTokens = await db.select().from(token).where(eq(token.seasonId, seasonId));
@@ -1809,12 +1845,7 @@ function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
             eq(hpSnapshot.trigger, "CUT"),
           ),
         );
-      let cutLine: number | null = null;
-      for (const r of cutRows) {
-        if (cutFilteredAddrs.has(r.token.toLowerCase())) continue;
-        if (cutLine === null || r.hp < cutLine) cutLine = r.hp;
-      }
-      return cutLine;
+      return pickCutLine(cutRows, cutFilteredAddrs);
     },
     finalRankForToken: async (addr, isFinalist) => {
       // Bugbot PR #103 pass-8: pick the trigger row that matches the token's
