@@ -136,18 +136,23 @@ function CountdownCard({
 
   const tagText =
     state === "reservation" ? "▼ Awaiting activation" : state === "aborted" ? "▼ Aborted" : "▼ Next filter";
-  const helperText =
-    state === "reservation"
-      ? "Reservations close before the cut clock starts"
-      : state === "aborted"
-        ? "Window closed before reaching the activation threshold"
-        : "Bottom 6 get cut · Liquidity flows to the winner";
 
   // Active counts. In reservation state we override the "in arena" count
   // with the reservationCount. Aborted state shows the dashboard's last
   // known mini-stats but greys out via the parent opacity.
   const active = state === "reservation" ? reservationCount ?? cohort.length : cohort.length;
   const {survivors, cut} = cohortEdgeSplit(active);
+
+  // Helper text interpolates the live `cut` count (bugbot pass-1) — sub-12
+  // cohorts cut 4/5 not 6, so a hardcoded "Bottom 6" disagreed with the
+  // mini-stats grid directly below. Reservation/aborted states keep their
+  // state-specific copy since `cut` isn't a meaningful number there.
+  const helperText =
+    state === "reservation"
+      ? "Reservations close before the cut clock starts"
+      : state === "aborted"
+        ? "Window closed before reaching the activation threshold"
+        : `Bottom ${cut} get cut · Liquidity flows to the winner`;
 
   return (
     <article
@@ -199,6 +204,11 @@ function CountdownCard({
           })}
         </div>
       ) : (
+        // Reservation + aborted states share the muted em-dash placeholder
+        // — neither has a meaningful countdown to render. Pre bugbot pass-1
+        // this was a redundant ternary `state === "reservation" ? "—" : "—"`
+        // (a copy-paste artifact from when the two states were intended to
+        // differ); collapsed to the literal since they don't.
         <div
           style={{
             marginTop: 10,
@@ -209,7 +219,7 @@ function CountdownCard({
             letterSpacing: "0.04em",
           }}
         >
-          {state === "reservation" ? "—" : "—"}
+          —
         </div>
       )}
       <div

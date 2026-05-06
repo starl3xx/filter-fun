@@ -137,6 +137,19 @@ describe("ArenaScoreboardHero rendering (state surface)", () => {
     expect(countdown.textContent).toContain("6");
   });
 
+  it("helper text interpolates the live cut count (bugbot pass-1)", () => {
+    // Steady-state cohort (12 → 6 cut): "Bottom 6 get cut".
+    const {getByTestId, rerender} = render(
+      <ArenaScoreboardHero season={seasonFixture()} cohort={COHORT_FULL} />,
+    );
+    expect(getByTestId("hero-card-countdown").textContent).toContain("Bottom 6 get cut");
+    // Sub-12 cohort (8 → 4 cut): "Bottom 4 get cut" — pre-fix this stayed
+    // hardcoded at "Bottom 6 get cut" and contradicted the mini-stats grid.
+    rerender(<ArenaScoreboardHero season={seasonFixture()} cohort={COHORT_FULL.slice(0, 8)} />);
+    expect(getByTestId("hero-card-countdown").textContent).toContain("Bottom 4 get cut");
+    expect(getByTestId("hero-card-countdown").textContent).not.toContain("Bottom 6");
+  });
+
   it("reservation phase shows '0/12 reservations · activates at 4'", () => {
     const season = seasonFixture({phase: "launch", launchCount: 0});
     const {getByTestId} = render(
