@@ -9,7 +9,8 @@
   "scripts": {
     "build:contracts": "npm --workspace packages/contracts run build",
     "test:contracts": "npm --workspace packages/contracts run test",
-    "deploy:sepolia": "npm --workspace packages/contracts run deploy:sepolia"
+    "deploy:sepolia": "npm --workspace packages/contracts run deploy:sepolia",
+    "lint:brand-glyph": "node scripts/lint-brand-glyph.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -27,11 +27,14 @@ describe("NearMissChip", () => {
     expect(container.textContent).toContain("▲");
   });
 
-  it("never includes the 🔻 emoji (CLAUDE.md don't-change)", () => {
+  it("never includes the U+1F53B emoji (brand kit v1.0 / spec §32.4)", () => {
+    // Codepoint constructed dynamically so the literal U+1F53B never lives
+    // in source — Epic 1.28 lint rule fails the build on a literal.
+    const HEAVY_TRIANGLE = String.fromCodePoint(0x1f53b);
     const filtered = render(<NearMissChip marginHp={100} variant="filtered" />);
     const won = render(<NearMissChip marginHp={100} variant="won" />);
-    expect(filtered.container.textContent).not.toContain("🔻");
-    expect(won.container.textContent).not.toContain("🔻");
+    expect(filtered.container.textContent).not.toContain(HEAVY_TRIANGLE);
+    expect(won.container.textContent).not.toContain(HEAVY_TRIANGLE);
   });
 });
 

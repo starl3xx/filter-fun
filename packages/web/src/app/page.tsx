@@ -34,6 +34,7 @@ import {useAccount} from "wagmi";
 import {ArenaActivityFeed} from "@/components/arena/ArenaActivityFeed";
 import {ArenaFilterMechanic} from "@/components/arena/ArenaFilterMechanic";
 import {ArenaLeaderboard} from "@/components/arena/ArenaLeaderboard";
+import {ArenaScoreboardHero} from "@/components/arena/ArenaScoreboardHero";
 import {ArenaSortDropdown, useArenaSortMode, useSortedTileTokens} from "@/components/arena/ArenaSortDropdown";
 import {ArenaTicker} from "@/components/arena/ArenaTicker";
 import {ArenaTileGrid} from "@/components/arena/ArenaTileGrid";
@@ -51,8 +52,8 @@ import {useTokens} from "@/hooks/arena/useTokens";
 import {useTrendBuffers} from "@/hooks/arena/useTrendBuffers";
 import {useHoldings} from "@/hooks/token/useHoldings";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
-import {fmtEth, weiToDecimalEther} from "@/lib/arena/format";
-import {C, F} from "@/lib/tokens";
+import {weiToDecimalEther} from "@/lib/arena/format";
+import {C} from "@/lib/tokens";
 
 export default function HomePage() {
   const {data: season, error: seasonError} = useSeason();
@@ -306,10 +307,13 @@ export default function HomePage() {
       <ArenaTicker events={events} season={season} />
       {dataError && <DataErrorBanner error={dataError} />}
 
+      <div style={{position: "relative", zIndex: 1, padding: "18px 22px 0"}}>
+        <ArenaScoreboardHero season={season ?? null} cohort={cohort} />
+      </div>
+
       <main className="ff-arena-grid" style={{position: "relative", zIndex: 1}}>
         <div className="ff-arena-col-left" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>
           <ArenaFilterMechanic />
-          <PoolsCard season={season} />
         </div>
 
         <div className="ff-arena-col-center" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>
@@ -356,6 +360,7 @@ export default function HomePage() {
               firingMode={firingMode}
               recentlyFilteredAddresses={filterMoment.filteredAddresses}
               freshHpUpdateSeqByAddress={firingMode ? undefined : freshHpSeq}
+              hpByAddress={hpByAddress}
             />
           ) : (
             <ArenaTileGrid
@@ -371,7 +376,13 @@ export default function HomePage() {
         </div>
 
         <div className="ff-arena-col-right" style={{display: "flex", flexDirection: "column", gap: 14, minWidth: 0}}>
-          <ArenaTokenDetail token={selectedToken} trend={selectedTrend} season={season} chain={chain} />
+          <ArenaTokenDetail
+              token={selectedToken}
+              trend={selectedTrend}
+              season={season}
+              chain={chain}
+              liveHp={selected ? hpByAddress.get(selected.toLowerCase()) ?? null : null}
+            />
         </div>
       </main>
 
@@ -417,7 +428,13 @@ export default function HomePage() {
             >
               ×
             </button>
-            <ArenaTokenDetail token={selectedToken} trend={selectedTrend} season={season} chain={chain} />
+            <ArenaTokenDetail
+              token={selectedToken}
+              trend={selectedTrend}
+              season={season}
+              chain={chain}
+              liveHp={selected ? hpByAddress.get(selected.toLowerCase()) ?? null : null}
+            />
           </div>
         </div>
       )}
@@ -504,28 +521,4 @@ function useTileSortMeta(
   }, [cohort, enabled]);
 
   return meta;
-}
-
-/// Small "pools at a glance" card — repeats the top bar's pool figures with
-/// the spec §19.5 framing copy. Sits in the left column on desktop so the
-/// emotional center (cut line) and the prize pool are both always visible.
-function PoolsCard({season}: {season: ReturnType<typeof useSeason>["data"]}) {
-  return (
-    <section aria-label="Prize pools" style={{borderRadius: 14, border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.03)", padding: 14, display: "flex", flexDirection: "column", gap: 10}}>
-      <div>
-        <div style={{fontSize: 9, fontFamily: F.mono, color: C.faint, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>Filter Fund ▼</div>
-        <div style={{fontSize: 22, fontFamily: F.mono, fontWeight: 800, color: C.yellow, fontVariantNumeric: "tabular-nums"}}>
-          {season ? fmtEth(season.championPool) : "Ξ —"}
-        </div>
-        <div style={{fontSize: 10, color: C.dim, marginTop: 2}}>Winner takes everything.</div>
-      </div>
-      <div>
-        <div style={{fontSize: 9, fontFamily: F.mono, color: C.faint, letterSpacing: "0.14em", fontWeight: 700, textTransform: "uppercase"}}>Filter Fund Liquidity Reserve</div>
-        <div style={{fontSize: 22, fontFamily: F.mono, fontWeight: 800, color: C.cyan, fontVariantNumeric: "tabular-nums"}}>
-          {season ? fmtEth(season.polReserve) : "Ξ —"}
-        </div>
-        <div style={{fontSize: 10, color: C.dim, marginTop: 2}}>Permanent liquidity for the winner.</div>
-      </div>
-    </section>
-  );
 }

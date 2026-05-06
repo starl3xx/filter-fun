@@ -10,9 +10,10 @@
 /// (`/arena` page) keeps `selectedToken`. The detail panel reads the same
 /// `tokens` array from cache to render its panel — no separate fetch.
 
-import {memo, useMemo} from "react";
+import {memo, useEffect, useMemo, useState} from "react";
 
 import {Triangle} from "@/components/Triangle";
+import type {HpUpdate} from "@/hooks/arena/useHpUpdates";
 import type {TokenResponse} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {HP_BUCKETS} from "@/lib/arena/hp";
@@ -21,6 +22,7 @@ import {sparkPath} from "@/lib/sparkline";
 import {C, F, stripDollar, tickerColor} from "@/lib/tokens";
 
 import {ArenaHpBar} from "./HpBar";
+import {HpBreakdownPopover} from "./HpBreakdownPopover";
 import {StatusBadge} from "./StatusBadge";
 
 export type ArenaLeaderboardProps = {
@@ -54,6 +56,11 @@ export type ArenaLeaderboardProps = {
   /// update (changing the key remounts the wrapper). A token absent from
   /// the map → no pulse.
   freshHpUpdateSeqByAddress?: ReadonlyMap<string, number>;
+  /// Epic 1.28 — live HP overlay map. Powers the row-hover HP breakdown
+  /// popover, which reads `holderConcentration` (the 6th SSE-only signal)
+  /// off the live frame so the popover renders the canonical 5-component
+  /// spec §6.6 set.
+  hpByAddress?: ReadonlyMap<string, HpUpdate>;
 };
 
 /// Audit M-Arena-1 + M-Arena-8 + L-Arena-3 (Phase 1, 2026-05-02): column widths re-aligned
@@ -82,6 +89,7 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
   firingMode,
   recentlyFilteredAddresses,
   freshHpUpdateSeqByAddress,
+  hpByAddress,
 }: ArenaLeaderboardProps) {
   const sorted = useMemo(() => sortByRank(tokens), [tokens]);
   const showCutLine = !hideCutLine && sorted.length > CUT_INDEX;
@@ -122,6 +130,8 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
               filtered={firingMode && filteredLower ? filteredLower.has(t.token.toLowerCase()) : false}
               survivor={firingMode && filteredLower ? !filteredLower.has(t.token.toLowerCase()) && i < CUT_INDEX : false}
               hpUpdateSeq={freshHpUpdateSeqByAddress?.get(t.token.toLowerCase())}
+              liveHp={hpByAddress?.get(t.token.toLowerCase()) ?? null}
+              suppressPopover={!!firingMode}
             />
           )).flatMap((row, i) => (showCutLine && i === CUT_INDEX ? [<CutLine key="cut" urgent={!!urgentCutline} />, row] : [row]))}
         </div>
@@ -272,6 +282,8 @@ function Row({
   filtered,
   survivor,
   hpUpdateSeq,
+  liveHp,
+  suppressPopover,
 }: {
   token: TokenResponse;
   index: number;
@@ -289,6 +301,12 @@ function Row({
   /// the start (single-shot animations don't replay on className change
   /// alone).
   hpUpdateSeq?: number;
+  /// Epic 1.28 — live HP overlay for this row, drives the row-hover HP
+  /// breakdown popover (reads `holderConcentration` off the live frame).
+  liveHp?: HpUpdate | null;
+  /// Epic 1.28 — suppress the popover during firing/recap stages so the
+  /// dramatic ceremony isn't drowned out by hover tooltips.
+  suppressPopover?: boolean;
 }) {
   const finalist = token.status === "FINALIST";
   const display = displayRank(token.rank, index);
@@ -410,14 +428,13 @@ function Row({
         <span style={{fontSize: 13, fontWeight: 800, fontFamily: F.display, letterSpacing: "-0.01em"}}>{token.ticker}</span>
       </div>
 
-      <div
-        key={hpUpdateSeq != null ? `hp-${hpUpdateSeq}` : "hp-static"}
-        data-hp-fresh={hpUpdateSeq != null ? "true" : undefined}
-        className={hpUpdateSeq != null ? "ff-arena-row-hp-fresh" : undefined}
-        style={{display: "flex", alignItems: "center", minWidth: 0}}
-      >
-        <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
-      </div>
+      <HpCell
+        token={token}
+        below={below}
+        hpUpdateSeq={hpUpdateSeq}
+        liveHp={liveHp}
+        suppressPopover={!!suppressPopover}
+      />
 
       <div style={{display: "flex", alignItems: "center", gap: 5, minWidth: 0}}>
         <StatusBadge status={token.status} compact />
@@ -477,6 +494,69 @@ function Row({
         ›
       </span>
     </button>
+  );
+}
+
+/// HP cell wrapper — Epic 1.28. Renders the existing HP bar (with the
+/// hpUpdateSeq pulse remount key) plus the row-hover/focus HP breakdown
+/// popover. Hover/focus state is local so each row's popover lifecycle is
+/// independent. Click events on the cell continue to bubble up to the row
+/// button — the cell itself is a non-interactive div, NOT a focusable
+/// element, so a Tab through the leaderboard moves row-by-row, not
+/// row-then-cell.
+///
+/// **Why not focus the cell directly?** The row is already a `<button>`
+/// with selection semantics; adding a tabIndex on the cell would create a
+/// second tab-stop per row and break "tab moves to next row". Instead the
+/// popover responds to `:focus-within` on the cell — a screen-reader user
+/// who tabs into the row gets the popover for free, no extra tab-stop.
+function HpCell({
+  token,
+  below,
+  hpUpdateSeq,
+  liveHp,
+  suppressPopover,
+}: {
+  token: TokenResponse;
+  below: boolean;
+  hpUpdateSeq?: number;
+  liveHp?: HpUpdate | null;
+  suppressPopover: boolean;
+}) {
+  const [hover, setHover] = useState(false);
+  // Listen for Esc to dismiss while hover/focus is active. Cleanup runs
+  // when hover toggles off so we don't keep a global listener around for
+  // every row in the leaderboard.
+  useEffect(() => {
+    if (!hover) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setHover(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [hover]);
+
+  return (
+    <div
+      data-testid="hp-cell"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      style={{position: "relative", display: "flex", alignItems: "center", minWidth: 0}}
+    >
+      <div
+        key={hpUpdateSeq != null ? `hp-${hpUpdateSeq}` : "hp-static"}
+        data-hp-fresh={hpUpdateSeq != null ? "true" : undefined}
+        className={hpUpdateSeq != null ? "ff-arena-row-hp-fresh" : undefined}
+        style={{display: "flex", alignItems: "center", minWidth: 0, width: "100%"}}
+      >
+        <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
+      </div>
+      {!suppressPopover && (
+        <HpBreakdownPopover token={token} liveHp={liveHp} active={hover} />
+      )}
+    </div>
   );
 }
 

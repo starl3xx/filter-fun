@@ -7,8 +7,10 @@
 ///
 /// Message style follows spec §20 examples:
 ///   - Token name always `$`-prefixed.
-///   - Direction symbols inline (↑ ↓ 🔻 🔥 🐋 🏆) — Epic 1.8's ticker UI renders unicode
-///     directly per spec §20.9.
+///   - Direction symbols inline (↑ ↓ ▼ 🔥 🐋 🏆) — Epic 1.8's ticker UI renders unicode
+///     directly per spec §20.9. ▼ is U+25BC (geometric shape, monochrome) — never the
+///     U+1F53B emoji, per brand kit v1.0 + spec §32.4 (Epic 1.28 closes the gap that
+///     previously allowed the wire payload to carry U+1F53B).
 ///   - Concrete numbers ("$EDGE +18 HP", "$KING buy Ξ3.1") so the line carries information
 ///     even without UI styling.
 
@@ -88,7 +90,7 @@ function composeMessage(d: DetectedEvent): string {
       const direction = (d.data.direction as "above" | "below" | undefined) ?? "below";
       return direction === "above"
         ? `${t} just climbed above the cut line ↑`
-        : `${t} just dropped below the cut line 🔻`;
+        : `${t} just dropped below the cut line ▼`;
     }
     case "RANK_CHANGED": {
       const from = Number(d.data.fromRank);
@@ -111,10 +113,10 @@ function composeMessage(d: DetectedEvent): string {
       return `${whale}${t} trade Ξ${eth}`;
     }
     case "FILTER_FIRED":
-      return `🔻 ${t} has been filtered`;
+      return `▼ ${t} has been filtered`;
     case "FILTER_COUNTDOWN": {
       const minutes = Number(d.data.minutesUntilCut ?? 0);
-      return `🔻 Filter in ${minutes}m`;
+      return `▼ Filter in ${minutes}m`;
     }
     case "PHASE_ADVANCED":
       return `Phase advanced → ${String(d.data.toPhase ?? "?")}`;

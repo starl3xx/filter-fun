@@ -5,7 +5,7 @@
 /// grid regardless of the `arena_sort` selection — the dropdown picks
 /// the order amongst surviving tokens, then filtered are appended.
 /// The status pill itself is the existing red FILTERED ▼ badge from
-/// the row view (per brand §32.4 — U+25BC, not the 🔻 emoji).
+/// the row view (per brand §32.4 — U+25BC, not the U+1F53B emoji).
 import {render} from "@testing-library/react";
 import {describe, expect, it} from "vitest";
 
@@ -45,7 +45,10 @@ describe("Epic 1.19 — filtered tile rendering", () => {
     expect(tile.style.opacity).toBe("0.6");
   });
 
-  it("renders the FILTERED status with the literal ▼ glyph (not the 🔻 emoji)", () => {
+  it("renders the FILTERED status with the literal ▼ glyph (not the U+1F53B emoji)", () => {
+    // Codepoint constructed dynamically so the literal U+1F53B never lives
+    // in source — Epic 1.28 lint rule fails the build on a literal.
+    const HEAVY_TRIANGLE = String.fromCodePoint(0x1f53b);
     const t = tokenAt(11, 1200, "FILTERED", "2");
     const {container} = render(<ArenaTile token={t} chain="base" />);
     const tile = container.querySelector("[data-tile-token]") as HTMLElement;
@@ -54,7 +57,7 @@ describe("Epic 1.19 — filtered tile rendering", () => {
     // but pinning it on the tile guards against a future copy-paste that
     // reintroduces the emoji at the tile layer.
     expect(tile.textContent).toContain("▼");
-    expect(tile.textContent).not.toContain("🔻");
+    expect(tile.textContent).not.toContain(HEAVY_TRIANGLE);
   });
 });
 

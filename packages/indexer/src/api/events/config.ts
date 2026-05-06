@@ -58,7 +58,7 @@ export interface EventsConfig {
   /// all but filter-related events").
   filterMomentWindowMs: number;
 
-  /// FILTER_COUNTDOWN trigger: a HIGH-priority "🔻 Filter in Nm" event fires the first tick
+  /// FILTER_COUNTDOWN trigger: a HIGH-priority "▼ Filter in Nm" event fires the first tick
   /// after `(nextCutSec - takenAtSec) <= filterCountdownThresholdSec`. Default = 600s
   /// (10 min) per spec §20 examples.
   filterCountdownThresholdSec: number;

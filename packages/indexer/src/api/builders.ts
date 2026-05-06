@@ -199,6 +199,21 @@ export interface TokenResponse {
   /// snapshots are indexed but the public endpoint is deferred (audit C-4); both fields
   /// flip together when that endpoint ships.
   holders: number | null;
+  /// Epic 1.28 — fixed total supply for the token, expressed as a decimal-ether
+  /// string. Every FilterToken mints `FIXED_TOKEN_SUPPLY` (1e9) at construction
+  /// per `FilterFactory.DEFAULT_INITIAL_SUPPLY`; future contract changes that
+  /// vary supply per-token would surface here as the per-row value rather than
+  /// the cohort-wide constant. Decoupling supply from the constant lets the
+  /// market-cap calculation stay correct if the launch contract ever ships a
+  /// per-creator supply override.
+  totalSupply: string;
+  /// Epic 1.28 — `price × totalSupply` resolved server-side, in ETH (decimal-
+  /// ether). `null` when `price` is `null` (v4Reads gate). Web renders "—" in
+  /// that case; when v4Reads flips on the column auto-populates without a web
+  /// follow-up. Pure-ETH framing intentional: the V1 cost/ROI calculator
+  /// (spec §45 implementation notes) uses a hardcoded $3,500/ETH fallback;
+  /// market cap mirrors that pattern (USD conversion lives downstream).
+  marketCap: string | null;
   components: {
     velocity: number;
     effectiveBuyers: number;
@@ -211,6 +226,15 @@ export interface TokenResponse {
   /// this before rendering price/volume/liquidity/holders cells.
   dataAvailability: TokenDataAvailability;
 }
+
+/// Fixed token supply — every FilterToken mints 1e9 at construction
+/// (`packages/contracts/src/FilterFactory.sol#DEFAULT_INITIAL_SUPPLY`). Used by
+/// the indexer to resolve per-row `totalSupply` + `marketCap` until per-token
+/// supply tracking lands. Mirrored on the web side
+/// (`packages/web/src/components/arena/ArenaTile.tsx`) for the historic
+/// client-side market-cap derivation; the wire field is now the source of
+/// truth and the web tile reads `marketCap` directly from `TokenResponse`.
+export const FIXED_TOKEN_SUPPLY_WHOLE = 1_000_000_000n;
 
 /// Audit H-1 (Phase 1, 2026-05-01): centralised data-availability flags for placeholder
 /// fields. Today both flags are hard-coded `false` because neither integration has
@@ -298,6 +322,15 @@ export function buildTokensResponse(
       volume24h: TOKEN_DATA_AVAILABILITY.v4Reads ? "0" : null,
       liquidity: TOKEN_DATA_AVAILABILITY.v4Reads ? "0" : null,
       holders: TOKEN_DATA_AVAILABILITY.holderEnumeration ? 0 : null,
+      // Epic 1.28 — supply is fixed at construction; surface it now so the
+      // leaderboard's Mkt cap column has a deterministic source. `marketCap`
+      // derives from `price × totalSupply` server-side; null until v4Reads
+      // flips on (so the web column shows "—" without a follow-up).
+      totalSupply: FIXED_TOKEN_SUPPLY_WHOLE.toString(),
+      marketCap: deriveMarketCap(
+        TOKEN_DATA_AVAILABILITY.v4Reads ? "0" : null,
+        FIXED_TOKEN_SUPPLY_WHOLE,
+      ),
       components: {
         velocity: s?.components.velocity.score ?? 0,
         effectiveBuyers: s?.components.effectiveBuyers.score ?? 0,
@@ -355,6 +388,45 @@ export function weiToDecimalEther(wei: bigint): string {
 
 function max0(b: bigint): bigint {
   return b < 0n ? 0n : b;
+}
+
+/// Epic 1.28 — derives `marketCap` (decimal-ether string) from `price`
+/// (decimal-ether-per-token string) × `totalSupply` (whole-token bigint).
+/// Returns `null` whenever `price` is null (v4Reads gate) so the wire
+/// shape stays "value unknown" for the rendering side.
+///
+/// Implementation. `price` arrives as a decimal-ether string (e.g.
+/// "0.000000123"). To stay in integer math we parse it to wei, multiply
+/// by `totalSupply`, then re-format. The result is a wei-scaled product
+/// of price (ether-per-token) × supply (tokens) which simplifies to ether,
+/// so we render via `weiToDecimalEther` directly.
+export function deriveMarketCap(price: string | null, totalSupply: bigint): string | null {
+  if (price === null) return null;
+  const priceWei = parseDecimalEtherToWei(price);
+  if (priceWei === null) return null;
+  // priceWei (wei-per-token) × totalSupply (tokens) = wei (the product is
+  // already in wei because price was per-1-token). weiToDecimalEther
+  // produces the canonical decimal-ether string.
+  const capWei = priceWei * totalSupply;
+  return weiToDecimalEther(capWei);
+}
+
+/// Parses a decimal-ether string ("0.000000123") to wei. Returns null on
+/// non-finite or otherwise malformed input. Mirror of `weiToDecimalEther`
+/// going the other direction; kept local to the indexer surface because
+/// market-cap derivation is the only on-server consumer today.
+function parseDecimalEtherToWei(s: string): bigint | null {
+  if (typeof s !== "string") return null;
+  const trimmed = s.trim();
+  if (trimmed === "" || trimmed === "-") return null;
+  const negative = trimmed.startsWith("-");
+  const body = negative ? trimmed.slice(1) : trimmed;
+  if (!/^\d+(\.\d+)?$/.test(body)) return null;
+  const [whole = "0", frac = ""] = body.split(".");
+  if (frac.length > 18) return null; // overflow guard — wei has 18 decimals max.
+  const fracPadded = (frac + "0".repeat(18)).slice(0, 18);
+  const wei = BigInt(whole) * 10n ** 18n + BigInt(fracPadded || "0");
+  return negative ? -wei : wei;
 }
 
 /// Lowercased-hex address validator. Used by every route that takes an `:address`

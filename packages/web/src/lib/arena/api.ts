@@ -105,6 +105,16 @@ export type TokenResponse = {
   volume24h: string;
   liquidity: string;
   holders: number;
+  /// Epic 1.28 — fixed total supply expressed as a decimal-ether-equivalent
+  /// string ("1000000000" for the standard FilterToken). Optional on the
+  /// type so older indexer builds (which omit the field) keep parsing; new
+  /// callers can rely on it being present.
+  totalSupply?: string;
+  /// Epic 1.28 — `price × totalSupply` resolved server-side, in ETH.
+  /// `null` while `price` is unavailable (the v4Reads gate). Web renders
+  /// "—" in that case. Optional on the type for the same reason as
+  /// `totalSupply` above.
+  marketCap?: string | null;
   /// Raw [0,1] component scores. UI labels live in `hpLabels.ts` so the
   /// internal field names never reach the user (spec §6.6).
   components: {

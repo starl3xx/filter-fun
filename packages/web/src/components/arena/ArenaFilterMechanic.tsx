@@ -26,7 +26,9 @@ export function ArenaFilterMechanic() {
       </div>
       <p style={{margin: 0, fontSize: 12, lineHeight: 1.5, color: C.dim}}>
         Top 6 survive. Bottom 6 get cut.{" "}
-        <span style={{color: C.text, fontWeight: 700}}>Their liquidity funds the winner.</span>
+        <span style={{color: C.text, fontWeight: 700}}>
+          Their liquidity flows to the winner — bounty, two-sided holder airdrops, and permanent LP.
+        </span>
       </p>
     </section>
   );

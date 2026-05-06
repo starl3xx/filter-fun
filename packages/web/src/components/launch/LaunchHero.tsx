@@ -361,8 +361,11 @@ function ChampionPanel({season}: {season: SeasonResponse | null}) {
         {fmtEth(season?.championPool ?? "0")}
       </div>
       <p style={{margin: 0, fontSize: 12, color: C.dim, lineHeight: 1.45}}>
-        Winner absorbs <span style={{color: C.text, fontWeight: 700}}>all filtered liquidity</span>. One token walks
-        away with the pool.
+        Filtered tokens' liquidity flows into the winner — a{" "}
+        <span style={{color: C.text, fontWeight: 700}}>2.5% creator bounty</span>, airdrops to{" "}
+        <span style={{color: C.text, fontWeight: 700}}>both groups of holders</span> (filtered-token holders via
+        rollover, plus winning-token holders via the hold bonus), and{" "}
+        <span style={{color: C.text, fontWeight: 700}}>permanent LP</span> (the Liquidity Reserve).
       </p>
       <div
         style={{

@@ -17,11 +17,12 @@
 
 import {Triangle} from "@/components/Triangle";
 import {CreatorChip} from "@/components/profile/CreatorChip";
+import type {HpUpdate} from "@/hooks/arena/useHpUpdates";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {HP_MAX} from "@/lib/arena/hp";
-import {HP_COMPONENT_COLORS, HP_KEYS_IN_ORDER, HP_LABELS, type HpKey} from "@/lib/arena/hpLabels";
+import {HP_LABELS, HP_TILE_COMPONENT_COLORS, HP_TILE_KEYS_IN_ORDER, type HpTileKey} from "@/lib/arena/hpLabels";
 import {fmtNum, fmtUSD, fmtPrice} from "@/lib/format";
 import {sparkPath} from "@/lib/sparkline";
 import {C, F, tickerColor} from "@/lib/tokens";
@@ -36,9 +37,15 @@ export type ArenaTokenDetailProps = {
   season: SeasonResponse | null;
   /// `"base"` or `"base-sepolia"` — picked from the wagmi env at the page level.
   chain: "base" | "base-sepolia";
+  /// Live HP overlay (Epic 1.17c) for the selected token, or `null` before
+  /// the first SSE frame arrives. Polled `/tokens` carries 5 components
+  /// (no `holderConcentration`); the SSE frame carries all 6 — the right-
+  /// rail breakdown reads `holderConcentration` from here so the canonical
+  /// 5-component spec §6.6 set renders, mirroring the tile view.
+  liveHp?: HpUpdate | null;
 };
 
-export function ArenaTokenDetail({token, trend, season, chain}: ArenaTokenDetailProps) {
+export function ArenaTokenDetail({token, trend, season, chain, liveHp}: ArenaTokenDetailProps) {
   return (
     <aside
       aria-label="Token detail"
@@ -54,7 +61,7 @@ export function ArenaTokenDetail({token, trend, season, chain}: ArenaTokenDetail
       }}
     >
       {token ? (
-        <Detail token={token} trend={trend} season={season} chain={chain} />
+        <Detail token={token} trend={trend} season={season} chain={chain} liveHp={liveHp ?? null} />
       ) : (
         <Empty />
       )}
@@ -71,7 +78,7 @@ function Empty() {
   );
 }
 
-function Detail({token, trend, season, chain}: {token: TokenResponse; trend: number[]; season: SeasonResponse | null; chain: "base" | "base-sepolia"}) {
+function Detail({token, trend, season, chain, liveHp}: {token: TokenResponse; trend: number[]; season: SeasonResponse | null; chain: "base" | "base-sepolia"; liveHp: HpUpdate | null}) {
   const priceNum = Number(token.price);
   const hasPrice = Number.isFinite(priceNum) && priceNum > 0;
   const liquidityNum = Number(token.liquidity);
@@ -94,7 +101,7 @@ function Detail({token, trend, season, chain}: {token: TokenResponse; trend: num
 
       <ChartCard trend={trend} />
 
-      <HpBreakdown components={token.components} hp={token.hp} />
+      <HpBreakdown components={token.components} hp={token.hp} liveHp={liveHp} />
 
       <Stats hasLiquidity={hasLiquidity} liquidity={liquidityNum} holders={token.holders} volume24h={token.volume24h} season={season} />
 
@@ -270,7 +277,19 @@ function ChartCard({trend}: {trend: number[]}) {
   );
 }
 
-function HpBreakdown({components, hp}: {components: TokenResponse["components"]; hp: number}) {
+function HpBreakdown({components, hp, liveHp}: {components: TokenResponse["components"]; hp: number; liveHp: HpUpdate | null}) {
+  // Epic 1.28 — render the canonical 5-component spec §6.6 set as a vertical
+  // stack so the breakdown matches the tile view (PR #91). Polled `/tokens`
+  // doesn't carry `holderConcentration` yet — read it off the live SSE frame
+  // when present, fall back to 0 so the row still renders faintly.
+  const holderConcentration = liveHp?.components.holderConcentration ?? 0;
+  const componentValues: Record<HpTileKey, number> = {
+    velocity: components.velocity,
+    effectiveBuyers: components.effectiveBuyers,
+    stickyLiquidity: components.stickyLiquidity,
+    retention: components.retention,
+    holderConcentration,
+  };
   return (
     <div style={{display: "flex", flexDirection: "column", gap: 8}}>
       <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
@@ -284,12 +303,12 @@ function HpBreakdown({components, hp}: {components: TokenResponse["components"];
       </div>
       <ArenaHpBar hp={hp} showValue={false} />
       <div style={{display: "flex", flexDirection: "column", gap: 6, marginTop: 4}}>
-        {HP_KEYS_IN_ORDER.map((key) => (
+        {HP_TILE_KEYS_IN_ORDER.map((key) => (
           <ComponentRow
             key={key}
             label={HP_LABELS[key]}
-            score={components[key as HpKey] ?? 0}
-            color={HP_COMPONENT_COLORS[key]}
+            score={componentValues[key]}
+            color={HP_TILE_COMPONENT_COLORS[key]}
           />
         ))}
       </div>

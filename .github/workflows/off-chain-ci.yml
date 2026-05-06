@@ -29,6 +29,13 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Brand-kit lint (Epic 1.28). Fails the build on any literal U+1F53B
+      # emoji in product source — only ▼ (U+25BC) is permitted in user-facing
+      # surfaces per spec §32.4. Defensive test assertions construct the
+      # codepoint dynamically via `String.fromCodePoint(0x1f53b)`.
+      - name: brand-glyph lint
+        run: npm run lint:brand-glyph
+
       # Each package gets its own typecheck + test step so a failure in one shows up
       # under a clearly-named CI step rather than a single opaque "test" failure. The
       # indexer is typecheck-only — Ponder's runtime tests need a real RPC.
