@@ -49,6 +49,18 @@ export type SeasonResponse = {
   /// components should prefer this field; existing consumers reading
   /// `polReserve` continue to work unchanged.
   filterFundLiquidityReserve?: string;
+  /// Epic 1.25/1.26/1.27 (spec §36.3.3) — additive margin fields. Pre-CUT
+  /// they're null; post-CUT `cutLineHp` populates; post-FINALIZE
+  /// `winningHp` + `secondPlaceHp` + `winMarginHp` populate too. Older
+  /// indexer versions omit these; consumers default to `null`.
+  cutLineHp?: number | null;
+  winningHp?: number | null;
+  secondPlaceHp?: number | null;
+  winMarginHp?: number | null;
+  /// Winner address committed via `submitWinner`, or null pre-finalize.
+  /// Surfaced so `/w/<season-id>` can resolve the redirect target without
+  /// a second `/winners` round-trip. Optional — older indexer versions omit.
+  winner?: `0x${string}` | null;
 };
 
 // ============================================================ /tokens
@@ -688,4 +700,195 @@ export function tradeTokenUrl(
     url: `https://app.uniswap.org/swap?${params.toString()}`,
     label: "Trade on Uniswap",
   };
+}
+
+// ============================================================ Graveyard surface (Epic 1.25)
+
+export type GraveyardTokenRow = {
+  address: `0x${string}`;
+  ticker: string;
+  season: number;
+  creator: `0x${string}`;
+  creatorUsername: string | null;
+  creatorAvatarUrl: string | null;
+  finalRank: number | null;
+  filterRound: "CUT" | "FINALIZE" | null;
+  filteredAt: number | null;
+  peakHp: number;
+  finalHp: number;
+  /// Integer HP gap to the cut line (spec §36.3.3). Null pre-CUT.
+  nearMissMarginHp: number | null;
+  /// `nearMissMarginHp ≤ 500` (Epic 1.27 threshold).
+  isNearMiss: boolean;
+  holdersAtFilter: number;
+  lpReturnedWeth: string;
+  /// Spec §36.1.2 — true while the canonical V4 pool exists.
+  tradableNow: boolean;
+};
+
+export type GraveyardResponse = {
+  asOf: number;
+  tokens: GraveyardTokenRow[];
+  total: number;
+  page: number;
+  perPage: number;
+};
+
+export type GraveyardSort =
+  | "recent"
+  | "season"
+  | "rank"
+  | "nearMissMargin"
+  | "peakHp"
+  | "creator";
+
+export type GraveyardQuery = {
+  season?: number | null;
+  creator?: `0x${string}` | null;
+  ticker?: string | null;
+  nearMiss?: boolean;
+  sort?: GraveyardSort;
+  page?: number;
+  perPage?: number;
+};
+
+export async function fetchGraveyard(
+  query: GraveyardQuery = {},
+  opts: FetchOpts = {},
+): Promise<GraveyardResponse> {
+  const params = new URLSearchParams();
+  if (query.season !== undefined && query.season !== null) {
+    params.set("season", String(query.season));
+  }
+  if (query.creator) params.set("creator", query.creator);
+  if (query.ticker) params.set("ticker", query.ticker);
+  if (query.nearMiss) params.set("nearMiss", "true");
+  if (query.sort) params.set("sort", query.sort);
+  if (query.page !== undefined) params.set("page", String(query.page));
+  if (query.perPage !== undefined) params.set("perPage", String(query.perPage));
+  const qs = params.toString();
+  const url = qs.length > 0 ? `${INDEXER_URL}/graveyard?${qs}` : `${INDEXER_URL}/graveyard`;
+  return fetchJson<GraveyardResponse>(url, opts);
+}
+
+export type GraveyardLifecycle = {
+  launchedAt: number;
+  filteredAt: number | null;
+  filterRound: "CUT" | "FINALIZE" | null;
+  peakHp: number;
+  peakHpAt: number | null;
+  finalHp: number;
+  finalRank: number | null;
+  cutLineHp: number | null;
+  nearMissMarginHp: number | null;
+  isNearMiss: boolean;
+  holdersAtLaunch: number;
+  holdersAtFilter: number;
+};
+
+export type GraveyardDetailResponse = {
+  token: {
+    address: `0x${string}`;
+    ticker: string;
+    name: string;
+    creator: `0x${string}`;
+    creatorUsername: string | null;
+    creatorAvatarUrl: string | null;
+    isProtocolLaunched: boolean;
+  };
+  season: {
+    id: number;
+    startedAt: number;
+    finalizedAt: number | null;
+    winner: `0x${string}` | null;
+  };
+  lifecycle: GraveyardLifecycle;
+  hpTrajectory: Array<{timestamp: number; hp: number}>;
+  lpEvents: Array<{timestamp: number; kind: "MINT" | "BURN"; amountWeth: string}>;
+  holderTrajectory: Array<{timestamp: number; holders: number}>;
+  tradableNow: boolean;
+};
+
+export async function fetchGraveyardDetail(
+  address: `0x${string}` | string,
+  opts: FetchOpts = {},
+): Promise<GraveyardDetailResponse> {
+  return fetchJson<GraveyardDetailResponse>(
+    `${INDEXER_URL}/graveyard/${address}`,
+    opts,
+  );
+}
+
+// ============================================================ Winners surface (Epic 1.26)
+
+export type WinnerRow = {
+  address: `0x${string}`;
+  ticker: string;
+  season: number;
+  settledAt: number | null;
+  creator: `0x${string}`;
+  creatorUsername: string | null;
+  creatorAvatarUrl: string | null;
+  winningHp: number;
+  secondPlaceHp: number | null;
+  winMarginHp: number | null;
+  /// `winMarginHp ≤ 500` (the squeaker threshold; mirrors graveyard's
+  /// near-miss threshold per spec §36.3.3).
+  isSqueaker: boolean;
+  currentReserveWeth: string;
+  currentMcapWeth: string;
+};
+
+export type WinnersResponse = {
+  winners: WinnerRow[];
+  total: number;
+};
+
+export async function fetchWinners(opts: FetchOpts = {}): Promise<WinnersResponse> {
+  return fetchJson<WinnersResponse>(`${INDEXER_URL}/winners`, opts);
+}
+
+export type WinnerMetricsResponse = {
+  token: {
+    address: `0x${string}`;
+    ticker: string;
+    name: string;
+    creator: `0x${string}`;
+    creatorUsername: string | null;
+    creatorAvatarUrl: string | null;
+  };
+  season: number;
+  settledAt: number | null;
+  winningHp: number;
+  secondPlaceHp: number | null;
+  winMarginHp: number | null;
+  isSqueaker: boolean;
+  secondPlace: {
+    address: `0x${string}`;
+    ticker: string;
+    finalHp: number;
+    creator: `0x${string}`;
+    creatorUsername: string | null;
+  } | null;
+  reserveGrowth: Array<{timestamp: number; reserveWeth: string}>;
+  feeAccrual: Array<{
+    timestamp: number;
+    creatorEarnedWeth: string;
+    polTopUpWeth: string;
+  }>;
+  holderRetention: Array<{
+    timestamp: number;
+    activeHolders: number;
+    fromOriginal: number;
+  }>;
+};
+
+export async function fetchWinnerMetrics(
+  address: `0x${string}` | string,
+  opts: FetchOpts = {},
+): Promise<WinnerMetricsResponse> {
+  return fetchJson<WinnerMetricsResponse>(
+    `${INDEXER_URL}/winners/${address}/metrics`,
+    opts,
+  );
 }

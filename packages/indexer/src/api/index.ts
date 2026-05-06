@@ -39,18 +39,21 @@
 /// per-IP budget.
 
 import {ponder, type ApiContext} from "@/generated";
-import {and, count, desc, eq, gte, inArray, lte} from "@ponder/core";
+import {and, count, desc, eq, gte, inArray, lte, max} from "@ponder/core";
 import {cors} from "hono/cors";
 
 import {
   bonusClaim,
   creatorEarning,
   creatorLock,
+  feeAccrual,
   holderBalance,
   holderSnapshot,
   hpSnapshot,
   launchEscrowSummary,
+  liquidation,
   pendingRefund,
+  phaseChange,
   reservation,
   rolloverClaim,
   season,
@@ -64,7 +67,7 @@ import {
   winnerTickerReservation,
 } from "../../ponder.schema";
 
-import {isAddressLike} from "./builders.js";
+import {isAddressLike, type SeasonMargins, type SeasonRow} from "./builders.js";
 import {cached} from "./cache.js";
 import {loadCorsConfigFromEnv, originAllowed} from "./cors.js";
 import {toMwContext} from "./mwContext.js";
@@ -72,6 +75,7 @@ import {checkAndLogCadence, consoleCadenceLogger} from "./snapshotCadence.js";
 import {
   getCreatorEarningsHandler,
   getReadinessHandler,
+  getSeasonByIdHandler,
   getSeasonHandler,
   getTokenDetailHandler,
   getTokensHandler,
@@ -80,6 +84,18 @@ import {
   type CreatorEarningRow,
   type TokenDetailRow,
 } from "./handlers.js";
+import {
+  getGraveyardDetailHandler,
+  getGraveyardHandler,
+  type GraveyardDetailQueries,
+  type GraveyardQueries,
+} from "./graveyard.js";
+import {
+  getWinnerMetricsHandler,
+  getWinnersHandler,
+  type WinnerMetricsQueries,
+  type WinnersQueries,
+} from "./winners.js";
 import {fetchProjectionInputsFromDb} from "./hp.js";
 import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
 import {buildScoringWeightsResponse} from "./scoringWeights.js";
@@ -241,6 +257,83 @@ ponder.get("/season", async (c) => {
   mw.header("X-Cache", r.status);
   // Audit H-2: /season always returns 200 (envelope discriminates ready vs not-ready).
   return c.json(r.value.body, r.value.status as 200);
+});
+
+/// Epic 1.25/1.26/1.27 — `GET /season/:id` (specific season).
+///
+/// Returns the same envelope as `/season` but addressed by id. Unlike the
+/// `/season/:id/launch-status` and `/season/:id/tickers/check` siblings, this
+/// endpoint returns the full `SeasonResponse` body — including the new margin
+/// fields (`cutLineHp` / `winningHp` / `secondPlaceHp` / `winMarginHp`) used by
+/// the graveyard's near-miss math + the winner detail page's squeaker callout.
+/// Param shape collision with `/season/:id/...` routes is impossible (the more-
+/// specific routes register paths with extra segments and Ponder/Hono routes
+/// longest-prefix first).
+ponder.get("/season/:id", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const queries = buildQueries(c.db);
+  const seasonById = buildSeasonByIdLookup(c.db);
+  const r = await getSeasonByIdHandler({...queries, seasonById}, c.req.param("id") ?? "");
+  return c.json(r.body as object, r.status as 200 | 400 | 404);
+});
+
+/// Epic 1.25 — graveyard archive index.
+///
+/// Aggregate index of every filtered token across every indexed season. Powers
+/// the `/graveyard` web page. Pagination + filter + sort are query-driven.
+ponder.get("/graveyard", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const url = new URL(mw.req.url);
+  const params = {
+    season: url.searchParams.get("season") ?? undefined,
+    creator: url.searchParams.get("creator") ?? undefined,
+    ticker: url.searchParams.get("ticker") ?? undefined,
+    nearMiss: url.searchParams.get("nearMiss") ?? undefined,
+    sort: url.searchParams.get("sort") ?? undefined,
+    page: url.searchParams.get("page") ?? undefined,
+    perPage: url.searchParams.get("perPage") ?? undefined,
+  };
+  const r = await getGraveyardHandler(buildGraveyardQueries(c.db), params, () =>
+    Math.floor(Date.now() / 1000),
+  );
+  return c.json(r.body, r.status as 200 | 400);
+});
+
+/// Epic 1.25 — per-token historical (graveyard detail).
+ponder.get("/graveyard/:address", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const r = await getGraveyardDetailHandler(
+    buildGraveyardDetailQueries(c.db),
+    c.req.param("address") ?? "",
+  );
+  return c.json(r.body, r.status as 200 | 400 | 404);
+});
+
+/// Epic 1.26 — list of all season winners.
+ponder.get("/winners", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const r = await getWinnersHandler(buildWinnersQueries(c.db));
+  return c.json(r.body, r.status as 200);
+});
+
+/// Epic 1.26 — long-tail metrics for a single winner.
+ponder.get("/winners/:address/metrics", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const r = await getWinnerMetricsHandler(
+    buildWinnerMetricsQueries(c.db),
+    c.req.param("address") ?? "",
+  );
+  return c.json(r.body, r.status as 200 | 400 | 404);
 });
 
 ponder.get("/tokens", async (c) => {
@@ -837,6 +930,7 @@ function buildQueries(db: ApiDb): ApiQueries {
         // Epic 1.16: surface the on-chain post-settlement marker so /season consumers can
         // resolve "is the winner pool routing to POL now?" without dereferencing the locker.
         winnerSettledAt: row.winnerSettledAt ?? null,
+        winner: row.winner ?? null,
       };
     },
     publicLaunchCount: async (seasonId) => {
@@ -919,6 +1013,97 @@ function buildQueries(db: ApiDb): ApiQueries {
     projectionInputsForCohort: async (tokens, currentTime) => {
       return fetchProjectionInputsFromDb(db, tokens, currentTime);
     },
+    /// Epic 1.25/1.26/1.27 — margin inputs for the season. Reads CUT and
+    /// FINALIZE-tagged hpSnapshot rows for the cohort, joined to the `token`
+    /// table to identify the winning row. Pre-CUT all three integers are null;
+    /// post-CUT cutLineHp populates; post-FINALIZE winningHp + secondPlaceHp
+    /// populate too. The cut line is `min(hp)` over CUT-tagged rows belonging
+    /// to CUT-survivors (winner + finalists), where survivors are derived by
+    /// bucketing each token's `liquidation.blockTimestamp` against the season's
+    /// `Settlement` phase change — anything liquidated BEFORE Settlement was
+    /// CUT-filtered. Bugbot PR #103: prior code keyed off `token.liquidated`
+    /// directly, which incorrectly excluded finalists (liquidated at FINALIZE).
+    marginInputsForSeason: async (seasonId) => {
+      // Resolve season's winner address (if any).
+      const seasonRows = await db
+        .select()
+        .from(season)
+        .where(eq(season.id, seasonId))
+        .limit(1);
+      const seasonRow = seasonRows[0];
+      if (!seasonRow) {
+        return {cutLineHp: null, winningHp: null, secondPlaceHp: null};
+      }
+      const tokenRows = await db.select().from(token).where(eq(token.seasonId, seasonId));
+      if (tokenRows.length === 0) {
+        return {cutLineHp: null, winningHp: null, secondPlaceHp: null};
+      }
+      const tokenAddrs = tokenRows.map((r) => r.id);
+      // Pull CUT and FINALIZE-tagged rows for the cohort.
+      const cutOrFinalRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, tokenAddrs),
+            inArray(hpSnapshot.trigger, ["CUT", "FINALIZE"]),
+          ),
+        );
+      // Cut-filtered set = tokens whose `liquidation.blockTimestamp` falls in
+      // the CUT phase (before Settlement). Bugbot PR #103: the prior code
+      // used `liquidated=true`, which conflates CUT-eliminated tokens with
+      // FINALIZE-eliminated finalists — finalists were CUT-time survivors, so
+      // their CUT-tagged HP belongs in the cut-line `min(hp)` calculation.
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, [seasonId]);
+      const cutFilteredSet = cutFilteredBySeason.get(seasonId) ?? new Set<string>();
+      let winningHp: number | null = null;
+      let secondPlaceHp: number | null = null;
+      const winnerAddr = seasonRow.winner ? seasonRow.winner.toLowerCase() : null;
+      const cutLineHp = pickCutLine(
+        cutOrFinalRows.filter((r) => r.trigger === "CUT"),
+        cutFilteredSet,
+      );
+      // Winner HP + second-place HP from FINALIZE-tagged rows. The winner is
+      // identified by `season.winner`; second place is the highest HP over
+      // FINALIZE-tagged rows that aren't the winner.
+      // Bugbot PR #103 pass-17: CUT-filtered tokens have HP=0 FINALIZE rows
+      // (cohort-wide writer); excluding them prevents false runner-up rows
+      // and `secondPlaceHp=0` in single-token finales.
+      // Bugbot PR #103 pass-22: also drop HP=0 finalists (data anomaly that
+      // survives the cut-filter exclusion) so /season/:id agrees with
+      // /winners and /winners/:addr/metrics on secondPlaceHp.
+      if (winnerAddr) {
+        for (const r of cutOrFinalRows) {
+          if (r.trigger !== "FINALIZE") continue;
+          const lower = r.token.toLowerCase();
+          if (lower === winnerAddr) {
+            if (winningHp === null || r.hp > winningHp) winningHp = r.hp;
+          } else if (!cutFilteredSet.has(lower) && r.hp > 0) {
+            if (secondPlaceHp === null || r.hp > secondPlaceHp) secondPlaceHp = r.hp;
+          }
+        }
+      }
+      return {cutLineHp, winningHp, secondPlaceHp};
+    },
+  };
+}
+
+/// Lookup an arbitrary season by id. Used by `/season/:id` (Epic 1.25/1.26/1.27)
+/// — distinct from `latestSeason` which always returns the highest id.
+function buildSeasonByIdLookup(db: ApiDb): (id: bigint) => Promise<SeasonRow | null> {
+  return async (id) => {
+    const rows = await db.select().from(season).where(eq(season.id, id)).limit(1);
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      id: r.id,
+      startedAt: r.startedAt,
+      phase: r.phase,
+      totalPot: r.totalPot,
+      bonusReserve: r.bonusReserve,
+      winnerSettledAt: r.winnerSettledAt ?? null,
+      winner: r.winner ?? null,
+    };
   };
 }
 
@@ -1244,6 +1429,726 @@ function buildComponentDeltasQueries(db: ApiDb): ComponentDeltasQueries {
         blockNumber: r.blockNumber,
         blockTimestamp: r.blockTimestamp,
       }));
+    },
+  };
+}
+
+// ============================================================ Graveyard + winners adapters (Epic 1.25/1.26/1.27)
+
+/// Returns lowercased token addresses that were filtered AT CUT (h96), as
+/// distinct from finalists who were filtered at FINALIZE (h168).
+///
+/// Bugbot PR #103: the cut-line `min(hp)` calculation must include finalists'
+/// CUT-tagged HP rows — finalists were CUT-time survivors, so their HP at h96
+/// belongs in the survivor min. The earlier code excluded all `liquidated=true`
+/// tokens, which collapsed the survivor set to just the winner and inflated
+/// `cutLineHp` (causing real near-misses to fail the `isNearMiss` gate).
+///
+/// Bucketing rule: `liquidation.blockTimestamp < settlementPhaseTs` ⇒
+/// CUT-filtered. The `Settlement` phase change marks the FINALIZE moment, so
+/// any liquidation BEFORE that boundary fired during CUT phase. If the season
+/// hasn't reached `Settlement` yet, every liquidation is CUT-filtered (no
+/// finalists exist before FINALIZE).
+async function buildCutFilteredAddrsBySeasons(
+  db: ApiDb,
+  seasonIds: ReadonlyArray<bigint>,
+): Promise<Map<bigint, Set<string>>> {
+  const out = new Map<bigint, Set<string>>();
+  if (seasonIds.length === 0) return out;
+  // Drizzle's `inArray` rejects readonly arrays — copy to mutable.
+  const mutableSeasonIds = [...seasonIds];
+  const settlementRows = await db
+    .select()
+    .from(phaseChange)
+    .where(
+      and(
+        inArray(phaseChange.seasonId, mutableSeasonIds),
+        eq(phaseChange.newPhase, "Settlement"),
+      ),
+    );
+  const settlementBySeason = new Map<bigint, bigint>();
+  for (const r of settlementRows) {
+    // Earliest Settlement transition wins (defensive — there should be only one).
+    const cur = settlementBySeason.get(r.seasonId);
+    if (cur === undefined || r.blockTimestamp < cur) {
+      settlementBySeason.set(r.seasonId, r.blockTimestamp);
+    }
+  }
+  const liqRows = await db
+    .select()
+    .from(liquidation)
+    .where(inArray(liquidation.seasonId, mutableSeasonIds));
+  for (const sid of mutableSeasonIds) out.set(sid, new Set<string>());
+  for (const lr of liqRows) {
+    const ts = settlementBySeason.get(lr.seasonId);
+    if (ts === undefined || lr.blockTimestamp < ts) {
+      out.get(lr.seasonId)?.add(lr.token.toLowerCase());
+    }
+  }
+  return out;
+}
+
+/// Cut line = `min(hp)` over CUT-tagged hpSnapshot rows belonging to
+/// CUT-survivors (winner + finalists). CUT-filtered tokens are excluded —
+/// only the survivor floor matters for spectator-depth callouts.
+///
+/// Bugbot PR #103 pass-24: extracted from `marginInputsForSeason`,
+/// `cutLineForSeason`, and `buildGraveyardQueries.filteredTokens` so the
+/// algorithm has a single home. Caller supplies the already-loaded CUT rows
+/// + the per-season cut-filtered set (from
+/// `buildCutFilteredAddrsBySeasons`).
+function pickCutLine(
+  cutRows: ReadonlyArray<{token: string; hp: number}>,
+  cutFilteredSet: ReadonlySet<string>,
+): number | null {
+  let cutLine: number | null = null;
+  for (const r of cutRows) {
+    if (cutFilteredSet.has(r.token.toLowerCase())) continue;
+    if (cutLine === null || r.hp < cutLine) cutLine = r.hp;
+  }
+  return cutLine;
+}
+
+/// Multi-season variant of `pickCutLine`. Buckets each row to its season via
+/// `seasonByToken` and applies the per-season cut-filtered exclusion.
+function pickCutLinesBySeason(
+  cutRows: ReadonlyArray<{token: string; hp: number}>,
+  seasonByToken: ReadonlyMap<string, bigint>,
+  cutFilteredBySeason: ReadonlyMap<bigint, ReadonlySet<string>>,
+): Map<bigint, number | null> {
+  const cutLineBySeason = new Map<bigint, number | null>();
+  for (const r of cutRows) {
+    const lower = r.token.toLowerCase();
+    const sid = seasonByToken.get(lower);
+    if (sid === undefined) continue;
+    if (cutFilteredBySeason.get(sid)?.has(lower)) continue;
+    const cur = cutLineBySeason.get(sid);
+    if (cur === undefined || cur === null || r.hp < cur) {
+      cutLineBySeason.set(sid, r.hp);
+    }
+  }
+  return cutLineBySeason;
+}
+
+/// Bulk creator-profile lookup. Iterates the unique address set and calls
+/// `getByAddress` per entry. The off-chain identity layer is optional — if
+/// `DATABASE_URL` isn't set in dev, the lookup short-circuits to an empty map
+/// and the response degrades to address-only display.
+async function fetchCreatorProfiles(
+  addresses: ReadonlyArray<`0x${string}`>,
+): Promise<Map<string, {username: string | null; avatarUrl: string | null}>> {
+  const out = new Map<string, {username: string | null; avatarUrl: string | null}>();
+  if (addresses.length === 0) return out;
+  let store: UserProfileStore;
+  try {
+    store = await getUserProfileStore();
+  } catch {
+    return out;
+  }
+  // Genesis volume: per-page address sets are small (≤50). Sequential
+  // `getByAddress` is fine; switch to a batch query if this gets hot.
+  await Promise.all(
+    addresses.map(async (a) => {
+      const lower = a.toLowerCase() as `0x${string}`;
+      const row = await store.getByAddress(lower).catch(() => null);
+      if (row && row.username !== null) {
+        out.set(lower, {
+          username: row.usernameDisplay ?? row.username,
+          avatarUrl: null, // Forward-compat — today avatars are derived client-side from address.
+        });
+      }
+    }),
+  );
+  return out;
+}
+
+/// `/graveyard` queries adapter. Pulls every filtered token + season cohort
+/// joins. For genesis volumes (≤12 launches × ~10 seasons = 120 rows) the
+/// "no pagination at the SQL layer" approach is fine; if the archive ever
+/// grows past ~1k rows, push pagination into the SELECT instead of in JS.
+function buildGraveyardQueries(db: ApiDb): GraveyardQueries {
+  return {
+    filteredTokens: async () => {
+      // 1. All filtered tokens.
+      const filteredRows = await db
+        .select()
+        .from(token)
+        .where(eq(token.liquidated, true));
+      if (filteredRows.length === 0) return [];
+
+      const tokenAddrs = filteredRows.map((r) => r.id);
+      const seasonIds = [...new Set(filteredRows.map((r) => r.seasonId))];
+
+      // 2. Liquidation rows (one per filtered token) — gives us `filteredAt`.
+      const liquidationRows = await db
+        .select()
+        .from(liquidation)
+        .where(inArray(liquidation.token, tokenAddrs));
+      const liquidationByToken = new Map<string, (typeof liquidationRows)[number]>();
+      for (const lr of liquidationRows) {
+        liquidationByToken.set(lr.token.toLowerCase(), lr);
+      }
+
+      // 3. Per-token CUT/FINALIZE-tagged HP snapshots — gives us finalHp + filterRound.
+      const triggerRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, tokenAddrs),
+            inArray(hpSnapshot.trigger, ["CUT", "FINALIZE"]),
+          ),
+        );
+      // Pick the trigger row that represents the actual filter moment per
+      // token. Bugbot PR #103 pass-7: every token in the cohort has BOTH a
+      // CUT-tagged and a FINALIZE-tagged row (the writer is cohort-wide). The
+      // authoritative filter row is:
+      //   - finalists → FINALIZE (they survived CUT, lost at h168)
+      //   - everyone else (CUT-filtered) → CUT
+      // For ties within a trigger, take the earliest.
+      type TriggerCandidate = {
+        hp: number;
+        rank: number;
+        trigger: "CUT" | "FINALIZE";
+        ts: bigint;
+      };
+      const cutByToken = new Map<string, TriggerCandidate>();
+      const finalizeByToken = new Map<string, TriggerCandidate>();
+      for (const tr of triggerRows) {
+        const lower = tr.token.toLowerCase();
+        const candidate: TriggerCandidate = {
+          hp: tr.hp,
+          rank: tr.rank,
+          trigger: tr.trigger as "CUT" | "FINALIZE",
+          ts: tr.snapshotAtSec,
+        };
+        const map = tr.trigger === "CUT" ? cutByToken : finalizeByToken;
+        const existing = map.get(lower);
+        if (!existing || tr.snapshotAtSec < existing.ts) {
+          map.set(lower, candidate);
+        }
+      }
+      const isFinalistByToken = new Map<string, boolean>();
+      for (const r of filteredRows) {
+        isFinalistByToken.set(r.id.toLowerCase(), r.isFinalist);
+      }
+      const triggerByToken = new Map<string, TriggerCandidate>();
+      for (const lower of new Set([...cutByToken.keys(), ...finalizeByToken.keys()])) {
+        const cut = cutByToken.get(lower);
+        const finalize = finalizeByToken.get(lower);
+        const finalist = isFinalistByToken.get(lower) ?? false;
+        const picked = finalist ? finalize ?? cut : cut ?? finalize;
+        if (picked) triggerByToken.set(lower, picked);
+      }
+
+      // 4. Per-token peakHp — `max(hp)` across the full hp series. Bugbot
+      // PR #103 pass-9: pushed the aggregate into SQL so we don't pull
+      // hundreds of BLOCK_TICK / SWAP / HOLDER_SNAPSHOT rows per token into
+      // JS just to take the max.
+      const peakRows = await db
+        .select({token: hpSnapshot.token, peakHp: max(hpSnapshot.hp)})
+        .from(hpSnapshot)
+        .where(inArray(hpSnapshot.token, tokenAddrs))
+        .groupBy(hpSnapshot.token);
+      const peakByToken = new Map<string, number>();
+      for (const pr of peakRows) {
+        peakByToken.set(pr.token.toLowerCase(), Number(pr.peakHp ?? 0));
+      }
+
+      // 5. Holders-at-filter — count of distinct CUT-tagged holderSnapshot rows
+      // per token. Bugbot PR #103 pass-3: detail and index must agree on this
+      // count. Use CUT-tagged rows for ALL graveyard tokens because:
+      //   - CUT-filtered tokens: only have CUT-tagged holder data (the cut
+      //     event handler in SeasonVault writes CUT-tagged rows for survivors).
+      //   - Finalists (FINALIZE-filtered): only CUT-tagged holder data exists
+      //     for them too — FINALIZE-tagged holderSnapshot is winner-only.
+      // Matching on `trigger.trigger` (the filter round) silently produced 0
+      // for finalists; CUT-only is the actual ground truth across both rounds.
+      const holderRows = await db
+        .select()
+        .from(holderSnapshot)
+        .where(
+          and(
+            inArray(holderSnapshot.token, tokenAddrs),
+            eq(holderSnapshot.trigger, "CUT"),
+          ),
+        );
+      const holdersByToken = new Map<string, number>();
+      for (const hr of holderRows) {
+        const lower = hr.token.toLowerCase();
+        holdersByToken.set(lower, (holdersByToken.get(lower) ?? 0) + 1);
+      }
+
+      // 6. Per-season cut line — min(hp) over CUT-tagged rows for CUT-survivors
+      // (winner + finalists). Bugbot PR #103: skipping the entire `liquidated`
+      // set excluded finalists, collapsing the survivor pool to just the
+      // winner and inflating the cut line. Finalists were CUT-time survivors;
+      // their CUT-tagged HP rows belong in the floor.
+      // Pass-24: query CUT only for survivor addresses (cohort minus
+      // CUT-filtered) so we don't redundantly load CUT rows for the filtered
+      // tokens we're about to discard. Algorithm shared with /season/:id
+      // and /graveyard/[address] via `pickCutLinesBySeason`.
+      const allSeasonTokens = await db
+        .select()
+        .from(token)
+        .where(inArray(token.seasonId, seasonIds));
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, seasonIds);
+      const seasonByToken = new Map<string, bigint>();
+      for (const t of allSeasonTokens) seasonByToken.set(t.id.toLowerCase(), t.seasonId);
+      const survivorAddrs: `0x${string}`[] = [];
+      for (const t of allSeasonTokens) {
+        const filteredAtCut = cutFilteredBySeason.get(t.seasonId);
+        if (!filteredAtCut?.has(t.id.toLowerCase())) survivorAddrs.push(t.id);
+      }
+      // Bugbot PR #103 pass-16/pass-24: empty-array guard for inArray, parallel
+      // to runnerUpForSeason. Filtered seasons normally have survivors, but a
+      // partial-state season (no FINALIZE yet, all liquidated) could empty
+      // this set.
+      const allCutRows = survivorAddrs.length === 0 ? [] : await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, survivorAddrs),
+            eq(hpSnapshot.trigger, "CUT"),
+          ),
+        );
+      const cutLineBySeason = pickCutLinesBySeason(
+        allCutRows,
+        seasonByToken,
+        cutFilteredBySeason,
+      );
+
+      // Compose source rows.
+      return filteredRows.map((r) => {
+        const lower = r.id.toLowerCase();
+        const trigger = triggerByToken.get(lower);
+        const liq = liquidationByToken.get(lower);
+        return {
+          address: r.id,
+          symbol: r.symbol,
+          seasonId: r.seasonId,
+          creator: r.creator,
+          isFinalist: r.isFinalist,
+          liquidationProceeds: r.liquidationProceeds ?? null,
+          filteredAt: liq?.blockTimestamp ?? null,
+          peakHp: peakByToken.get(lower) ?? 0,
+          finalHp: trigger?.hp ?? 0,
+          filterRound: trigger?.trigger ?? null,
+          holdersAtFilter: holdersByToken.get(lower) ?? 0,
+          cutLineHp: cutLineBySeason.get(r.seasonId) ?? null,
+          // 0 in storage means "rank unset" — surface as null so the UI
+          // renders "rank #—" rather than "rank #0".
+          finalRank: trigger && trigger.rank > 0 ? trigger.rank : null,
+        };
+      });
+    },
+    creatorProfilesFor: fetchCreatorProfiles,
+  };
+}
+
+/// `/graveyard/:address` queries adapter — fan-out reads against the existing
+/// indexes for the per-token detail view.
+function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
+  return {
+    tokenAndSeason: async (addr) => {
+      const tokenRows = await db.select().from(token).where(eq(token.id, addr)).limit(1);
+      const t = tokenRows[0];
+      if (!t) return null;
+      const seasonRows = await db.select().from(season).where(eq(season.id, t.seasonId)).limit(1);
+      const s = seasonRows[0];
+      if (!s) return null;
+      return {
+        token: {
+          address: t.id,
+          symbol: t.symbol,
+          name: t.name,
+          creator: t.creator,
+          seasonId: t.seasonId,
+          isProtocolLaunched: t.isProtocolLaunched,
+          isFinalist: t.isFinalist,
+          liquidated: t.liquidated,
+          createdAt: t.createdAt,
+        },
+        season: {
+          id: s.id,
+          startedAt: s.startedAt,
+          finalizedAt: s.finalizedAt ?? null,
+          winner: s.winner ?? null,
+        },
+      };
+    },
+    hpSeriesForToken: async (addr) => {
+      const rows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(eq(hpSnapshot.token, addr))
+        .orderBy(hpSnapshot.snapshotAtSec);
+      return rows.map((r) => ({
+        timestamp: r.snapshotAtSec,
+        hp: r.hp,
+        trigger: r.trigger,
+      }));
+    },
+    holderSeriesForToken: async (addr) => {
+      // CUT-tagged holderSnapshot rows only — see the matching comment in
+      // buildGraveyardQueries.filteredTokens (bugbot PR #103 pass-3). Detail
+      // and index must agree on the holder count; FINALIZE-tagged rows in
+      // holder_snapshot are winner-only and never apply to graveyard tokens.
+      const rows = await db
+        .select()
+        .from(holderSnapshot)
+        .where(and(eq(holderSnapshot.token, addr), eq(holderSnapshot.trigger, "CUT")));
+      const byTs = new Map<bigint, number>();
+      for (const r of rows) {
+        byTs.set(r.blockTimestamp, (byTs.get(r.blockTimestamp) ?? 0) + 1);
+      }
+      const points = [...byTs.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([timestamp, holders]) => ({timestamp, holders}));
+      return points;
+    },
+    lpEventsForToken: async (addr) => {
+      // LP events: in genesis the only LP event surfaced per token is the
+      // BURN at filter time (the unwind). Mint events fire from
+      // FilterFactory at deploy but aren't yet in a dedicated table — pull
+      // from `liquidation` for now (BURN side). Future work: source MINT
+      // events from FilterFactory deploy logs.
+      const rows = await db
+        .select()
+        .from(liquidation)
+        .where(eq(liquidation.token, addr));
+      return rows.map((r) => ({
+        timestamp: r.blockTimestamp,
+        kind: "BURN" as const,
+        amountWeth: r.wethOut,
+      }));
+    },
+    cutLineForSeason: async (seasonId) => {
+      // Cut line = min(hp) over CUT-tagged rows for CUT-survivors (winner +
+      // finalists). Bugbot PR #103: don't exclude finalists; their CUT HP is
+      // the load-bearing floor for the survivor pool. Algorithm shared with
+      // /season/:id and /graveyard list — see `pickCutLine` (pass-24).
+      const seasonRows = await db.select().from(season).where(eq(season.id, seasonId)).limit(1);
+      if (!seasonRows[0]) return null;
+      const cohortTokens = await db.select().from(token).where(eq(token.seasonId, seasonId));
+      if (cohortTokens.length === 0) return null;
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, [seasonId]);
+      const cutFilteredAddrs = cutFilteredBySeason.get(seasonId) ?? new Set<string>();
+      const cohortAddrs = cohortTokens.map((r) => r.id);
+      const cutRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, cohortAddrs),
+            eq(hpSnapshot.trigger, "CUT"),
+          ),
+        );
+      return pickCutLine(cutRows, cutFilteredAddrs);
+    },
+    finalRankForToken: async (addr, isFinalist) => {
+      // Bugbot PR #103 pass-8: pick the trigger row that matches the token's
+      // actual filter event — CUT row for CUT-filtered tokens, FINALIZE row
+      // for finalists. Sorting purely by snapshotAtSec returned FINALIZE for
+      // every token (it's strictly later), but FINALIZE-row rank is 0 for
+      // already-liquidated CUT-filtered tokens, so the function returned null
+      // when it should have returned the CUT-row rank.
+      const wantTrigger: "CUT" | "FINALIZE" = isFinalist ? "FINALIZE" : "CUT";
+      const primary = await db
+        .select()
+        .from(hpSnapshot)
+        .where(and(eq(hpSnapshot.token, addr), eq(hpSnapshot.trigger, wantTrigger)))
+        .orderBy(desc(hpSnapshot.snapshotAtSec))
+        .limit(1);
+      let r = primary[0];
+      if (!r) {
+        // Defensive fallback: if the preferred trigger row isn't indexed yet,
+        // try the other trigger so the rank surface degrades gracefully
+        // rather than dropping to null on partial indexer state.
+        const otherTrigger: "CUT" | "FINALIZE" = isFinalist ? "CUT" : "FINALIZE";
+        const fallback = await db
+          .select()
+          .from(hpSnapshot)
+          .where(and(eq(hpSnapshot.token, addr), eq(hpSnapshot.trigger, otherTrigger)))
+          .orderBy(desc(hpSnapshot.snapshotAtSec))
+          .limit(1);
+        r = fallback[0];
+      }
+      if (!r) return null;
+      return r.rank > 0 ? r.rank : null;
+    },
+    creatorProfile: async (addr) => {
+      let store: UserProfileStore;
+      try {
+        store = await getUserProfileStore();
+      } catch {
+        return null;
+      }
+      const row = await store.getByAddress(addr).catch(() => null);
+      if (!row || row.username === null) return null;
+      return {username: row.usernameDisplay ?? row.username, avatarUrl: null};
+    },
+  };
+}
+
+/// `/winners` queries adapter.
+function buildWinnersQueries(db: ApiDb): WinnersQueries {
+  return {
+    winnerTokens: async () => {
+      // Bugbot PR #103 pass-3: prior implementation issued `1 + 3N` DB queries
+      // (token + cohort + FINALIZE-rows per season). Batched to 4 total: one
+      // pass each over season, token (winners), token (cohort), hpSnapshot.
+      const finalizedSeasons = await db.select().from(season);
+      // Bugbot PR #103 pass-11: gate on BOTH winner AND winnerSettledAt so a
+      // mid-settlement season (winner committed via submitWinner but the
+      // settle-side flow not yet complete) doesn't surface as a final winner
+      // on /winners. The downstream WinnerRow surface displays settledAt as
+      // a header pin; rendering null there reads as "winner unverified."
+      const winnerSeasons = finalizedSeasons.filter(
+        (s) => s.winner !== null && s.winnerSettledAt !== null,
+      );
+      if (winnerSeasons.length === 0) return [];
+      const winnerAddrs = winnerSeasons.map((s) => s.winner!);
+      const seasonIds = winnerSeasons.map((s) => s.id);
+      const [winnerTokenRows, cohortTokens] = await Promise.all([
+        db.select().from(token).where(inArray(token.id, winnerAddrs)),
+        db.select().from(token).where(inArray(token.seasonId, seasonIds)),
+      ]);
+      const cohortAddrs = cohortTokens.map((r) => r.id);
+      const finalizeRows = cohortAddrs.length === 0 ? [] : await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, cohortAddrs),
+            eq(hpSnapshot.trigger, "FINALIZE"),
+          ),
+        );
+      // Bugbot PR #103 pass-17: CUT-filtered tokens have HP=0 FINALIZE rows
+      // from the cohort-wide writer; their inclusion drives `secondPlaceHp=0`
+      // in single-token finales (or surfaces a CUT-filtered token as the
+      // runner-up in `runnerUpForSeason`). Exclude per-season.
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, seasonIds);
+      const winnerByAddr = new Map(winnerTokenRows.map((r) => [r.id.toLowerCase(), r]));
+      const cohortBySeason = new Map<bigint, typeof cohortTokens>();
+      for (const c of cohortTokens) {
+        const arr = cohortBySeason.get(c.seasonId) ?? [];
+        arr.push(c);
+        cohortBySeason.set(c.seasonId, arr);
+      }
+      const finalizeBySeason = new Map<bigint, typeof finalizeRows>();
+      const seasonByToken = new Map<string, bigint>();
+      for (const c of cohortTokens) seasonByToken.set(c.id.toLowerCase(), c.seasonId);
+      for (const fr of finalizeRows) {
+        const sid = seasonByToken.get(fr.token.toLowerCase());
+        if (sid === undefined) continue;
+        const arr = finalizeBySeason.get(sid) ?? [];
+        arr.push(fr);
+        finalizeBySeason.set(sid, arr);
+      }
+      const out: Awaited<ReturnType<WinnersQueries["winnerTokens"]>> = [];
+      for (const s of winnerSeasons) {
+        const winner = s.winner!;
+        const t = winnerByAddr.get(winner.toLowerCase());
+        if (!t) continue;
+        let winningHp = 0;
+        let secondPlaceHp: number | null = null;
+        const winnerLower = winner.toLowerCase();
+        const seasonFinalizeRows = finalizeBySeason.get(s.id) ?? [];
+        const cutFilteredSet = cutFilteredBySeason.get(s.id) ?? new Set<string>();
+        for (const fr of seasonFinalizeRows) {
+          const lower = fr.token.toLowerCase();
+          if (lower === winnerLower) {
+            if (fr.hp > winningHp) winningHp = fr.hp;
+          } else if (!cutFilteredSet.has(lower) && fr.hp > 0) {
+            // Bugbot PR #103 pass-22: mirror the `<= 0` guard pass-21 added
+            // to runnerUpForSeason. Without it, an HP=0 finalist (data
+            // anomaly that survives the cut-filtered exclusion) would yield
+            // `secondPlaceHp=0` here but `runnerUp=null` on the detail
+            // endpoint — making /winners and /winners/:addr/metrics
+            // disagree on winMarginHp and isSqueaker for the same winner.
+            if (secondPlaceHp === null || fr.hp > secondPlaceHp) secondPlaceHp = fr.hp;
+          }
+        }
+        out.push({
+          address: t.id,
+          symbol: t.symbol,
+          seasonId: s.id,
+          creator: t.creator,
+          settledAt: s.winnerSettledAt ?? null,
+          winningHp,
+          secondPlaceHp,
+          // Spec §11.4 reserve aggregation isn't yet wired into a per-winner
+          // index; surface 0n until that layer lands. Same for current
+          // mcap (V4 reads pending). The web layer renders these as "—".
+          currentReserveWei: 0n,
+          currentMcapWei: 0n,
+        });
+      }
+      return out;
+    },
+    creatorProfilesFor: fetchCreatorProfiles,
+  };
+}
+
+/// `/winners/:address/metrics` queries adapter. Today the reserve / fee /
+/// holder time series rely on aggregates we can derive from existing tables;
+/// for surfaces that aren't yet indexed (e.g. POL routing per-day rollups),
+/// we return empty arrays so the UI renders "no data yet" rather than 404.
+function buildWinnerMetricsQueries(db: ApiDb): WinnerMetricsQueries {
+  return {
+    winnerSummary: async (addr) => {
+      const tokenRows = await db.select().from(token).where(eq(token.id, addr)).limit(1);
+      const t = tokenRows[0];
+      if (!t) return null;
+      const seasonRows = await db.select().from(season).where(eq(season.id, t.seasonId)).limit(1);
+      const s = seasonRows[0];
+      // Bugbot PR #103 pass-20: gate on BOTH winner and winnerSettledAt to
+      // mirror `winnerTokens` in `/winners`. A mid-settlement season (winner
+      // committed via submitWinner but settle flow not yet complete) is
+      // intentionally absent from the list; it must also be absent here, or
+      // the detail page becomes reachable via a URL that the list doesn't
+      // surface.
+      if (!s || !s.winner || s.winnerSettledAt === null) return null;
+      // Confirm this address is actually the season's winner.
+      if (s.winner.toLowerCase() !== addr.toLowerCase()) return null;
+      // Bugbot PR #103 pass-9: align with `winnerTokens`, which takes
+      // max(hp) over FINALIZE rows. The two surfaces previously disagreed
+      // when duplicate FINALIZE rows existed (latest-by-snapshotAtSec vs
+      // max-by-hp). Both now use the SQL max aggregate.
+      const finalizeRows = await db
+        .select({peakHp: max(hpSnapshot.hp)})
+        .from(hpSnapshot)
+        .where(
+          and(
+            eq(hpSnapshot.token, addr),
+            eq(hpSnapshot.trigger, "FINALIZE"),
+          ),
+        );
+      const winningHp = Number(finalizeRows[0]?.peakHp ?? 0);
+      return {
+        address: t.id,
+        symbol: t.symbol,
+        name: t.name,
+        seasonId: t.seasonId,
+        creator: t.creator,
+        settledAt: s.winnerSettledAt ?? null,
+        winningHp,
+      };
+    },
+    runnerUpForSeason: async (seasonId) => {
+      const seasonRows = await db.select().from(season).where(eq(season.id, seasonId)).limit(1);
+      const s = seasonRows[0];
+      if (!s || !s.winner) return null;
+      const cohort = await db.select().from(token).where(eq(token.seasonId, seasonId));
+      const cohortAddrs = cohort.map((r) => r.id);
+      // Bugbot PR #103 pass-10: drizzle's `inArray([])` generates invalid
+      // SQL (`WHERE col IN ()`), so guard the empty case explicitly. Mirrors
+      // the pattern in `winnerTokens`.
+      if (cohortAddrs.length === 0) return null;
+      const finalizeRows = await db
+        .select()
+        .from(hpSnapshot)
+        .where(
+          and(
+            inArray(hpSnapshot.token, cohortAddrs),
+            eq(hpSnapshot.trigger, "FINALIZE"),
+          ),
+        );
+      // Bugbot PR #103 pass-17: CUT-filtered tokens have HP=0 FINALIZE rows
+      // from the cohort-wide writer. The pre-fix `bestHp = -1` guard let any
+      // CUT-filtered token win the runner-up slot (since 0 > -1) in seasons
+      // with no real second-place finalist. Filter them explicitly.
+      const cutFilteredBySeason = await buildCutFilteredAddrsBySeasons(db, [seasonId]);
+      const cutFilteredSet = cutFilteredBySeason.get(seasonId) ?? new Set<string>();
+      let bestAddr: `0x${string}` | null = null;
+      let bestHp = -1;
+      const winnerLower = s.winner.toLowerCase();
+      for (const fr of finalizeRows) {
+        const lower = fr.token.toLowerCase();
+        if (lower === winnerLower) continue;
+        if (cutFilteredSet.has(lower)) continue;
+        if (fr.hp > bestHp) {
+          bestHp = fr.hp;
+          bestAddr = fr.token;
+        }
+      }
+      // Bugbot PR #103 pass-21: `< 0` would let an HP=0 finalist (data
+      // anomaly) survive the guard since `0 >= 0`. Tighten to `<= 0` so we
+      // require strictly-positive HP for a runner-up — pairs with the
+      // pass-17 cut-filtered exclusion (the cohort-wide writer's H=0 rows
+      // for CUT-filtered tokens are now excluded; this catches the residual
+      // finalist-anomaly case).
+      if (!bestAddr || bestHp <= 0) return null;
+      const tRows = await db.select().from(token).where(eq(token.id, bestAddr)).limit(1);
+      const t = tRows[0];
+      if (!t) return null;
+      return {
+        address: t.id,
+        symbol: t.symbol,
+        creator: t.creator,
+        finalHp: bestHp,
+      };
+    },
+    reserveSeriesForToken: async () => {
+      // Spec §11.4 — Filter Fund Liquidity Reserve growth. The post-settlement
+      // POL routing (Epic 1.16, PR #90) records per-fee-event entries in
+      // `feeAccrual` with `routing = "POST_SETTLEMENT"`, summing into the POL
+      // vault. Roll up by day for the chart.
+      // Returns empty for now; the per-day rollup is left as the
+      // higher-level chart render — a follow-up can sample by day from the
+      // `feeAccrual` table to populate this series.
+      return [];
+    },
+    feeAccrualSeries: async (addr) => {
+      // Per-day feeAccrual rollup — creator slice + POL slice.
+      const rows = await db
+        .select()
+        .from(feeAccrual)
+        .where(eq(feeAccrual.token, addr))
+        .orderBy(feeAccrual.blockTimestamp);
+      // Bucket by day (86400s).
+      const DAY_SEC = 86400n;
+      const byDay = new Map<bigint, {creator: bigint; pol: bigint}>();
+      for (const r of rows) {
+        const bucket = (r.blockTimestamp / DAY_SEC) * DAY_SEC;
+        const cur = byDay.get(bucket) ?? {creator: 0n, pol: 0n};
+        cur.creator += r.toCreator;
+        // Post-settlement routing: `toVault` lands in POLVault per spec §9.4.
+        if (r.routing === "POST_SETTLEMENT") cur.pol += r.toVault;
+        byDay.set(bucket, cur);
+      }
+      // Cumulative across days (the chart line is monotonically growing).
+      const sorted = [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      let cumCreator = 0n;
+      let cumPol = 0n;
+      return sorted.map(([timestamp, d]) => {
+        cumCreator += d.creator;
+        cumPol += d.pol;
+        return {
+          timestamp,
+          creatorEarnedWei: cumCreator,
+          polTopUpWei: cumPol,
+        };
+      });
+    },
+    holderRetentionSeries: async () => {
+      // Holder retention since settlement. Anchor: holders at FINALIZE.
+      // Implementation pending — sample `holderBalance` per day post-
+      // settlement against the FINALIZE-trigger holderSnapshot baseline.
+      return [];
+    },
+    creatorProfile: async (addr) => {
+      let store: UserProfileStore;
+      try {
+        store = await getUserProfileStore();
+      } catch {
+        return null;
+      }
+      const row = await store.getByAddress(addr).catch(() => null);
+      if (!row || row.username === null) return null;
+      return {username: row.usernameDisplay ?? row.username, avatarUrl: null};
     },
   };
 }

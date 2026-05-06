@@ -31,6 +31,7 @@ import {
   isAddressLike,
   tickerWithDollar,
   weiToDecimalEther,
+  type SeasonMargins,
   type SeasonResponse,
   type SeasonRow,
   type TokenResponse,
@@ -95,6 +96,12 @@ export interface ApiQueries {
     tokens: ReadonlyArray<`0x${string}`>,
     currentTime: bigint,
   ) => Promise<Map<string, TokenProjectionInputs>>;
+  /// Per-season margin inputs (Epic 1.25/1.26/1.27, spec §36.3.3). Returns
+  /// the integer cut-line HP, winner HP, and second-place HP for the season
+  /// at the boundary triggers — null for fields that haven't yet been resolved
+  /// (cutLineHp pre-CUT, winningHp/secondPlaceHp pre-FINALIZE). Implementation
+  /// reads the CUT/FINALIZE-tagged hpSnapshot rows for the season's cohort.
+  marginInputsForSeason: (seasonId: bigint) => Promise<SeasonMargins>;
 }
 
 export interface ApiResult<T> {
@@ -130,8 +137,43 @@ export async function getSeasonHandler(
     // gives clients a single field to gate on while keeping the endpoint observably alive.
     return ok({status: "not-ready", season: null});
   }
-  const launchCount = await q.publicLaunchCount(row.id);
-  return ok({status: "ready", season: buildSeasonResponse(row, launchCount)});
+  const [launchCount, margins] = await Promise.all([
+    q.publicLaunchCount(row.id),
+    q.marginInputsForSeason(row.id),
+  ]);
+  return ok({status: "ready", season: buildSeasonResponse(row, launchCount, margins)});
+}
+
+// ============================================================ /season/:id (Epic 1.25/1.26/1.27)
+
+/// Per-season detail by id. Same envelope shape as `/season` but addressed by
+/// id, so a winner page or graveyard recap can fetch a specific season's
+/// margin data without first observing it as `latestSeason`. Used by the
+/// finals-week #2 callout + winner detail page back-references.
+export async function getSeasonByIdHandler(
+  q: ApiQueries & {seasonById: (id: bigint) => Promise<SeasonRow | null>},
+  rawId: string,
+): Promise<ApiResult<SeasonEnvelope | {error: string}>> {
+  let seasonId: bigint;
+  try {
+    seasonId = BigInt(rawId);
+    if (seasonId < 0n) throw new Error("negative");
+  } catch {
+    return {status: 400, body: {error: "invalid season id"}};
+  }
+  const row = await q.seasonById(seasonId);
+  // Bugbot PR #103 pass-12: an explicit ID lookup that misses is genuinely
+  // 404, not "not-ready". The "not-ready" envelope made sense for /season
+  // (latest) where "no season indexed yet" is a valid state — but a numeric
+  // ID either exists or doesn't. Returning 200+not-ready here misled the
+  // /w/[identifier] resolver into showing "Season not yet indexed" for a
+  // season that simply never existed.
+  if (!row) return {status: 404, body: {error: "season not found"}};
+  const [launchCount, margins] = await Promise.all([
+    q.publicLaunchCount(row.id),
+    q.marginInputsForSeason(row.id),
+  ]);
+  return ok({status: "ready", season: buildSeasonResponse(row, launchCount, margins)});
 }
 
 // ============================================================ /tokens
