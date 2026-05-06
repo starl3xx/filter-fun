@@ -25,6 +25,7 @@ import {deploymentMeta} from "@/lib/addresses";
 
 import {NearMissChip, formatMarginHp} from "@/components/graveyard/NearMissChip";
 import {TimeSeriesChart} from "@/components/winner/TimeSeriesChart";
+import {Panel, SideLink} from "@/components/spectator/Panel";
 import {shortAddr} from "@/lib/launch/format";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -422,35 +423,6 @@ function BigVisual({title, value, sub}: {title: string; value: string; sub: stri
   );
 }
 
-function Panel({title, children}: {title: string; children: React.ReactNode}) {
-  return (
-    <div
-      style={{
-        padding: 16,
-        background: C.panel,
-        border: `1px solid ${C.line}`,
-        borderRadius: 12,
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          color: C.dim,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          fontFamily: F.mono,
-        }}
-      >
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function Legend({items}: {items: Array<{color: string; label: string}>}) {
   return (
     <div style={{display: "flex", flexWrap: "wrap", gap: 16, fontSize: 11, color: C.dim, fontFamily: F.mono}}>
@@ -563,39 +535,6 @@ function SidePanel({
         sub={data.token.creatorUsername ?? shortAddr(data.token.creator)}
       />
     </div>
-  );
-}
-
-function SideLink({title, href, sub}: {title: string; href: string; sub: string}) {
-  return (
-    <Link
-      href={href}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        padding: 12,
-        background: C.panel,
-        border: `1px solid ${C.line}`,
-        borderRadius: 12,
-        textDecoration: "none",
-        color: C.text,
-      }}
-    >
-      <span
-        style={{
-          fontSize: 10,
-          color: C.dim,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          fontFamily: F.mono,
-          fontWeight: 600,
-        }}
-      >
-        {title} →
-      </span>
-      <span style={{fontSize: 13, color: C.text, fontFamily: F.mono}}>{sub}</span>
-    </Link>
   );
 }
 

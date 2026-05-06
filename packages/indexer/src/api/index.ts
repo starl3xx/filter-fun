@@ -2034,7 +2034,13 @@ function buildWinnerMetricsQueries(db: ApiDb): WinnerMetricsQueries {
           bestAddr = fr.token;
         }
       }
-      if (!bestAddr || bestHp < 0) return null;
+      // Bugbot PR #103 pass-21: `< 0` would let an HP=0 finalist (data
+      // anomaly) survive the guard since `0 >= 0`. Tighten to `<= 0` so we
+      // require strictly-positive HP for a runner-up — pairs with the
+      // pass-17 cut-filtered exclusion (the cohort-wide writer's H=0 rows
+      // for CUT-filtered tokens are now excluded; this catches the residual
+      // finalist-anomaly case).
+      if (!bestAddr || bestHp <= 0) return null;
       const tRows = await db.select().from(token).where(eq(token.id, bestAddr)).limit(1);
       const t = tRows[0];
       if (!t) return null;

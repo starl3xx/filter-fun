@@ -21,6 +21,7 @@ import {shortAddr} from "@/lib/launch/format";
 
 import {NearMissChip, formatMarginHp} from "@/components/graveyard/NearMissChip";
 import {HpTrajectoryChart} from "@/components/graveyard/HpTrajectoryChart";
+import {Panel, SideLink} from "@/components/spectator/Panel";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -324,35 +325,6 @@ function Stat({label, value, color}: {label: string; value: string; color: strin
   );
 }
 
-function Panel({title, children}: {title: string; children: React.ReactNode}) {
-  return (
-    <div
-      style={{
-        padding: 16,
-        background: C.panel,
-        border: `1px solid ${C.line}`,
-        borderRadius: 12,
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          color: C.dim,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          fontFamily: F.mono,
-        }}
-      >
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function RecapCard({data}: {data: GraveyardDetailResponse}) {
   const {finalHp, finalRank, peakHp, peakHpAt, filteredAt, nearMissMarginHp, isNearMiss, filterRound} = data.lifecycle;
   // Generate the natural-language recap. Spec-compliant phrasing — no
@@ -476,38 +448,6 @@ function SidePanel({
   );
 }
 
-function SideLink({title, href, sub}: {title: string; href: string; sub: string}) {
-  return (
-    <Link
-      href={href}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        padding: 12,
-        background: C.panel,
-        border: `1px solid ${C.line}`,
-        borderRadius: 12,
-        textDecoration: "none",
-        color: C.text,
-      }}
-    >
-      <span
-        style={{
-          fontSize: 10,
-          color: C.dim,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          fontFamily: F.mono,
-          fontWeight: 600,
-        }}
-      >
-        {title} →
-      </span>
-      <span style={{fontSize: 13, color: C.text, fontFamily: F.mono}}>{sub}</span>
-    </Link>
-  );
-}
 
 function KV({label, value}: {label: string; value: string}) {
   return (
