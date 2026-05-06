@@ -10,8 +10,8 @@
 /// `rowFocused` to HpCell, which merges it with hover state. Tabbing to
 /// a row now opens that row's popover; tabbing away closes it.
 
-import {fireEvent, render, screen, within} from "@testing-library/react";
-import {describe, expect, it} from "vitest";
+import {act, fireEvent, render, within} from "@testing-library/react";
+import {describe, expect, it, vi} from "vitest";
 
 import {ArenaLeaderboard} from "../../src/components/arena/ArenaLeaderboard.js";
 import type {TokenResponse} from "../../src/lib/arena/api.js";
@@ -85,5 +85,41 @@ describe("ArenaLeaderboard — HP popover keyboard focus (PR #104 pass-2)", () =
     // Row 2's popover should remain hidden — independent state per row.
     const row2Popover = within(rows[1]).getByTestId("hp-breakdown-popover");
     expect(row2Popover.getAttribute("data-hp-popover-shown")).toBe("false");
+  });
+
+  it("Escape dismisses the popover even when opened via keyboard focus (PR #104 pass-3)", async () => {
+    // Pre-fix the Escape handler only cleared `hover`; with keyboard-focus
+    // activation `hover` is already false, so Escape was a no-op. The
+    // dismissed-override flag fixes this without blurring the row button
+    // (preserving the user's tab position).
+    vi.useFakeTimers();
+    try {
+      const {container} = render(
+        <ArenaLeaderboard
+          tokens={COHORT}
+          trendBuffers={new Map()}
+          selectedAddress={null}
+          onSelect={() => {}}
+        />,
+      );
+      const rows = Array.from(container.querySelectorAll("button[aria-label]")) as HTMLButtonElement[];
+      const firstRow = rows[0];
+      // Keyboard-focus the row → popover opens.
+      fireEvent.focus(firstRow);
+      act(() => {
+        vi.advanceTimersByTime(250); // past the 200ms open delay
+      });
+      const popover = within(firstRow).getByTestId("hp-breakdown-popover");
+      expect(popover.getAttribute("data-hp-popover-shown")).toBe("true");
+      // Press Escape — popover should hide.
+      fireEvent.keyDown(document, {key: "Escape"});
+      expect(popover.getAttribute("data-hp-popover-shown")).toBe("false");
+      // Row button still has focus (we didn't blur it).
+      // Note: jsdom's document.activeElement won't necessarily be the
+      // button here without a real focus call — we assert the popover
+      // shape, which is the user-visible contract.
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

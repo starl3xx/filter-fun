@@ -545,18 +545,30 @@ function HpCell({
   rowFocused: boolean;
 }) {
   const [hover, setHover] = useState(false);
-  const active = hover || rowFocused;
-  // Listen for Esc to dismiss while the popover is active. Cleanup runs
-  // when active toggles off so we don't keep a global listener around for
-  // every row in the leaderboard.
+  const [dismissed, setDismissed] = useState(false);
+  // Bugbot pass-3: Escape dismiss must override BOTH hover and rowFocused.
+  // Pre-fix the Escape handler only cleared `hover`; for keyboard-focus
+  // activation `hover` was already false and `rowFocused` (owned by the
+  // parent Row's button) stayed true, so `active` remained true and the
+  // popover never dismissed. The override flag keeps focus on the row
+  // button (we don't want to blur the user's tab position) while hiding
+  // the popover; it auto-clears when both signals release so the next
+  // interaction re-opens the popover.
+  const active = (hover || rowFocused) && !dismissed;
   useEffect(() => {
     if (!active) return;
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") setHover(false);
+      if (ev.key === "Escape") setDismissed(true);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [active]);
+  // Auto-clear `dismissed` once both hover and focus have left the cell —
+  // otherwise a dismissed popover would stay suppressed forever even
+  // after the user moves away and comes back.
+  useEffect(() => {
+    if (dismissed && !hover && !rowFocused) setDismissed(false);
+  }, [dismissed, hover, rowFocused]);
 
   return (
     <div
