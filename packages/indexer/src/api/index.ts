@@ -1076,13 +1076,16 @@ function buildQueries(db: ApiDb): ApiQueries {
       // Bugbot PR #103 pass-17: CUT-filtered tokens have HP=0 FINALIZE rows
       // (cohort-wide writer); excluding them prevents false runner-up rows
       // and `secondPlaceHp=0` in single-token finales.
+      // Bugbot PR #103 pass-22: also drop HP=0 finalists (data anomaly that
+      // survives the cut-filter exclusion) so /season/:id agrees with
+      // /winners and /winners/:addr/metrics on secondPlaceHp.
       if (winnerAddr) {
         for (const r of cutOrFinalRows) {
           if (r.trigger !== "FINALIZE") continue;
           const lower = r.token.toLowerCase();
           if (lower === winnerAddr) {
             if (winningHp === null || r.hp > winningHp) winningHp = r.hp;
-          } else if (!cutFilteredSet.has(lower)) {
+          } else if (!cutFilteredSet.has(lower) && r.hp > 0) {
             if (secondPlaceHp === null || r.hp > secondPlaceHp) secondPlaceHp = r.hp;
           }
         }
@@ -1927,7 +1930,13 @@ function buildWinnersQueries(db: ApiDb): WinnersQueries {
           const lower = fr.token.toLowerCase();
           if (lower === winnerLower) {
             if (fr.hp > winningHp) winningHp = fr.hp;
-          } else if (!cutFilteredSet.has(lower)) {
+          } else if (!cutFilteredSet.has(lower) && fr.hp > 0) {
+            // Bugbot PR #103 pass-22: mirror the `<= 0` guard pass-21 added
+            // to runnerUpForSeason. Without it, an HP=0 finalist (data
+            // anomaly that survives the cut-filtered exclusion) would yield
+            // `secondPlaceHp=0` here but `runnerUp=null` on the detail
+            // endpoint — making /winners and /winners/:addr/metrics
+            // disagree on winMarginHp and isSqueaker for the same winner.
             if (secondPlaceHp === null || fr.hp > secondPlaceHp) secondPlaceHp = fr.hp;
           }
         }
