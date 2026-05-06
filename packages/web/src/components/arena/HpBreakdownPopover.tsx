@@ -24,7 +24,7 @@ import {useEffect, useState} from "react";
 import type {HpUpdate} from "@/hooks/arena/useHpUpdates";
 import type {TokenResponse} from "@/lib/arena/api";
 import {HP_MAX} from "@/lib/arena/hp";
-import {HP_LABELS, HP_TILE_COMPONENT_COLORS, HP_TILE_KEYS_IN_ORDER, type HpTileKey} from "@/lib/arena/hpLabels";
+import {HP_LABELS, HP_TILE_COMPONENT_COLORS, HP_TILE_KEYS_IN_ORDER, scoreToPct, type HpTileKey} from "@/lib/arena/hpLabels";
 import {C, F} from "@/lib/tokens";
 
 const POPOVER_DELAY_MS = 200;
@@ -129,7 +129,7 @@ export function HpBreakdownPopover({token, liveHp, active}: HpBreakdownPopoverPr
 }
 
 function ComponentRow({label, score, color}: {label: string; score: number; color: string}) {
-  const pct = Math.max(0, Math.min(100, Math.round(score * 100)));
+  const pct = scoreToPct(score);
   return (
     <div
       style={{

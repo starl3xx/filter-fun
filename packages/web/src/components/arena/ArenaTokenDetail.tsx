@@ -22,7 +22,7 @@ import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {HP_MAX} from "@/lib/arena/hp";
-import {HP_LABELS, HP_TILE_COMPONENT_COLORS, HP_TILE_KEYS_IN_ORDER, type HpTileKey} from "@/lib/arena/hpLabels";
+import {HP_LABELS, HP_TILE_COMPONENT_COLORS, HP_TILE_KEYS_IN_ORDER, scoreToPct, type HpTileKey} from "@/lib/arena/hpLabels";
 import {fmtNum, fmtUSD, fmtPrice} from "@/lib/format";
 import {sparkPath} from "@/lib/sparkline";
 import {C, F, tickerColor} from "@/lib/tokens";
@@ -317,7 +317,7 @@ function HpBreakdown({components, hp, liveHp}: {components: TokenResponse["compo
 }
 
 function ComponentRow({label, score, color}: {label: string; score: number; color: string}) {
-  const pct = Math.max(0, Math.min(100, Math.round(score * 100)));
+  const pct = scoreToPct(score);
   return (
     <div style={{display: "grid", gridTemplateColumns: "1fr 60px 32px", alignItems: "center", gap: 8, fontSize: 11}}>
       <span style={{color, fontFamily: F.display, fontWeight: 600}}>{label}</span>
