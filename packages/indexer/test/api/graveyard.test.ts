@@ -188,6 +188,31 @@ describe("/graveyard", () => {
     expect(body.tokens[0]?.isNearMiss).toBe(false);
   });
 
+  it("suppresses near-miss for FINALIZE-filtered finalists (h96/h168 time-window mismatch)", async () => {
+    // Bugbot PR #103 pass-23: cutLineHp is an h96 reading; a finalist's
+    // finalHp is the h168 reading. Comparing them across the 72h window
+    // would mislabel a finalist who crashed mid-finals as a near-miss.
+    const r = await getGraveyardHandler(
+      fixtureQueries({
+        rows: [
+          mkRow({
+            address: addr(0xa1),
+            symbol: "FAL",
+            isFinalist: true,
+            filterRound: "FINALIZE",
+            finalHp: 4900,
+            cutLineHp: 5000, // raw margin would be 100 → would be near-miss
+          }),
+        ],
+      }),
+      {},
+      fixedNow,
+    );
+    const body = r.body as GraveyardResponse;
+    expect(body.tokens[0]?.nearMissMarginHp).toBeNull();
+    expect(body.tokens[0]?.isNearMiss).toBe(false);
+  });
+
   it("plumbs finalRank from source row → response (bugbot PR #103 pass-2)", async () => {
     const r = await getGraveyardHandler(
       fixtureQueries({

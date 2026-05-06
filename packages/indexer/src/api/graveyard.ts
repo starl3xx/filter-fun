@@ -311,9 +311,15 @@ function decorateRow(r: GraveyardSourceRow): GraveyardTokenRow {
   // counts as a near-miss). A token whose finalHp landed above the cut line
   // shouldn't appear in this list (it survived); guard with max(0, …) so a
   // data anomaly produces a 0 margin rather than a negative.
+  // Bugbot PR #103 pass-23: near-miss is a CUT-time concept — `cutLineHp` is
+  // the h96 survivor floor, but a FINALIZE-filtered finalist's `finalHp` is
+  // the h168 reading. Comparing them across that 72h window mislabels a
+  // finalist whose HP crashed mid-finals as "near-miss" when in truth they
+  // already cleared CUT. Suppress for finalists (filterRound === "FINALIZE").
+  const isCutFiltered = r.filterRound === "CUT";
   let nearMissMarginHp: number | null = null;
   let cutLineAnomaly = false;
-  if (r.cutLineHp !== null) {
+  if (isCutFiltered && r.cutLineHp !== null) {
     const raw = r.cutLineHp - r.finalHp;
     nearMissMarginHp = raw >= 0 ? raw : 0;
     cutLineAnomaly = raw < 0;
@@ -324,6 +330,7 @@ function decorateRow(r: GraveyardSourceRow): GraveyardTokenRow {
   // for honesty but keep isNearMiss=false so the narrative flag isn't a false
   // positive.
   const isNearMiss =
+    isCutFiltered &&
     !cutLineAnomaly &&
     nearMissMarginHp !== null &&
     nearMissMarginHp <= NEAR_MISS_THRESHOLD_HP;
@@ -612,14 +619,19 @@ export async function getGraveyardDetailHandler(
   // index and detail return identical isNearMiss for the same token. A
   // clamped-from-anomaly margin (raw < 0) is data inconsistency, not a real
   // close call — surface margin=0 for honesty but keep isNearMiss=false.
+  // Bugbot PR #103 pass-23: also gate on filterRound === "CUT" — the cut
+  // line is an h96 reading, finalHp for finalists is an h168 reading;
+  // comparing across the 72h window mislabels finalists as near-miss.
+  const isCutFiltered = filterRound === "CUT";
   let nearMissMarginHp: number | null = null;
   let cutLineAnomaly = false;
-  if (cutLineHp !== null) {
+  if (isCutFiltered && cutLineHp !== null) {
     const raw = cutLineHp - finalHp;
     nearMissMarginHp = raw >= 0 ? raw : 0;
     cutLineAnomaly = raw < 0;
   }
   const isNearMiss =
+    isCutFiltered &&
     !cutLineAnomaly &&
     nearMissMarginHp !== null &&
     nearMissMarginHp <= NEAR_MISS_THRESHOLD_HP;
