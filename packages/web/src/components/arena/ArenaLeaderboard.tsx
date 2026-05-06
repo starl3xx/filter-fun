@@ -10,9 +10,10 @@
 /// (`/arena` page) keeps `selectedToken`. The detail panel reads the same
 /// `tokens` array from cache to render its panel — no separate fetch.
 
-import {memo, useMemo} from "react";
+import {memo, useEffect, useMemo, useState} from "react";
 
 import {Triangle} from "@/components/Triangle";
+import type {HpUpdate} from "@/hooks/arena/useHpUpdates";
 import type {TokenResponse} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {HP_BUCKETS} from "@/lib/arena/hp";
@@ -21,6 +22,7 @@ import {sparkPath} from "@/lib/sparkline";
 import {C, F, stripDollar, tickerColor} from "@/lib/tokens";
 
 import {ArenaHpBar} from "./HpBar";
+import {HpBreakdownPopover} from "./HpBreakdownPopover";
 import {StatusBadge} from "./StatusBadge";
 
 export type ArenaLeaderboardProps = {
@@ -54,6 +56,11 @@ export type ArenaLeaderboardProps = {
   /// update (changing the key remounts the wrapper). A token absent from
   /// the map → no pulse.
   freshHpUpdateSeqByAddress?: ReadonlyMap<string, number>;
+  /// Epic 1.28 — live HP overlay map. Powers the row-hover HP breakdown
+  /// popover, which reads `holderConcentration` (the 6th SSE-only signal)
+  /// off the live frame so the popover renders the canonical 5-component
+  /// spec §6.6 set.
+  hpByAddress?: ReadonlyMap<string, HpUpdate>;
 };
 
 /// Audit M-Arena-1 + M-Arena-8 + L-Arena-3 (Phase 1, 2026-05-02): column widths re-aligned
@@ -82,6 +89,7 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
   firingMode,
   recentlyFilteredAddresses,
   freshHpUpdateSeqByAddress,
+  hpByAddress,
 }: ArenaLeaderboardProps) {
   const sorted = useMemo(() => sortByRank(tokens), [tokens]);
   const showCutLine = !hideCutLine && sorted.length > CUT_INDEX;
@@ -122,6 +130,8 @@ export const ArenaLeaderboard = memo(function ArenaLeaderboard({
               filtered={firingMode && filteredLower ? filteredLower.has(t.token.toLowerCase()) : false}
               survivor={firingMode && filteredLower ? !filteredLower.has(t.token.toLowerCase()) && i < CUT_INDEX : false}
               hpUpdateSeq={freshHpUpdateSeqByAddress?.get(t.token.toLowerCase())}
+              liveHp={hpByAddress?.get(t.token.toLowerCase()) ?? null}
+              suppressPopover={!!firingMode}
             />
           )).flatMap((row, i) => (showCutLine && i === CUT_INDEX ? [<CutLine key="cut" urgent={!!urgentCutline} />, row] : [row]))}
         </div>
@@ -272,6 +282,8 @@ function Row({
   filtered,
   survivor,
   hpUpdateSeq,
+  liveHp,
+  suppressPopover,
 }: {
   token: TokenResponse;
   index: number;
@@ -289,6 +301,12 @@ function Row({
   /// the start (single-shot animations don't replay on className change
   /// alone).
   hpUpdateSeq?: number;
+  /// Epic 1.28 — live HP overlay for this row, drives the row-hover HP
+  /// breakdown popover (reads `holderConcentration` off the live frame).
+  liveHp?: HpUpdate | null;
+  /// Epic 1.28 — suppress the popover during firing/recap stages so the
+  /// dramatic ceremony isn't drowned out by hover tooltips.
+  suppressPopover?: boolean;
 }) {
   const finalist = token.status === "FINALIST";
   const display = displayRank(token.rank, index);
@@ -297,6 +315,14 @@ function Row({
   const hasChange = token.priceChange24h !== 0;
   const sparkColor = colorForChange(token.priceChange24h, token.hp);
   const ariaLabel = `${token.ticker} rank ${display} status ${token.status.toLowerCase()} HP ${token.hp}`;
+
+  // Bugbot pass-2: keyboard focus on the row button cannot reach a
+  // descendant HpCell via React's onFocus (focusin bubbles UP, not down).
+  // Tracking focus on the row itself — the actual focusable element —
+  // and threading the result down to HpCell via a prop is what closes
+  // the keyboard-accessibility gap. Tab stops still move row-by-row;
+  // each row's popover only opens while THAT row holds focus.
+  const [rowFocused, setRowFocused] = useState(false);
 
   // Firing-mode treatments override the default below/finalist styling.
   // Filtered rows fade + get a red ▼ stamp (CSS class drives the timing
@@ -332,6 +358,8 @@ function Row({
       aria-label={ariaLabel}
       aria-pressed={isSelected}
       onClick={() => onSelect(token.token)}
+      onFocus={() => setRowFocused(true)}
+      onBlur={() => setRowFocused(false)}
       className={rowClass || undefined}
       style={{
         display: "grid",
@@ -410,14 +438,14 @@ function Row({
         <span style={{fontSize: 13, fontWeight: 800, fontFamily: F.display, letterSpacing: "-0.01em"}}>{token.ticker}</span>
       </div>
 
-      <div
-        key={hpUpdateSeq != null ? `hp-${hpUpdateSeq}` : "hp-static"}
-        data-hp-fresh={hpUpdateSeq != null ? "true" : undefined}
-        className={hpUpdateSeq != null ? "ff-arena-row-hp-fresh" : undefined}
-        style={{display: "flex", alignItems: "center", minWidth: 0}}
-      >
-        <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
-      </div>
+      <HpCell
+        token={token}
+        below={below}
+        hpUpdateSeq={hpUpdateSeq}
+        liveHp={liveHp}
+        suppressPopover={!!suppressPopover}
+        rowFocused={rowFocused}
+      />
 
       <div style={{display: "flex", alignItems: "center", gap: 5, minWidth: 0}}>
         <StatusBadge status={token.status} compact />
@@ -477,6 +505,90 @@ function Row({
         ›
       </span>
     </button>
+  );
+}
+
+/// HP cell wrapper — Epic 1.28. Renders the existing HP bar (with the
+/// hpUpdateSeq pulse remount key) plus the row-hover/focus HP breakdown
+/// popover. Hover state is local; row-focus state lifts to the parent
+/// Row so it can attach onFocus/onBlur to the actual focusable element
+/// (the row `<button>`). Click events continue to bubble up to the row
+/// button — the cell itself is a non-interactive div, NOT a focusable
+/// element, so a Tab through the leaderboard moves row-by-row, not
+/// row-then-cell.
+///
+/// **Bugbot pass-2 (keyboard focus).** The pre-fix design wired
+/// onFocus/onBlur on the cell div, intending React's `:focus-within`
+/// semantics. That was wrong: the row button is HpCell's PARENT, and
+/// React's onFocus is backed by `focusin` which bubbles upward — it
+/// never fires on a descendant. Keyboard users tabbing through rows
+/// got hover-only behavior. The fix lifts focus tracking to Row (which
+/// owns the focusable button) and threads `rowFocused` down here as a
+/// prop; HpCell merges it with its own mouse-hover state to derive the
+/// popover's `active` prop.
+function HpCell({
+  token,
+  below,
+  hpUpdateSeq,
+  liveHp,
+  suppressPopover,
+  rowFocused,
+}: {
+  token: TokenResponse;
+  below: boolean;
+  hpUpdateSeq?: number;
+  liveHp?: HpUpdate | null;
+  suppressPopover: boolean;
+  /// True while the parent Row's button currently has keyboard focus.
+  /// Lifted to the parent because the focusable element (the row button)
+  /// is HpCell's ancestor — see the docstring above.
+  rowFocused: boolean;
+}) {
+  const [hover, setHover] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  // Bugbot pass-3: Escape dismiss must override BOTH hover and rowFocused.
+  // Pre-fix the Escape handler only cleared `hover`; for keyboard-focus
+  // activation `hover` was already false and `rowFocused` (owned by the
+  // parent Row's button) stayed true, so `active` remained true and the
+  // popover never dismissed. The override flag keeps focus on the row
+  // button (we don't want to blur the user's tab position) while hiding
+  // the popover; it auto-clears when both signals release so the next
+  // interaction re-opens the popover.
+  const active = (hover || rowFocused) && !dismissed;
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setDismissed(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [active]);
+  // Auto-clear `dismissed` once both hover and focus have left the cell —
+  // otherwise a dismissed popover would stay suppressed forever even
+  // after the user moves away and comes back.
+  useEffect(() => {
+    if (dismissed && !hover && !rowFocused) setDismissed(false);
+  }, [dismissed, hover, rowFocused]);
+
+  return (
+    <div
+      data-testid="hp-cell"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{position: "relative", display: "flex", alignItems: "center", minWidth: 0}}
+    >
+      <div
+        key={hpUpdateSeq != null ? `hp-${hpUpdateSeq}` : "hp-static"}
+        data-hp-fresh={hpUpdateSeq != null ? "true" : undefined}
+        className={hpUpdateSeq != null ? "ff-arena-row-hp-fresh" : undefined}
+        style={{display: "flex", alignItems: "center", minWidth: 0, width: "100%"}}
+      >
+        <ArenaHpBar hp={token.hp} status={token.status} dim={below} />
+      </div>
+      {!suppressPopover && (
+        <HpBreakdownPopover token={token} liveHp={liveHp} active={active} />
+      )}
+    </div>
   );
 }
 

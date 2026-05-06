@@ -79,3 +79,14 @@ export const HP_TILE_COMPONENT_COLORS: Record<HpTileKey, string> = {
   retention:           C.green,
   holderConcentration: C.purple,
 } as const;
+
+/// Clamps a raw [0,1] component score into a [0,100] integer percent. The
+/// HP component bars in `HpBreakdownPopover` (list-view popover) and the
+/// right-rail token detail panel both render the same `pct` but live in
+/// separate files for layout reasons (different grid templates / DOM
+/// shapes). Centralising the clamp here keeps the score-to-percent
+/// arithmetic in one place — bugbot pass-2 flagged the duplication when
+/// the popover landed.
+export function scoreToPct(score: number): number {
+  return Math.max(0, Math.min(100, Math.round(score * 100)));
+}

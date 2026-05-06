@@ -21,28 +21,35 @@ export type ArenaActivityFeedProps = {
   liveStatus?: "connecting" | "open" | "reconnecting" | "closed";
 };
 
-/// Audit M-Arena-2 (Phase 1, 2026-05-02): per-event-type icon + colour map.
-/// ARENA_SPEC §6.6 enumerates 8 generic event types (enter / risk / pump /
-/// whale / mission / launch / cross / lead) each paired with a glyph and a
-/// broadcast-palette colour. The indexer emits 8 canonical EventType values
-/// (`packages/indexer/src/api/events/types.ts`) which don't 1:1 with the
-/// spec's generic names — this map is the join. Keyed by `EventType` so the
-/// type system rejects future drops; ordered to match the indexer's
-/// declaration order so a side-by-side review reads naturally.
+/// Audit M-Arena-2 (Phase 1, 2026-05-02) + Epic 1.28: per-event-type icon +
+/// colour map. ARENA_SPEC §6.6 enumerates generic event types each paired
+/// with a glyph and a broadcast-palette colour. The indexer emits canonical
+/// `EventType` values (`packages/indexer/src/api/events/types.ts`) which
+/// don't 1:1 with the spec's generic names — this map is the join. Keyed by
+/// `EventType` so the type system rejects future drops; ordered to match
+/// the indexer's declaration order so a side-by-side review reads naturally.
 ///
-/// Mapping rationale:
-///   - RANK_CHANGED   → 🚀 cyan (rank movement = "enter" the visible part of the board)
+/// Direction-aware events. Two indexer types fold direction into their
+/// `data` payload (RANK_CHANGED carries from/to rank; HP_SPIKE carries
+/// signed delta). For those, `styleFor` resolves the icon/colour from the
+/// event payload at render time — RANK_CHANGED becomes ↑ green when rank
+/// improved (toRank < fromRank) and ↓ yellow when it declined; HP_SPIKE
+/// becomes 📈 green when delta > 0 and 📉 yellow when delta < 0. This
+/// mirrors the spec's BUY/RANK_UP/LIQUIDITY_UP vs SELL/RANK_DOWN/
+/// RETENTION_DROP framing without forcing the indexer to fan-out the
+/// canonical types.
+///
+/// Default mapping rationale:
 ///   - CUT_LINE_CROSSED → ⚠️ red ("cross" — the spec's exact glyph + colour pairing)
-///   - HP_SPIKE       → 📈 green ("pump" — health rising fast)
 ///   - VOLUME_SPIKE   → 🐋 purple ("whale" — large-volume movement)
 ///   - LARGE_TRADE    → 🐋 purple (same family as VOLUME_SPIKE)
 ///   - FILTER_FIRED   → ▼ red ("risk" — terminal cut event)
 ///   - FILTER_COUNTDOWN → 🎯 yellow ("mission" — focused timer)
 ///   - PHASE_ADVANCED → ✨ pink ("launch" — new phase opens new opportunity)
 const EVENT_TYPE_STYLES: Record<EventType, {icon: string; color: string}> = {
-  RANK_CHANGED:      {icon: "🚀", color: C.cyan},
+  RANK_CHANGED:      {icon: "↑", color: C.green},     // direction-overridden in styleFor()
   CUT_LINE_CROSSED:  {icon: "⚠️",  color: C.red},
-  HP_SPIKE:          {icon: "📈", color: C.green},
+  HP_SPIKE:          {icon: "📈", color: C.green},     // direction-overridden in styleFor()
   VOLUME_SPIKE:      {icon: "🐋", color: C.purple},
   LARGE_TRADE:       {icon: "🐋", color: C.purple},
   FILTER_FIRED:      {icon: "▼",  color: C.red},
@@ -67,6 +74,34 @@ const EVENT_TYPE_STYLES: Record<EventType, {icon: string; color: string}> = {
   SEASON_ACTIVATED:     {icon: "✅", color: C.green},
   SEASON_ABORTED:       {icon: "⛔", color: C.red},
 };
+
+/// Resolves the {icon, color} pair for a single feed item. For static-styled
+/// types this just reads `EVENT_TYPE_STYLES`; for direction-aware types
+/// (RANK_CHANGED, HP_SPIKE) it derives the direction from the event payload
+/// per the spec's BUY/RANK_UP/LIQUIDITY_UP vs SELL/RANK_DOWN/RETENTION_DROP
+/// pairing. Exported so the test suite can pin the mapping without spinning
+/// up a full render tree.
+export function styleFor(e: TickerEvent): {icon: string; color: string} {
+  if (e.type === "RANK_CHANGED") {
+    const from = Number(e.data?.fromRank);
+    const to = Number(e.data?.toRank);
+    if (Number.isFinite(from) && Number.isFinite(to)) {
+      // Lower rank number = better placement, so toRank < fromRank is "up".
+      return to < from
+        ? {icon: "↑", color: C.green}
+        : {icon: "↓", color: C.yellow};
+    }
+  }
+  if (e.type === "HP_SPIKE") {
+    const delta = Number(e.data?.hpDelta);
+    if (Number.isFinite(delta)) {
+      return delta >= 0
+        ? {icon: "📈", color: C.green}
+        : {icon: "📉", color: C.yellow};
+    }
+  }
+  return EVENT_TYPE_STYLES[e.type] ?? {icon: "▼", color: C.cyan};
+}
 
 export function ArenaActivityFeed({events, max = 16, liveStatus = "open"}: ArenaActivityFeedProps) {
   // Epic 1.17c — HP_UPDATED frames are a data-refresh carrier (the
@@ -110,10 +145,11 @@ export function ArenaActivityFeed({events, max = 16, liveStatus = "open"}: Arena
           </li>
         )}
         {items.map((e) => {
-          const style = EVENT_TYPE_STYLES[e.type];
+          const style = styleFor(e);
           return (
             <li
               key={e.id}
+              data-event-type={e.type}
               style={{
                 padding: "8px 16px",
                 borderBottom: `1px solid ${C.lineSoft}`,
@@ -126,18 +162,18 @@ export function ArenaActivityFeed({events, max = 16, liveStatus = "open"}: Arena
               }}
             >
               <span style={{color: C.faint, fontSize: 9, minWidth: 36, fontVariantNumeric: "tabular-nums"}}>{shortTime(e.timestamp)}</span>
-              {/* Audit M-Arena-2: per-event-type icon + colour tile next to
-                  the message. Falls back to the priority-driven colour if a
-                  future EventType is added without updating EVENT_TYPE_STYLES
-                  (defensive — the type system would normally catch this, but
-                  the wire format could drift faster than the consumer.) */}
-              <span aria-hidden style={{color: style?.color ?? priorityColor(e.priority), minWidth: 16, textAlign: "center"}}>
-                {style?.icon ?? "·"}
+              {/* Audit M-Arena-2 + Epic 1.28: per-event-type icon + colour tile
+                  next to the message, direction-aware for RANK_CHANGED + HP_SPIKE
+                  via styleFor(). Falls back to ▼ cyan when the indexer's wire
+                  format drifts ahead of the consumer (defensive — the type
+                  system normally catches this). */}
+              <span aria-hidden style={{color: style.color, minWidth: 16, textAlign: "center"}}>
+                {style.icon}
               </span>
               {/* Color the message itself, not the <li> — earlier the priority color
                   was set on the <li> but both child <span>s overrode it with their
                   own `color`, so HIGH/LOW priority lines were visually identical. */}
-              <span style={{flex: 1, color: style?.color ?? priorityColor(e.priority)}}>{e.message}</span>
+              <span style={{flex: 1, color: style.color}}>{e.message}</span>
             </li>
           );
         })}
@@ -225,16 +261,6 @@ function withAlpha(color: string, alpha: number): string {
   return color;
 }
 
-function priorityColor(p: TickerEvent["priority"]): string {
-  switch (p) {
-    case "HIGH":
-      return C.red;
-    case "MEDIUM":
-      return C.text;
-    case "LOW":
-      return C.dim;
-  }
-}
 
 function shortTime(iso: string): string {
   const d = new Date(iso);

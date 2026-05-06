@@ -2,6 +2,8 @@ import type {Metadata} from "next";
 import {Bricolage_Grotesque, JetBrains_Mono} from "next/font/google";
 import type {ReactNode} from "react";
 
+import {FooterSlot} from "@/components/FooterSlot";
+
 import {Providers} from "./providers";
 import "./globals.css";
 
@@ -78,7 +80,10 @@ export default function RootLayout({children}: {children: ReactNode}) {
   return (
     <html lang="en" className={`${display.variable} ${mono.variable}`}>
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <FooterSlot />
+        </Providers>
       </body>
     </html>
   );

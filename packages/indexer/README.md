@@ -212,7 +212,7 @@ Clients connect with the standard `EventSource` API. The browser handles auto-re
   "priority": "HIGH",
   "token": "$EDGE",
   "address": "0x…",
-  "message": "$EDGE just dropped below the cut line 🔻",
+  "message": "$EDGE just dropped below the cut line ▼",
   "data": {"fromRank": 5, "toRank": 7, "direction": "below"},
   "timestamp": "2026-04-30T14:00:05.123Z"
 }

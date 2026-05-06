@@ -5,20 +5,20 @@
 /// The canonical mark on every visual surface (launch, arena, broadcast,
 /// claim flows). Strings that travel over text channels — SSE event
 /// messages from the indexer, HTML `<meta name="description">` — use the
-/// ▼ unicode glyph instead since they can't host SVG. The rare surviving
-/// 🔻 emoji is intentional and lives on chat-style notifications produced
-/// by `packages/indexer/src/api/events/message.ts` and a test fixture
-/// that mirrors them.
+/// ▼ unicode glyph (U+25BC) instead since they can't host SVG. The
+/// U+1F53B emoji is never emitted anywhere in the product per brand
+/// kit v1.0 + spec §32.4 (Epic 1.28 closed the last wire-payload gap).
 
 import {useId} from "react";
 
 export function Triangle({size = 16, inline = false}: {size?: number; inline?: boolean}) {
   // U+25BC BLACK DOWN-POINTING TRIANGLE — visually closer to the brand
-  // glyph than the heavy emoji 🔻. Each instance gets a unique gradient
-  // id via React's `useId()` so multiple Triangles on one page (the
-  // launch page renders a few — hero, filter strip, claim form, ack
-  // checkbox) don't share a DOM id and steal each other's fill on
-  // unmount.
+  // glyph than the heavy U+1F53B emoji (which renders as a coloured
+  // photo character on some platforms). Each instance gets a unique
+  // gradient id via React's `useId()` so multiple Triangles on one
+  // page (the launch page renders a few — hero, filter strip, claim
+  // form, ack checkbox) don't share a DOM id and steal each other's
+  // fill on unmount.
   const id = `ff-tri-${useId()}`;
   return (
     <svg

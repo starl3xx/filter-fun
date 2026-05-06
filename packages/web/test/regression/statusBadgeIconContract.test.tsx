@@ -34,7 +34,7 @@ describe("StatusBadge icon contract (Audit H-A11y-2)", () => {
     // Defensive: U+2713 CHECK MARK, not the U+2714 HEAVY CHECK MARK or the
     // emoji ✅ (U+2705) which renders as a coloured photo character on some
     // platforms and would collide with the green CSS colour the same way the
-    // 🔻/▼ swap caused trouble in H-Arena-3.
+    // U+1F53B / ▼ swap caused trouble in H-Arena-3.
     expect(badge.textContent).not.toContain("✅");
     expect(badge.textContent).not.toContain("✔");
     // U+2713 specifically — codepoint 0x2713

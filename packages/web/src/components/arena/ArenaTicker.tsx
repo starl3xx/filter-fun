@@ -249,10 +249,9 @@ function PreFilterStrip({events, season, now}: {events: TickerEvent[]; season: S
 
 function FilterMomentStrip({events}: {events: TickerEvent[]}) {
   const headline = events.find((e) => e.type === "FILTER_FIRED");
-  // The headline is a string from the indexer SSE stream and may carry the
-  // 🔻 emoji on the wire (chat-style notification — see Triangle.tsx). The
-  // fallback string uses ▼ since this component-level constant doesn't
-  // travel over the stream.
+  // The headline is a string from the indexer SSE stream and uses ▼
+  // (U+25BC) on the wire — the U+1F53B emoji is never emitted (Epic 1.28
+  // closed the last wire-payload gap). The fallback string mirrors that.
   const message = headline?.message ?? "▼ FILTER LIVE";
   return (
     <div
