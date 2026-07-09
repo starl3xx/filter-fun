@@ -84,8 +84,16 @@ quote_style = "double"
 number_underscore = "thousands"
 
 [rpc_endpoints]
+robinhood = "${ROBINHOOD_RPC_URL}"
+robinhood_testnet = "${ROBINHOOD_TESTNET_RPC_URL}"
 base = "${BASE_RPC_URL}"
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+
+# Robinhood Chain verification uses Blockscout (no [etherscan] entry needed):
+#   forge verify-contract --verifier blockscout \
+#     --verifier-url https://robinhoodchain.blockscout.com/api/          # mainnet 4663
+#     --verifier-url https://explorer.testnet.chain.robinhood.com/api/   # testnet 46630
+# The deploy-testnet.sh / deploy-robinhood.sh wrappers pass these flags.
 
 [etherscan]
 base = { key = "${BASESCAN_API_KEY}", url = "https://api.basescan.org/api" }

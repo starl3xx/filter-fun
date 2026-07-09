@@ -19,6 +19,7 @@ import {CreatorFeeDistributor} from "./CreatorFeeDistributor.sol";
 import {CreatorCommitments} from "./CreatorCommitments.sol";
 import {TournamentRegistry} from "./TournamentRegistry.sol";
 import {TournamentVault} from "./TournamentVault.sol";
+import {IFilterClubPass} from "./interfaces/IFilterClubPass.sol";
 import {IFilterFactory} from "./interfaces/IFilterFactory.sol";
 import {IFilterLauncher} from "./interfaces/IFilterLauncher.sol";
 import {LaunchEscrow} from "./LaunchEscrow.sol";
@@ -157,6 +158,14 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     /// @notice Per-season escrow holding reservation funds until activation or abort.
     LaunchEscrow public immutable launchEscrow;
 
+    /// @notice Filter Club lifetime pass (spec §47.3.8). Consulted exactly once per
+    ///         reservation — inside `reserve`'s payment check, only when `msg.value == 0` —
+    ///         to redeem a free-launch credit. Immutable: the pass is deployed before the
+    ///         launcher and wired via constructor; the pass learns the launcher's address
+    ///         via its own one-shot `setLauncher` (fails safe — `consumeCredit` reverts for
+    ///         everyone until wired).
+    IFilterClubPass public immutable clubPass;
+
     /// @notice Read-only companion exposing convenience views (`getLaunchSlots`,
     ///         `getLaunchStatus`, `canReserve`). Deployed inline; lives outside the launcher's
     ///         bytecode to keep the launcher under EIP-170. Web + indexer call through
@@ -271,7 +280,8 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
         address treasury_,
         address mechanics_,
         IBonusFunding bonusDistributor_,
-        address weth_
+        address weth_,
+        IFilterClubPass clubPass_
     ) Ownable(owner_) {
         // Audit H-4 (Phase 1, 2026-05-01): every loose-typed address dependency injected at
         // construction MUST be non-zero. Zero in any of these would brick downstream paths
@@ -281,11 +291,13 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
         if (mechanics_ == address(0)) revert ZeroAddress();
         if (address(bonusDistributor_) == address(0)) revert ZeroAddress();
         if (weth_ == address(0)) revert ZeroAddress();
+        if (address(clubPass_) == address(0)) revert ZeroAddress();
         oracle = oracle_;
         treasury = treasury_;
         mechanics = mechanics_;
         bonusDistributor = bonusDistributor_;
         weth = weth_;
+        clubPass = clubPass_;
         forfeitRecipient = treasury_;
         creatorRegistry = new CreatorRegistry(address(this));
         creatorFeeDistributor = new CreatorFeeDistributor(address(this), weth_, treasury_, creatorRegistry);
@@ -320,26 +332,31 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
         tickerBlocklist[keccak256(bytes("DAI"))] = true;
     }
 
-    /// @notice One-shot wire of the POLManager. Owner-only; reverts if already set or zero.
-    function setPolManager(IPOLManager polManager_) external onlyOwner {
-        if (address(polManager) != address(0)) revert AlreadySet();
-        if (address(polManager_) == address(0)) revert ZeroAddress();
+    /// @notice One-shot wire of every externally-deployed dependency: factory, POLManager,
+    ///         TournamentRegistry + TournamentVault. Owner-only; reverts if any is zero or
+    ///         if already wired. Tournament pair externalised (rather than inline-deployed)
+    ///         because together they push FilterLauncher's init code past EIP-3860
+    ///         (49,152 B); the deploy scripts handle the deploy + wire sequence.
+    /// @dev    Consolidated from three one-shot setters (`setFactory` / `setPolManager` /
+    ///         `setTournament`) into a single atomic entry point — funds the Filter Club
+    ///         credit branch's runtime bytes under EIP-170 (Epic 2.6). All four slots are
+    ///         set together, so the `AlreadySet` sentinel keys off `factory` alone.
+    ///         Zero-checks kept per bugbot M+L PR #88: a zero in any slot would either
+    ///         bypass the sentinel or permanently brick that path with the one-shot guard
+    ///         blocking a re-wire.
+    function wire(
+        IFilterFactory factory_,
+        IPOLManager polManager_,
+        TournamentRegistry registry_,
+        TournamentVault vault_
+    ) external onlyOwner {
+        if (
+            address(factory_) == address(0) || address(polManager_) == address(0)
+                || address(registry_) == address(0) || address(vault_) == address(0)
+        ) revert ZeroAddress();
+        if (address(factory) != address(0)) revert AlreadySet();
+        factory = factory_;
         polManager = polManager_;
-    }
-
-    /// @notice One-shot wire of the externally-deployed TournamentRegistry + TournamentVault.
-    ///         Owner-only; reverts if already set or zero. Externalised (rather than
-    ///         inline-deployed) because together they push FilterLauncher's init code past
-    ///         EIP-3860 (49,152 B). DeploySepolia handles the deploy + wire sequence.
-    function setTournament(TournamentRegistry registry_, TournamentVault vault_) external onlyOwner {
-        // Audit: bugbot M+L PR #88. The one-shot guard MUST also reject zero `registry_`
-        // OR zero `vault_` — otherwise a first call with either zero would either bypass
-        // the `AlreadySet` sentinel (zero registry leaves the slot empty so a re-call slips
-        // through) or permanently brick the tournament path (zero vault address fails every
-        // `onlyTournamentVault` check on the registry, with the one-shot guard blocking
-        // re-wire). Combined into a single OR'd revert to keep bytecode under EIP-170.
-        if (address(registry_) == address(0) || address(vault_) == address(0)) revert ZeroAddress();
-        if (address(tournamentRegistry) != address(0)) revert AlreadySet();
         tournamentRegistry = registry_;
         tournamentVault = vault_;
     }
@@ -355,12 +372,6 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     modifier onlyMultisig() {
         if (msg.sender != owner()) revert NotMultisig();
         _;
-    }
-
-    function setFactory(IFilterFactory factory_) external onlyOwner {
-        if (address(factory) != address(0)) revert AlreadySet();
-        if (address(factory_) == address(0)) revert ZeroAddress();
-        factory = factory_;
     }
 
     /// @notice Rotate the oracle authorised to drive season lifecycle + filter events.
@@ -539,9 +550,19 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
         // 7. Per-season uniqueness.
         if (seasonTickers[sid][tickerHash] != address(0)) revert TickerTaken();
 
-        // 8. Funds attached. Slot cost ladders by current reservation count.
+        // 8. Funds attached. Slot cost ladders by current reservation count. A zero-value
+        //    call is unambiguous Filter Club intent (spec §47.3.8): the pass is consulted
+        //    exactly when `msg.value == 0`, so a nonzero underpayment can never silently
+        //    burn a credit. `consumeCredit` returns false — never reverts — when the caller
+        //    holds no credit or the per-season redemption cap is hit, folding every unfunded
+        //    reservation into the single `InsufficientEscrow` surface. The pass makes no
+        //    external calls and moves no ETH; a revert later in this function rolls the
+        //    credit decrement back atomically (checks 1–7 have already passed by here).
         uint256 cost = _slotCost(uint64(currentResCount));
-        if (msg.value < cost) revert InsufficientEscrow();
+        if (msg.value < cost) {
+            if (msg.value != 0 || !clubPass.consumeCredit(msg.sender, sid)) revert InsufficientEscrow();
+            cost = 0;
+        }
 
         // ---- All eight checks passed. Commit state. ----
 
@@ -820,8 +841,13 @@ contract FilterLauncher is IFilterLauncher, Ownable, Pausable, ReentrancyGuard {
     ///         of length. Spec §46 + the pre-deploy invariant guarantee that an aborted
     ///         season can never transition out of Phase.Launch (see `advancePhase`
     ///         guard, audit bugbot H PR #88), so the entries here are inert.
-    function pendingReservations(uint256 seasonId) external view returns (PendingReservation[] memory) {
-        return _pending[seasonId];
+    /// @dev    Epic 2.6: exposes the COUNT only. The full-queue struct-array view
+    ///         (`pendingReservations`) was removed — its ABI encoder (two dynamic strings
+    ///         per entry) cost several hundred runtime bytes, which now fund the Filter
+    ///         Club credit branch under EIP-170. Entries are reconstructable off-chain
+    ///         from the escrow's `SlotReserved` events; no contract consumed the view.
+    function pendingCount(uint256 seasonId) external view returns (uint256) {
+        return _pending[seasonId].length;
     }
 
     function lockerOf(uint256 seasonId, address token) external view returns (address) {

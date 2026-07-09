@@ -4,8 +4,10 @@ import {formatEther} from "viem";
 
 import {OperatorCard} from "./Card";
 import {CUT_INDEX} from "@/components/arena/ArenaLeaderboard";
+import type {ClubResponse} from "@/lib/arena/api";
 import type {SeasonResponse} from "@/lib/arena/api";
 import type {TokenResponse} from "@/lib/arena/api";
+import {shortAddr} from "@/lib/launch/format";
 import type {FinancialOverview, OperatorActionRow, SettlementHistoryEntry} from "@/lib/operator/api";
 import {C, F} from "@/lib/tokens";
 
@@ -378,16 +380,187 @@ export function BagLockSurfaceCard({tokens}: {tokens: TokenResponse[] | null}) {
   );
 }
 
-/// Spec §47.3.8 — Filter Club card. Renders the placeholder per Epic 2.6 not-yet-shipped
-/// guidance from the dispatch.
-export function FilterClubCard() {
+/// Spec §47.3.8 — Filter Club card (Epic 2.6). Mint progress, proceeds framed
+/// as audit-budget progress, the credit ledger, holder roster, and recent
+/// redemptions. Data comes from the same public `GET /club` fetch the /club
+/// mint page reads — no operator signature needed, so it rides in the page's
+/// `Promise.allSettled` fan-out as a non-critical surface (like
+/// /scoring/weights): a club-endpoint blip must never drag the console down.
+export function FilterClubCard({club}: {club: ClubResponse | null}) {
+  if (!club) {
+    return (
+      <OperatorCard label="Filter Club" sublabel="mint + credits">
+        <Pending />
+      </OperatorCard>
+    );
+  }
+  // Indexer zero-state contract: `maxSupply: 0` = pass not indexed yet.
+  if (club.maxSupply === 0) {
+    return (
+      <OperatorCard label="Filter Club" sublabel="mint + credits">
+        <p style={{margin: 0, fontSize: 13, color: C.dim, fontFamily: F.display}}>
+          Mint not live — the indexer hasn't seen the FilterClubPass deployment yet. Mint
+          progress, audit-budget allocation, and the holder roster surface here once it does.
+        </p>
+      </OperatorCard>
+    );
+  }
+
+  const mintPct = Math.min(100, (club.minted / club.maxSupply) * 100);
+  // Malformed wire value degrades to 0% (never a full bar lying "funded").
+  let proceedsEth = 0;
+  try {
+    proceedsEth = Number(formatEther(BigInt(club.proceedsWei)));
+  } catch {
+    /* keep 0 */
+  }
+  const auditPct = Math.min(100, (proceedsEth / CLUB_AUDIT_BUDGET_ETH) * 100);
+
   return (
-    <OperatorCard label="Filter Club" sublabel="placeholder">
-      <p style={{margin: 0, fontSize: 13, color: C.dim, fontFamily: F.display}}>
-        Not available — depends on Epic 2.6 (Filter Club mint). Mint progress, audit-budget
-        allocation, and the holder roster will surface here once 2.6 ships.
-      </p>
+    <OperatorCard label="Filter Club" sublabel="mint + credits">
+      <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12}}>
+        <KV k="Minted" v={`${club.minted} / ${club.maxSupply}`} />
+        <KV
+          k="Proceeds (audit budget)"
+          v={`${formatEtherTrim(club.proceedsWei)} / ${CLUB_AUDIT_BUDGET_ETH} ETH`}
+          tone={C.green}
+        />
+        <KV k="Credits issued" v={String(club.credits.issued)} />
+        <KV k="Consumed" v={String(club.credits.consumed)} />
+        <KV k="Outstanding" v={String(club.credits.outstanding)} tone={C.yellow} />
+        <KV k="Reclaimed" v={String(club.credits.reclaimed)} tone={club.credits.reclaimed > 0 ? C.yellow : C.dim} />
+      </div>
+
+      {/* Mint-progress + audit-budget bars share one visual grammar so the
+          operator reads "how sold" and "how funded" at a glance. */}
+      <ClubBar label="Mint progress" pct={mintPct} from={C.pink} to={C.purple} />
+      <ClubBar label="Audit budget (12.5 ETH target)" pct={auditPct} from={C.green} to={C.cyan} />
+
+      {club.holders.length > 0 && (
+        <div style={{marginTop: 12}}>
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11,
+              color: C.faint,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              marginBottom: 6,
+            }}
+          >
+            Holder roster ({club.holders.length})
+          </div>
+          <div style={{display: "flex", flexDirection: "column", gap: 4}}>
+            {club.holders.map((h) => (
+              <div
+                key={h.address}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "120px 1fr 100px",
+                  gap: 8,
+                  fontFamily: F.mono,
+                  fontSize: 12,
+                  color: C.dim,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
+                <span style={{color: C.text}} title={h.address}>
+                  {shortAddr(h.address)}
+                </span>
+                <span>{h.tokenIds.map((id) => `#${id}`).join(" ")}</span>
+                <span style={{color: h.creditsRemaining > 0 ? C.yellow : C.faint, textAlign: "right"}}>
+                  {h.creditsRemaining} credit{h.creditsRemaining === 1 ? "" : "s"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {club.recentRedemptions.length > 0 && (
+        <div style={{marginTop: 12}}>
+          <div
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11,
+              color: C.faint,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              marginBottom: 6,
+            }}
+          >
+            Recent redemptions
+          </div>
+          <div style={{display: "flex", flexDirection: "column", gap: 4}}>
+            {club.recentRedemptions.map((r, i) => (
+              <div
+                key={`${r.seasonId}-${r.creator}-${i}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "60px 120px 80px 1fr",
+                  gap: 8,
+                  fontFamily: F.mono,
+                  fontSize: 12,
+                  color: C.dim,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
+                <span style={{color: C.cyan}}>S{r.seasonId}</span>
+                <span title={r.creator}>{shortAddr(r.creator)}</span>
+                <span>pass #{r.tokenId}</span>
+                <span style={{color: r.status === "RECLAIMED" ? C.yellow : C.green}}>
+                  {r.status === "RECLAIMED" ? "reclaimed" : "consumed"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </OperatorCard>
+  );
+}
+
+/// Audit-budget target for the proceeds framing (250 passes × 0.05 ETH — the
+/// one-pager raise math). Mirrored on the /club mint page; display only.
+const CLUB_AUDIT_BUDGET_ETH = 12.5;
+
+function ClubBar({label, pct, from, to}: {label: string; pct: number; from: string; to: string}) {
+  return (
+    <div style={{marginTop: 10}}>
+      <div
+        style={{
+          fontFamily: F.mono,
+          fontSize: 10,
+          color: C.faint,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        aria-label={label}
+        style={{height: 8, borderRadius: 99, background: "rgba(255,255,255,0.06)", overflow: "hidden"}}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            height: "100%",
+            borderRadius: 99,
+            background: `linear-gradient(90deg, ${from}, ${to})`,
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

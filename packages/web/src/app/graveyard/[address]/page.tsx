@@ -16,7 +16,7 @@ import {
   tradeTokenUrl,
   type GraveyardDetailResponse,
 } from "@/lib/arena/api";
-import {deploymentMeta} from "@/lib/addresses";
+import {activeChainSlug} from "@/lib/chain";
 import {shortAddr} from "@/lib/launch/format";
 
 import {NearMissChip, formatMarginHp} from "@/components/graveyard/NearMissChip";
@@ -75,7 +75,11 @@ function Detail({address}: {address: `0x${string}`}) {
   }
 
   const d = data.data;
-  const chain = deploymentMeta.network === "base" ? "base" : "base-sepolia";
+  // Widened from the manifest-only `deploymentMeta.network` ternary
+  // (2026-07 Robinhood retarget): `activeChainSlug` keeps the manifest as
+  // input but lets the NEXT_PUBLIC_CHAIN op-set override win, matching the
+  // chain wagmi actually connects with.
+  const chain = activeChainSlug();
   const trade = tradeTokenUrl(d.token.address, chain);
 
   return (

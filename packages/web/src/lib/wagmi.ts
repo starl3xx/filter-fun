@@ -10,30 +10,45 @@ import {http, createConfig} from "wagmi";
 // or destructure into a `chains` const — both would defeat the
 // tree-shake and pull the full registry into First Load JS. The narrow
 // named-import form here is the spec-correct shape.
+//
+// 2026-07 Robinhood retarget: the Robinhood chains are NOT added to this
+// import — viem 2.48.x doesn't ship them, and even once it does they must
+// keep coming from the local `./chains.ts` literals so this line stays
+// byte-identical and the tree-shake pin in `polishPerfPass.test.tsx`
+// keeps holding (it asserts exactly `{base, baseSepolia}` here AND that
+// robinhood/robinhoodTestnet come from "./chains").
 import {base, baseSepolia} from "wagmi/chains";
 import {coinbaseWallet, injected, walletConnect} from "wagmi/connectors";
 
-import {deploymentMeta} from "./addresses.js";
+// `deploymentMeta` is no longer read here — the env-vs-manifest resolution
+// (including the manifest fallback) moved wholesale into
+// `chain.ts#activeChainSlug` so every surface resolves the same slug.
+import {activeChainSlug, type ChainSlug} from "./chain.js";
+import {robinhood, robinhoodTestnet} from "./chains.js";
 
-/// Chain selection. Resolution order:
+/// Chain selection (2026-07 Robinhood retarget — widened from the binary
+/// base/base-sepolia ternary to the four-slug map below). Resolution order
+/// is unchanged and lives in `chain.ts#activeChainSlug`:
 ///   1. NEXT_PUBLIC_CHAIN env override (explicit op-set).
 ///   2. The deployment manifest's `network` field (synced via `npm run sync:deployment`).
-///   3. base-sepolia default (testnet rehearsal target).
+///   3. "robinhood-testnet" default (testnet rehearsal target; was
+///      "base-sepolia" pre-retarget).
 ///
-/// Use `||` not `??` (bugbot caught on PR #86): with the Docker ARG /
-/// ENV pattern that forwards Railway env vars into the build, an unset
-/// ARG still produces an empty string `""` (not `undefined`) in
-/// `process.env.NEXT_PUBLIC_CHAIN`, which Next.js inlines into the bundle.
-/// `"" ?? fallback` evaluates to `""` because `??` only catches null /
-/// undefined — that would silently force the chain to base-sepolia even
-/// when the deployment manifest says "base", flipping a mainnet build
-/// to testnet. `""`-aware `||` makes the deployment-manifest fallback
-/// work for both "not set anywhere" (undefined, dev) and "declared as
-/// ARG without --build-arg" (empty string, Docker).
-const chainName =
-  process.env.NEXT_PUBLIC_CHAIN ||
-  (deploymentMeta.network === "base" ? "base" : "base-sepolia");
-const chain = chainName === "base" ? base : baseSepolia;
+/// The `||`-not-`??` Docker empty-string rationale (bugbot, PR #86) moved to
+/// `chain.ts` with the resolution logic — see `activeChainSlug`.
+///
+/// A stale committed manifest (`network: "base-sepolia"`) alongside
+/// NEXT_PUBLIC_CHAIN=robinhood-testnet resolves to robinhood-testnet — env
+/// wins, same as it always has. The manifest network only matters when the
+/// env override is absent/empty.
+const chainSlug: ChainSlug = activeChainSlug();
+const CHAIN_BY_SLUG = {
+  base,
+  "base-sepolia": baseSepolia,
+  robinhood,
+  "robinhood-testnet": robinhoodTestnet,
+} as const;
+const chain = CHAIN_BY_SLUG[chainSlug];
 
 /// Connector ordering — desktop default first, mobile last.
 ///   1. injected() — MetaMask / Rabby / Brave / etc; the desktop default.
@@ -76,12 +91,27 @@ const wcProjectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID ?? "";
 // the warn in logs and can fix it. The "fail-fast" objective is now
 // served by the dev-time .env.example documentation + the build-step
 // deploy hooks, not by a runtime throw that takes the whole site down.
-const expectedRpcEnvName: "NEXT_PUBLIC_BASE_RPC_URL" | "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL" =
-  chain === base ? "NEXT_PUBLIC_BASE_RPC_URL" : "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL";
-const expectedRpcUrl =
-  chain === base
-    ? process.env.NEXT_PUBLIC_BASE_RPC_URL
-    : process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL;
+// 2026-07 Robinhood retarget: the env-name/env-value pair generalizes from
+// the base/base-sepolia ternary to one entry per ChainSlug. The values map
+// reads each `process.env.NEXT_PUBLIC_*` var as a LITERAL property access —
+// Next.js's webpack DefinePlugin only inlines statically-written
+// `process.env.NEXT_PUBLIC_*` expressions, so a dynamic
+// `process.env[name]` lookup would silently read `undefined` in the browser
+// bundle and defeat the warning below.
+const RPC_ENV_NAME_BY_SLUG: Record<ChainSlug, string> = {
+  base: "NEXT_PUBLIC_BASE_RPC_URL",
+  "base-sepolia": "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL",
+  robinhood: "NEXT_PUBLIC_ROBINHOOD_RPC_URL",
+  "robinhood-testnet": "NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL",
+};
+const RPC_URL_BY_SLUG: Record<ChainSlug, string | undefined> = {
+  base: process.env.NEXT_PUBLIC_BASE_RPC_URL,
+  "base-sepolia": process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL,
+  robinhood: process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL,
+  "robinhood-testnet": process.env.NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL,
+};
+const expectedRpcEnvName = RPC_ENV_NAME_BY_SLUG[chainSlug];
+const expectedRpcUrl = RPC_URL_BY_SLUG[chainSlug];
 if (!expectedRpcUrl || expectedRpcUrl.trim() === "") {
   const message = `[wagmi] ${expectedRpcEnvName} is unset for active chain "${chain.name}" — viem will fall back to the rate-limited public RPC and reads/txs will silently fail under load.`;
   // eslint-disable-next-line no-console
@@ -98,6 +128,12 @@ export const wagmiConfig = createConfig({
   transports: {
     [base.id]: http(process.env.NEXT_PUBLIC_BASE_RPC_URL),
     [baseSepolia.id]: http(process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL),
+    // `|| undefined` matches the Base entries' empty-string semantics: an
+    // unset Docker ARG bakes `""` into the bundle, and viem's http()
+    // falsy-coalesces to the chain's default (rate-limited) public RPC —
+    // the soft-fail path the module-load warning above already covers.
+    [robinhood.id]: http(process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL || undefined),
+    [robinhoodTestnet.id]: http(process.env.NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL || undefined),
   },
   ssr: true,
 });

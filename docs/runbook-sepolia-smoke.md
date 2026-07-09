@@ -1,5 +1,13 @@
 # Base Sepolia Smoke-Test Runbook
 
+> **2026-07 Robinhood Chain retarget.** Base Sepolia is now the RETREAT path — the
+> default rehearsal target is Robinhood Chain testnet (46630); see
+> [`runbook-robinhood-deploy.md`](runbook-robinhood-deploy.md). The commands below still
+> work: `npm run deploy:sepolia` is now an alias for
+> `./script/deploy-testnet.sh --network base-sepolia` (the script was renamed from
+> `deploy-sepolia.sh`, and `DeploySepolia.s.sol` became the network-generic
+> `DeployTestnet.s.sol`). Env file renamed `.env.sepolia` → `.env.base-sepolia`.
+
 End-to-end rehearsal of one filter.fun season on Base Sepolia (chain 84532). Covers
 deploy → $FILTER seed → public launch → soft filter → finals cut → settlement → rollover
 & bonus claim → POL deployment → events stream verification.

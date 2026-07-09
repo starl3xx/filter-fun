@@ -45,7 +45,7 @@ jobs:
       - name: Build
         run: forge build --sizes
 
-      # `--threads 1` serializes test files. Several scripts (`DeploySepolia.s.sol`,
+      # `--threads 1` serializes test files. Several scripts (`DeployTestnet.s.sol`,
       # `SeedFilter.s.sol`, `VerifySepolia.s.sol`) read/write a shared manifest under
       # `deployments/` plus several `vm.setEnv`-controlled knobs; those are process-wide
       # state, so concurrent tests would race and silently produce wrong paths or stale

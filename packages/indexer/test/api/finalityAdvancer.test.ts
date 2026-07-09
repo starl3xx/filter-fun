@@ -1,7 +1,10 @@
-/// Tests for the hpSnapshot finality advancer — Epic 1.22b.
+/// Tests for the hpSnapshot finality advancer — Epic 1.22b, re-based to
+/// wall-clock seconds in the 2026-07 Robinhood Chain retarget.
 ///
-/// The state machine `tip → soft → final` is gated on block-number deltas
-/// (FINALITY_SOFT_BLOCKS = 6, FINALITY_FINAL_BLOCKS = 12). The pure helpers
+/// The state machine `tip → soft → final` is gated on block-TIMESTAMP deltas
+/// (FINALITY_SOFT_SECONDS = 30, FINALITY_FINAL_SECONDS = 120) — block-count
+/// deltas are meaningless on an on-demand-block Arbitrum-stack chain (see
+/// src/api/finalityAdvancer.ts for the full rationale). The pure helpers
 /// `nextFinality` + `finalityCutoffs` are sync + side-effect-free, so the
 /// truth table is pinned here without a DB context.
 ///
@@ -13,116 +16,117 @@
 import {describe, expect, it} from "vitest";
 
 import {
-  FINALITY_FINAL_BLOCKS,
-  FINALITY_SOFT_BLOCKS,
+  FINALITY_FINAL_SECONDS,
+  FINALITY_SOFT_SECONDS,
   finalityCutoffs,
   nextFinality,
   type HpFinality,
 } from "../../src/api/finalityAdvancer.js";
 
 describe("finalityCutoffs", () => {
-  it("returns soft = head − 6, final = head − 12", () => {
-    const c = finalityCutoffs(1000n);
-    expect(c.softCutoff).toBe(1000n - FINALITY_SOFT_BLOCKS);
-    expect(c.finalCutoff).toBe(1000n - FINALITY_FINAL_BLOCKS);
-    expect(c.softCutoff).toBe(994n);
-    expect(c.finalCutoff).toBe(988n);
+  it("returns soft = head − 30s, final = head − 120s", () => {
+    const c = finalityCutoffs(10_000n);
+    expect(c.softCutoff).toBe(10_000n - FINALITY_SOFT_SECONDS);
+    expect(c.finalCutoff).toBe(10_000n - FINALITY_FINAL_SECONDS);
+    expect(c.softCutoff).toBe(9970n);
+    expect(c.finalCutoff).toBe(9880n);
   });
 
-  it("handles head < FINAL_BLOCKS at chain genesis (cutoffs go negative — non-issue under bigint)", () => {
+  it("handles head < FINAL_SECONDS at chain genesis (cutoffs go negative — non-issue under bigint)", () => {
     const c = finalityCutoffs(5n);
-    expect(c.softCutoff).toBe(-1n);
-    expect(c.finalCutoff).toBe(-7n);
+    expect(c.softCutoff).toBe(5n - FINALITY_SOFT_SECONDS);
+    expect(c.finalCutoff).toBe(5n - FINALITY_FINAL_SECONDS);
+    expect(c.softCutoff < 0n).toBe(true);
+    expect(c.finalCutoff < 0n).toBe(true);
   });
 });
 
 describe("nextFinality — truth table", () => {
-  const HEAD = 1000n;
+  const HEAD = 10_000n;
 
   it("`final` rows never advance (idempotent floor)", () => {
     expect(nextFinality("final" as HpFinality, 100n, HEAD)).toBe(null);
-    expect(nextFinality("final" as HpFinality, 999n, HEAD)).toBe(null);
+    expect(nextFinality("final" as HpFinality, 9999n, HEAD)).toBe(null);
   });
 
-  it("`tip` row at head − 5 stays tip (under soft threshold)", () => {
-    expect(nextFinality("tip" as HpFinality, HEAD - 5n, HEAD)).toBe(null);
+  it("`tip` row written 29s ago stays tip (under soft threshold)", () => {
+    expect(nextFinality("tip" as HpFinality, HEAD - (FINALITY_SOFT_SECONDS - 1n), HEAD)).toBe(null);
   });
 
-  it("`tip` row at head − 6 graduates to soft (boundary, ≤ softCutoff)", () => {
-    expect(nextFinality("tip" as HpFinality, HEAD - FINALITY_SOFT_BLOCKS, HEAD)).toBe("soft");
+  it("`tip` row written exactly SOFT_SECONDS ago graduates to soft (boundary, ≤ softCutoff)", () => {
+    expect(nextFinality("tip" as HpFinality, HEAD - FINALITY_SOFT_SECONDS, HEAD)).toBe("soft");
   });
 
-  it("`tip` row at head − 11 graduates to soft", () => {
-    expect(nextFinality("tip" as HpFinality, HEAD - 11n, HEAD)).toBe("soft");
+  it("`tip` row written 119s ago graduates to soft (just under final threshold)", () => {
+    expect(nextFinality("tip" as HpFinality, HEAD - (FINALITY_FINAL_SECONDS - 1n), HEAD)).toBe("soft");
   });
 
-  it("`tip` row at head − 12 jumps straight to final (boundary, ≤ finalCutoff)", () => {
-    expect(nextFinality("tip" as HpFinality, HEAD - FINALITY_FINAL_BLOCKS, HEAD)).toBe("final");
+  it("`tip` row written exactly FINAL_SECONDS ago jumps straight to final (boundary, ≤ finalCutoff)", () => {
+    expect(nextFinality("tip" as HpFinality, HEAD - FINALITY_FINAL_SECONDS, HEAD)).toBe("final");
   });
 
-  it("`tip` row at head − 100 jumps straight to final (one-step transition for stale rows)", () => {
-    expect(nextFinality("tip" as HpFinality, HEAD - 100n, HEAD)).toBe("final");
+  it("`tip` row written 1000s ago jumps straight to final (one-step transition for stale rows / idle-chain catch-up)", () => {
+    expect(nextFinality("tip" as HpFinality, HEAD - 1000n, HEAD)).toBe("final");
   });
 
-  it("`soft` row at head − 7 stays soft (between soft and final thresholds)", () => {
-    expect(nextFinality("soft" as HpFinality, HEAD - 7n, HEAD)).toBe(null);
+  it("`soft` row written 60s ago stays soft (between soft and final thresholds)", () => {
+    expect(nextFinality("soft" as HpFinality, HEAD - 60n, HEAD)).toBe(null);
   });
 
-  it("`soft` row at head − 12 graduates to final (boundary)", () => {
-    expect(nextFinality("soft" as HpFinality, HEAD - FINALITY_FINAL_BLOCKS, HEAD)).toBe("final");
+  it("`soft` row written exactly FINAL_SECONDS ago graduates to final (boundary)", () => {
+    expect(nextFinality("soft" as HpFinality, HEAD - FINALITY_FINAL_SECONDS, HEAD)).toBe("final");
   });
 
-  it("`soft` row at head − 50 graduates to final", () => {
-    expect(nextFinality("soft" as HpFinality, HEAD - 50n, HEAD)).toBe("final");
+  it("`soft` row written 500s ago graduates to final", () => {
+    expect(nextFinality("soft" as HpFinality, HEAD - 500n, HEAD)).toBe("final");
   });
 });
 
 describe("nextFinality — settlement contract invariants", () => {
-  // Per spec §6.12: rows tagged CUT/FINALIZE write as `final` directly (the
-  // writer waits ≥12 blocks before insert). The advancer never sees them at
-  // 'tip' or 'soft' under the documented writer flow — this test pins the
-  // contract that even if a CUT row somehow landed at 'tip', the advancer's
-  // monotonic floor makes it correct on the next tick.
+  // Per spec §6.12: rows tagged CUT/FINALIZE write as `final` directly. The
+  // advancer never sees them at 'tip' or 'soft' under the documented writer
+  // flow — this test pins the contract that even if a CUT row somehow landed
+  // at 'tip', the advancer's monotonic floor makes it correct on the next tick.
 
   it("a 'tip' row from a CUT trigger is still safely advanceable to 'final' (defense-in-depth)", () => {
     // If somehow a CUT tag landed at 'tip' (writer bug, replay edge),
-    // the advancer's transition is still correct: at head − 12, → final.
-    expect(nextFinality("tip" as HpFinality, 100n, 200n)).toBe("final");
+    // the advancer's transition is still correct: at head − 120s, → final.
+    expect(nextFinality("tip" as HpFinality, 100n, 100n + FINALITY_FINAL_SECONDS)).toBe("final");
   });
 
   it("once 'final', no further transitions (settlement-stable)", () => {
     // The settlement publish path reads `final` rows. Once a row reaches
     // final, the advancer must NEVER demote it — even under a fresh tick
     // with the same row data, the answer is null.
-    for (let head = 100n; head < 200n; head += 10n) {
-      for (let blockNum = 0n; blockNum < head; blockNum += 5n) {
-        expect(nextFinality("final" as HpFinality, blockNum, head)).toBe(null);
+    for (let head = 1000n; head < 2000n; head += 100n) {
+      for (let ts = 0n; ts < head; ts += 50n) {
+        expect(nextFinality("final" as HpFinality, ts, head)).toBe(null);
       }
     }
   });
 });
 
 describe("nextFinality — boundary precision (off-by-one resistance)", () => {
-  // Off-by-one resistance: the spec says ≥ N blocks confirmation for each
-  // tier. Our implementation uses `≤ cutoff` where cutoff = head − N.
-  // A row at exactly N confirmations satisfies head − blockNum == N, so
-  // blockNum == head − N, and head − N ≤ cutoff (head − N) → true.
+  // Off-by-one resistance: the spec says ≥ N seconds of age for each tier.
+  // Our implementation uses `≤ cutoff` where cutoff = head − N.
+  // A row aged exactly N satisfies head − snapshotAtSec == N, so
+  // snapshotAtSec == head − N, and head − N ≤ cutoff (head − N) → true.
 
-  it("'tip' graduation fires at exactly FINALITY_SOFT_BLOCKS confirmations", () => {
-    const HEAD = 100n;
-    const exactlyAtSoft = HEAD - FINALITY_SOFT_BLOCKS;
+  it("'tip' graduation fires at exactly FINALITY_SOFT_SECONDS of age", () => {
+    const HEAD = 100_000n;
+    const exactlyAtSoft = HEAD - FINALITY_SOFT_SECONDS;
     expect(nextFinality("tip", exactlyAtSoft, HEAD)).toBe("soft");
 
-    const oneMoreThanSoft = HEAD - FINALITY_SOFT_BLOCKS + 1n;
-    expect(nextFinality("tip", oneMoreThanSoft, HEAD)).toBe(null);
+    const oneSecondYounger = HEAD - FINALITY_SOFT_SECONDS + 1n;
+    expect(nextFinality("tip", oneSecondYounger, HEAD)).toBe(null);
   });
 
-  it("'soft' graduation fires at exactly FINALITY_FINAL_BLOCKS confirmations", () => {
-    const HEAD = 100n;
-    const exactlyAtFinal = HEAD - FINALITY_FINAL_BLOCKS;
+  it("'soft' graduation fires at exactly FINALITY_FINAL_SECONDS of age", () => {
+    const HEAD = 100_000n;
+    const exactlyAtFinal = HEAD - FINALITY_FINAL_SECONDS;
     expect(nextFinality("soft", exactlyAtFinal, HEAD)).toBe("final");
 
-    const oneMoreThanFinal = HEAD - FINALITY_FINAL_BLOCKS + 1n;
-    expect(nextFinality("soft", oneMoreThanFinal, HEAD)).toBe(null);
+    const oneSecondYounger = HEAD - FINALITY_FINAL_SECONDS + 1n;
+    expect(nextFinality("soft", oneSecondYounger, HEAD)).toBe(null);
   });
 });

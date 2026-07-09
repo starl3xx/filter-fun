@@ -41,10 +41,15 @@ describe("launch cost snapshot pattern (Audit H-Web-2)", () => {
   });
 
   it("calls launch() with valueWei sourced from the snapshot, not live cost", () => {
-    // Pin the literal `snap.nextCostWei + snap.stakeWei` expression — a
-    // regression to `liveCost + liveStake` (the costRef destructuring) or
-    // `nextCostWei + stakeWei` (raw closure capture) would fail.
-    expect(source).toMatch(/valueWei:\s*snap\.nextCostWei\s*\+\s*snap\.stakeWei/);
+    // Pin the literal snapshot expression — a regression to `liveCost +
+    // liveStake` (the costRef destructuring) or `nextCostWei + stakeWei`
+    // (raw closure capture) would fail. Epic 2.6 extended the expression
+    // with the credit branch: `snap.creditApplied ? 0n : ...` — the zero
+    // must ALSO come from the snapshot, otherwise a toggle flip during the
+    // pin step re-prices the launch (the exact H-Web-2 race, new trigger).
+    expect(source).toMatch(
+      /valueWei:\s*snap\.creditApplied\s*\?\s*0n\s*:\s*snap\.nextCostWei\s*\+\s*snap\.stakeWei/,
+    );
   });
 
   it("renders a SnapshotBadge during the in-flight window", () => {

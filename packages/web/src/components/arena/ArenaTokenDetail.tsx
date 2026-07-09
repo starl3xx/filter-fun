@@ -21,6 +21,7 @@ import type {HpUpdate} from "@/hooks/arena/useHpUpdates";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
+import {isTestnet, type ChainSlug} from "@/lib/chain";
 import {HP_MAX} from "@/lib/arena/hp";
 import {HP_LABELS, HP_TILE_COMPONENT_COLORS, HP_TILE_KEYS_IN_ORDER, scoreToPct, type HpTileKey} from "@/lib/arena/hpLabels";
 import {fmtNum, fmtUSD, fmtPrice} from "@/lib/format";
@@ -35,8 +36,8 @@ export type ArenaTokenDetailProps = {
   /// HP trend buffer for the selected token. Shared with the leaderboard.
   trend: number[];
   season: SeasonResponse | null;
-  /// `"base"` or `"base-sepolia"` — picked from the wagmi env at the page level.
-  chain: "base" | "base-sepolia";
+  /// Active `ChainSlug` — resolved via `activeChainSlug()` at the page level.
+  chain: ChainSlug;
   /// Live HP overlay (Epic 1.17c) for the selected token, or `null` before
   /// the first SSE frame arrives. Polled `/tokens` carries 5 components
   /// (no `holderConcentration`); the SSE frame carries all 6 — the right-
@@ -78,7 +79,7 @@ function Empty() {
   );
 }
 
-function Detail({token, trend, season, chain, liveHp}: {token: TokenResponse; trend: number[]; season: SeasonResponse | null; chain: "base" | "base-sepolia"; liveHp: HpUpdate | null}) {
+function Detail({token, trend, season, chain, liveHp}: {token: TokenResponse; trend: number[]; season: SeasonResponse | null; chain: ChainSlug; liveHp: HpUpdate | null}) {
   const priceNum = Number(token.price);
   const hasPrice = Number.isFinite(priceNum) && priceNum > 0;
   const liquidityNum = Number(token.liquidity);
@@ -132,9 +133,12 @@ function Detail({token, trend, season, chain, liveHp}: {token: TokenResponse; tr
               {label} ↗
             </a>
             <span style={{fontSize: 9, fontFamily: F.mono, color: C.faint, textAlign: "center", letterSpacing: "0.08em"}}>
-              {chain === "base"
-                ? "Opens Uniswap interface · FilterHook V4 routing lands in a follow-up"
-                : "Sepolia testnet · Uniswap interface doesn't support testnets — Basescan token page until the FilterHook routing UI lands"}
+              {/* Chain-neutral copy (2026-07 Robinhood retarget): the notice
+                  gates on isTestnet rather than naming a specific network so
+                  all four ChainSlugs read correctly. */}
+              {isTestnet(chain)
+                ? "Testnet — Uniswap interface doesn't support testnets; explorer token page until the FilterHook routing UI lands"
+                : "Opens Uniswap interface · FilterHook V4 routing lands in a follow-up"}
             </span>
           </>
         );

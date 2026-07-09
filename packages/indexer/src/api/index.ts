@@ -44,6 +44,9 @@ import {cors} from "hono/cors";
 
 import {
   bonusClaim,
+  clubCreditRedemption,
+  clubPass,
+  clubStats,
   creatorEarning,
   creatorLock,
   feeAccrual,
@@ -96,6 +99,8 @@ import {
   type WinnerMetricsQueries,
   type WinnersQueries,
 } from "./winners.js";
+import {getClubHandler, type ClubConfig, type ClubQueries} from "./club.js";
+import {readDeployment} from "../deployment.js";
 import {fetchProjectionInputsFromDb} from "./hp.js";
 import {ensureEventsEngineStarted, eventsEngineRunning} from "./events/index.js";
 import {buildScoringWeightsResponse} from "./scoringWeights.js";
@@ -334,6 +339,17 @@ ponder.get("/winners/:address/metrics", async (c) => {
     c.req.param("address") ?? "",
   );
   return c.json(r.body, r.status as 200 | 400 | 404);
+});
+
+/// Epic 2.6 / spec §47.3.8 — Filter Club pass state. Public (mint page + operator
+/// card share it); always 200 per the endpoint-status contract — pre-deploy it
+/// returns the zero-state (maxSupply 0 = "mint not live").
+ponder.get("/club", async (c) => {
+  const mw = toMwContext(c);
+  const limited = applyHttpRateLimit(mw);
+  if (limited) return limited;
+  const r = await getClubHandler(buildClubQueries(c.db), clubConfig);
+  return c.json(r.body, r.status as 200);
 });
 
 ponder.get("/tokens", async (c) => {
@@ -1888,6 +1904,41 @@ function buildGraveyardDetailQueries(db: ApiDb): GraveyardDetailQueries {
       const row = await store.getByAddress(addr).catch(() => null);
       if (!row || row.username === null) return null;
       return {username: row.usernameDisplay ?? row.username, avatarUrl: null};
+    },
+  };
+}
+
+/// `/club` config — resolved once at module load from the deploy manifest
+/// (Epic 2.6). The values are immutable on-chain (pass constructor args), so a
+/// process-lifetime read is safe; a redeploy that changes them ships a new
+/// manifest and restarts the indexer anyway.
+const clubConfig: ClubConfig = (() => {
+  const config = readDeployment().config;
+  const rawSupply = config["filterClubMaxSupply"];
+  const rawPrice = config["filterClubMintPriceWei"];
+  return {
+    maxSupply: typeof rawSupply === "number" ? rawSupply : Number(rawSupply ?? 0) || 0,
+    mintPriceWei: typeof rawPrice === "string" ? rawPrice : String(rawPrice ?? "0"),
+  };
+})();
+
+/// `/club` queries adapter.
+function buildClubQueries(db: ApiDb): ClubQueries {
+  return {
+    stats: async () => {
+      const row = await db.select().from(clubStats).limit(1);
+      return row[0] ?? null;
+    },
+    passes: async () => {
+      // Bounded by maxSupply (250 at genesis) — unpaginated is fine.
+      return db.select().from(clubPass);
+    },
+    recentRedemptions: async (limit: number) => {
+      return db
+        .select()
+        .from(clubCreditRedemption)
+        .orderBy(desc(clubCreditRedemption.consumedAt))
+        .limit(limit);
     },
   };
 }

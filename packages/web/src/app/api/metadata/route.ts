@@ -2,7 +2,7 @@
 ///
 /// Receives the launch-form fields, validates server-side, builds the
 /// metadata document, pins it (via Pinata if configured, else filesystem),
-/// and returns the URI the form passes to `FilterLauncher.launchToken(...)`.
+/// and returns the URI the form passes to `FilterLauncher.reserve(...)`.
 ///
 /// Two-tier strategy is documented in `lib/launch/storage.ts`:
 ///   - PINATA_JWT set        → ipfs://<cid> (preferred)

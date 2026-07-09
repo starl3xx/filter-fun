@@ -9,6 +9,8 @@
 /// service; the web app reaches it via `NEXT_PUBLIC_INDEXER_URL`. In dev with
 /// `ponder dev`, the default `http://localhost:42069` works out of the box.
 
+import {explorerName, explorerTokenUrl, isTestnet, type ChainSlug} from "../chain.js";
+
 // Use `||` not `??` (bugbot caught on PR #86): with the Docker ARG /
 // ENV pattern that forwards Railway env vars into the build, an unset
 // ARG still produces an empty string `""` (not `undefined`) in
@@ -681,30 +683,39 @@ export function buildSetUsernameMessage(
 
 /// Build a "Trade $TICKER" deep-link for the configured chain.
 ///
-/// On Base mainnet we point at the Uniswap interface — path-based routing
-/// (`/swap?…`), which superseded the legacy hash-based `/#/swap?…` form
-/// in 2023 — with `chain=base` and `outputCurrency` for the token.
+/// On mainnets (Robinhood Chain, Base) we point at the Uniswap interface —
+/// path-based routing (`/swap?…`), which superseded the legacy hash-based
+/// `/#/swap?…` form in 2023 — with the chain's Uniswap slug and
+/// `outputCurrency` for the token. The Uniswap web app supports Robinhood
+/// Chain (Uniswap v4 is live on chainId 4663, verified 2026-07-09).
 ///
-/// On Base Sepolia, the Uniswap interface doesn't support the testnet, so
-/// the link instead opens the token page on Sepolia Basescan. The detail
-/// panel surfaces the link with a footnote noting that real swaps land
-/// alongside the FilterHook-routed UI in a follow-up PR (spec §19.8).
+/// PREFLIGHT (mainnet cutover): the `chain=robinhood` slug below is
+/// PROVISIONAL — Uniswap's `?chain=` query values are its own naming, not
+/// ours. Verify the exact slug against app.uniswap.org before the Robinhood
+/// mainnet launch and fix here if it differs.
+///
+/// On testnets (Robinhood Testnet, Base Sepolia), the Uniswap interface
+/// doesn't support them, so the link instead opens the token page on the
+/// chain's explorer (Blockscout / Sepolia Basescan — `lib/chain.ts`). The
+/// detail panel surfaces the link with a footnote noting that real swaps
+/// land alongside the FilterHook-routed UI in a follow-up PR (spec §19.8).
 ///
 /// Returns `{ url, label }` so the consumer can adjust the button copy
 /// without re-deriving the chain.
 export function tradeTokenUrl(
   tokenAddress: `0x${string}`,
-  chain: "base" | "base-sepolia",
+  chain: ChainSlug,
 ): {url: string; label: string} {
-  if (chain === "base-sepolia") {
+  if (isTestnet(chain)) {
     return {
-      url: `https://sepolia.basescan.org/token/${tokenAddress}`,
-      label: "View on Basescan",
+      url: explorerTokenUrl(chain, tokenAddress),
+      label: `View on ${explorerName(chain)}`,
     };
   }
   const params = new URLSearchParams({
     outputCurrency: tokenAddress,
-    chain: "base",
+    // See the PREFLIGHT note above — "robinhood" is the provisional slug.
+    chain: chain === "robinhood" ? "robinhood" : "base",
   });
   return {
     url: `https://app.uniswap.org/swap?${params.toString()}`,
@@ -901,4 +912,56 @@ export async function fetchWinnerMetrics(
     `${INDEXER_URL}/winners/${address}/metrics`,
     opts,
   );
+}
+
+// ============================================================ /club (Epic 2.6)
+
+/// One roster row — a wallet holding ≥1 pass. `tokenIds` sorted ascending,
+/// `creditsRemaining` summed across the wallet's passes (credits are keyed to
+/// the TOKEN and travel on transfer — the wallet sum is display-only).
+export type ClubHolderRow = {
+  address: `0x${string}`;
+  tokenIds: number[];
+  creditsRemaining: number;
+};
+
+/// One credit-redemption row. `RECLAIMED` means the season aborted and the
+/// credit returned to the pass (`reclaimedAt` non-null); `CONSUMED` rows keep
+/// `reclaimedAt: null`.
+export type ClubRedemptionRow = {
+  seasonId: number;
+  creator: `0x${string}`;
+  tokenId: number;
+  status: "CONSUMED" | "RECLAIMED";
+  consumedAt: number;
+  reclaimedAt: number | null;
+};
+
+/// Wire shape of the indexer's public `GET /club` (spec §47.3.8) — mirrors
+/// `ClubResponse` in `packages/indexer/src/api/club.ts`; keep in sync. Serves
+/// both the /club mint page's roster / social-proof block and the operator
+/// FilterClubCard. `maxSupply: 0` is the pre-deploy zero-state ("mint not
+/// live") — the route answers 200 either way per the indexer's
+/// endpoint-status contract.
+export type ClubResponse = {
+  /// Passes minted so far (monotonic; no burn path).
+  minted: number;
+  maxSupply: number;
+  mintPriceWei: string;
+  /// Decimal-wei — lifetime mint proceeds pushed to the payout recipient.
+  proceedsWei: string;
+  credits: {
+    /// minted × CREDITS_PER_TOKEN.
+    issued: number;
+    consumed: number;
+    reclaimed: number;
+    /// issued − consumed + reclaimed — credits still spendable across all passes.
+    outstanding: number;
+  };
+  holders: ClubHolderRow[];
+  recentRedemptions: ClubRedemptionRow[];
+};
+
+export async function fetchClub(opts: FetchOpts = {}): Promise<ClubResponse> {
+  return fetchJson<ClubResponse>(`${INDEXER_URL}/club`, opts);
 }

@@ -69,6 +69,21 @@ describe("M-Perf-1: wagmi/chains import in lib/wagmi.ts is the narrow named-impo
     expect(src).not.toMatch(/import\s+\*\s+as\s+\w+\s+from\s+["']wagmi\/chains["']/);
     expect(src).not.toMatch(/require\(["']wagmi\/chains["']\)/);
   });
+
+  it("imports robinhood + robinhoodTestnet from the LOCAL ./chains module, not wagmi/chains (2026-07 retarget)", () => {
+    // 2026-07 Robinhood retarget: viem 2.48.x doesn't ship the Robinhood
+    // chains, so they live in `src/lib/chains.ts` as local defineChain
+    // literals. Guard the future regression where a viem upgrade DOES ship
+    // them and someone "tidies" the import back to `wagmi/chains` — that
+    // would widen the named-import list above and re-open the M-Perf-1
+    // tree-shake question. The two-binding assertion in the previous test
+    // already fails on the widened wagmi/chains import; this one pins the
+    // replacement source so the chains can't silently vanish from the
+    // config either.
+    expect(src).toMatch(
+      /import\s*\{\s*robinhood\s*,\s*robinhoodTestnet\s*\}\s*from\s*["']\.\/chains(?:\.js)?["']\s*;/,
+    );
+  });
 });
 
 // M-Perf-2 -----------------------------------------------------------------

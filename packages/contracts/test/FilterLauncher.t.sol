@@ -5,6 +5,7 @@ import {Test, Vm} from "forge-std/Test.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {FilterLauncher} from "../src/FilterLauncher.sol";
+import {FilterClubPass} from "../src/FilterClubPass.sol";
 import {LaunchEscrow} from "../src/LaunchEscrow.sol";
 import {LauncherStakeAdmin} from "../src/LauncherStakeAdmin.sol";
 import {IFilterFactory} from "../src/interfaces/IFilterFactory.sol";
@@ -22,6 +23,7 @@ import {MockFilterFactory} from "./mocks/MockFilterFactory.sol";
 ///         reservation-then-activate semantics.
 contract FilterLauncherTest is Test {
     FilterLauncher launcher;
+    FilterClubPass clubPass;
     MockFilterFactory factory;
     BonusDistributor bonus;
     MockWETH weth;
@@ -40,16 +42,22 @@ contract FilterLauncherTest is Test {
     function setUp() public {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
+        clubPass = new FilterClubPass(owner, treasury, "ipfs://club/", 250, 0.05 ether, 5);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
-        launcher.setPolManager(IPOLManager(polManager));
+        clubPass.setLauncher(address(launcher));
         factory = new MockFilterFactory(address(launcher), address(weth));
-        launcher.setFactory(IFilterFactory(address(factory)));
-        // Tournament wires are required since `startSeason` zero-checks the registry
-        // (audit: bugbot M PR #88). Unit tests don't exercise tournament flow, so dummy
-        // non-zero addresses are sufficient.
-        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0xBEEF))));
+        // One-shot wire of every externally-deployed dependency. Tournament wires are
+        // required since `startSeason` zero-checks the registry (audit: bugbot M PR #88).
+        // Unit tests don't exercise tournament flow, so dummy non-zero addresses are
+        // sufficient.
+        launcher.wire(
+            IFilterFactory(address(factory)),
+            IPOLManager(polManager),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
 
         vm.deal(aliceCreator, 100 ether);
         vm.deal(bobCreator, 100 ether);
@@ -111,12 +119,15 @@ contract FilterLauncherTest is Test {
         assertEq(launcher.activated(1), false);
         // Escrow holds the cost.
         assertEq(address(launcher.launchEscrow()).balance, cost);
-        // Pending queue records the strings for activation-time deploy.
-        FilterLauncher.PendingReservation[] memory pending = launcher.pendingReservations(1);
-        assertEq(pending.length, 1);
-        assertEq(pending[0].creator, aliceCreator);
-        assertEq(pending[0].ticker, "PEPE");
-        assertEq(pending[0].slotIndex, 0);
+        // Pending queue records the reservation for activation-time deploy. (The full-struct
+        // view was removed for EIP-170 budget; the queue length + surviving state carry the
+        // same facts.)
+        assertEq(launcher.pendingCount(1), 1);
+        // Canonical ticker registered to the creator.
+        assertEq(launcher.seasonTickers(1, keccak256("PEPE")), aliceCreator);
+        // Escrow-side: exactly one reservation (slot 0), stamped for alice.
+        assertEq(launcher.launchEscrow().reservationCountOf(1), 1);
+        assertEq(launcher.launchEscrow().reservedAtOf(1, aliceCreator), uint64(block.timestamp));
     }
 
     function test_FourthReservationActivatesAndBatchDeploys() public {
@@ -143,7 +154,7 @@ contract FilterLauncherTest is Test {
         assertEq(launcher.launchCount(1), 4, "all 4 deployed atomically");
         assertEq(launcher.lens().reservationCount(1), 4);
         // Pending queue cleared.
-        assertEq(launcher.pendingReservations(1).length, 0);
+        assertEq(launcher.pendingCount(1), 0);
         // Escrow balance: post-release the stake admin holds the funds (refundableStakeEnabled=true).
         assertEq(address(launcher.launchEscrow()).balance, 0, "escrow drained");
         assertEq(
@@ -170,7 +181,7 @@ contract FilterLauncherTest is Test {
         assertEq(launcher.launchCount(1), 5);
         assertEq(launcher.lens().reservationCount(1), 5);
         // No pending entry should ever land post-activation.
-        assertEq(launcher.pendingReservations(1).length, 0);
+        assertEq(launcher.pendingCount(1), 0);
     }
 
     function test_FullCohortOfTwelve() public {
@@ -265,11 +276,11 @@ contract FilterLauncherTest is Test {
         _openSeason();
         vm.prank(aliceCreator);
         launcher.reserve{value: _slotCost(0)}("$pepe", "ipfs://meta");
-        // Normalised hash matches `keccak256("PEPE")`.
+        // Normalised hash matches `keccak256("PEPE")` — the launcher stores (and later
+        // deploys from) the canonical form, proven by the canonical-hash registration.
         assertEq(launcher.seasonTickers(1, keccak256("PEPE")), aliceCreator);
-        // Pending queue stores canonical form for deploy.
-        FilterLauncher.PendingReservation[] memory pending = launcher.pendingReservations(1);
-        assertEq(pending[0].ticker, "PEPE");
+        // The reservation is queued for activation-time deploy.
+        assertEq(launcher.pendingCount(1), 1);
     }
 
     function test_TickerInvalidFormatReverts() public {

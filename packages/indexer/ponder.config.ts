@@ -4,6 +4,7 @@ import {http, parseAbiItem} from "viem";
 import {BonusDistributorAbi} from "./abis/BonusDistributor";
 import {CreatorCommitmentsAbi} from "./abis/CreatorCommitments";
 import {CreatorFeeDistributorAbi} from "./abis/CreatorFeeDistributor";
+import {FilterClubPassAbi} from "./abis/FilterClubPass";
 import {FilterFactoryAbi} from "./abis/FilterFactory";
 import {FilterLauncherAbi} from "./abis/FilterLauncher";
 import {FilterLpLockerAbi} from "./abis/FilterLpLocker";
@@ -15,10 +16,15 @@ import {TournamentRegistryAbi} from "./abis/TournamentRegistry";
 import {V4PoolManagerAbi} from "./abis/V4PoolManager";
 import {readDeployment} from "./src/deployment.js";
 
-/// Pin to one network per indexer instance. Default to baseSepolia for testnet rehearsal —
-/// flip to "base" for mainnet via `PONDER_NETWORK=base`. The `readDeployment` helper picks
+/// Pin to one network per indexer instance. Default to robinhoodTestnet for rehearsal —
+/// flip to "robinhood" for mainnet via `PONDER_NETWORK=robinhood` (Base networks remain
+/// selectable as the documented emergency-retreat path). The `readDeployment` helper picks
 /// up addresses from the deploy manifest (Epic 1.6) or falls through to env vars.
-const network = (process.env.PONDER_NETWORK ?? "baseSepolia") as "base" | "baseSepolia";
+const network = (process.env.PONDER_NETWORK ?? "robinhoodTestnet") as
+  | "base"
+  | "baseSepolia"
+  | "robinhood"
+  | "robinhoodTestnet";
 const deployment = readDeployment(network);
 
 const startBlock = deployment.deployBlockNumber;
@@ -117,6 +123,26 @@ if (creatorFeeDistributorAddr === launcherAddr) {
   console.log(`[ponder]   creator fee distributor: ${creatorFeeDistributorAddr}`);
 }
 
+/// Epic 2.6 — Filter Club lifetime pass. Manifest `addresses.filterClubPass` is canonical
+/// (the deploy scripts write it); `FILTER_CLUB_ADDRESS` env is the manifest-less operator
+/// override. Falls back to the launcher address as a non-functional sentinel when both are
+/// unset (pre-club manifests) — the launcher never emits the pass's events, so the
+/// subscription is inert rather than a crash.
+const filterClubAddrEnv = process.env.FILTER_CLUB_ADDRESS as `0x${string}` | undefined;
+const filterClubFromManifest = deployment.addresses.filterClubPass;
+const filterClubAddr =
+  filterClubAddrEnv ??
+  (filterClubFromManifest && filterClubFromManifest !== ZERO_ADDR
+    ? filterClubFromManifest
+    : launcherAddr);
+if (filterClubAddr === launcherAddr) {
+  console.warn(
+    `[ponder]   filter club pass: <unset in manifest + env> — falling back to ${filterClubAddr} (no events will match). Set FILTER_CLUB_ADDRESS or supply a manifest with addresses.filterClubPass populated.`,
+  );
+} else {
+  console.log(`[ponder]   filter club pass:    ${filterClubAddr}`);
+}
+
 /// Indexes the canonical filter.fun deployment. `SeasonVault`, `FilterLpLocker`, and
 /// `FilterToken` are deployed dynamically per launch — Ponder's factory pattern picks them
 /// up via the parent contract's emit log.
@@ -129,6 +155,19 @@ export default createConfig({
     baseSepolia: {
       chainId: 84532,
       transport: http(process.env.PONDER_RPC_URL_84532),
+    },
+    /// Robinhood Chain (2026-07 retarget). Arbitrum-stack L2, ETH gas, ~0.10s blocks under
+    /// load (measured 2026-07-09) and on-demand production when idle — all block-count
+    /// tuning lives in env (see HP_* interval vars); finality promotion is wall-clock-based
+    /// (finalityAdvancer.ts). Use Alchemy URLs — the public RPCs are rate-limited and
+    /// Ponder's historical sync will hit the limits.
+    robinhood: {
+      chainId: 4663,
+      transport: http(process.env.PONDER_RPC_URL_4663),
+    },
+    robinhoodTestnet: {
+      chainId: 46630,
+      transport: http(process.env.PONDER_RPC_URL_46630),
     },
   },
   contracts: {
@@ -166,6 +205,15 @@ export default createConfig({
       network,
       abi: LauncherStakeAdminAbi,
       address: launcherStakeAdminAddr,
+      startBlock,
+    },
+    /// Epic 2.6 — Filter Club lifetime pass. Mint/transfer/credit lifecycle backs
+    /// the /club endpoint (mint page + operator card) and the
+    /// `reservation.creditFunded` join in the LaunchEscrow SlotReserved handler.
+    FilterClubPass: {
+      network,
+      abi: FilterClubPassAbi,
+      address: filterClubAddr,
       startBlock,
     },
     SeasonVault: {
@@ -257,20 +305,32 @@ export default createConfig({
   ///
   /// `HpFinalityAdvancer` (Epic 1.22b) — periodic finality advancer. Runs more
   /// frequently than the snapshot writer so newly-inserted `tip` rows promote
-  /// to `soft`/`final` within a single Base finality window. Default interval =
-  /// 6 blocks (≈12s); the advancer is a small bounded UPDATE so the cost is
-  /// negligible. Independent of `HpSnapshot` so a slow snapshot tick doesn't
-  /// delay finality propagation.
+  /// to `soft`/`final` within one wall-clock finality window (the promotion
+  /// thresholds themselves are SECONDS-based — see src/api/finalityAdvancer.ts).
+  /// The advancer is a small bounded UPDATE so the cost is negligible.
+  /// Independent of `HpSnapshot` so a slow snapshot tick doesn't delay
+  /// finality propagation.
+  ///
+  /// INTERVAL UNITS (2026-07 Robinhood Chain retarget). Ponder block-tick
+  /// intervals are inherently block-count, but block cadence is chain-specific:
+  /// Base ticks every 2s; Robinhood Chain produces blocks on demand — measured
+  /// 2026-07-09 at ~0.10s/block on mainnet 4663 under launch-week traffic and
+  /// ~0.40s/block on testnet 46630. Defaults below target ≈5min snapshots /
+  /// ≈30s advancer runs at the MAINNET cadence (3000 / 300 blocks); override
+  /// per network via env — e.g. Base needs 150 / 15, testnet 46630 ≈ 750 / 75.
+  /// When the chain idles, ticks stall with it — the testnet rehearsal runs a
+  /// heartbeat tx to keep block production (and thus ticks) alive; mainnet has
+  /// organic traffic.
   blocks: {
     HpSnapshot: {
       network,
       startBlock,
-      interval: Number(process.env.HP_SNAPSHOT_INTERVAL_BLOCKS ?? 150),
+      interval: Number(process.env.HP_SNAPSHOT_INTERVAL_BLOCKS ?? 3000),
     },
     HpFinalityAdvancer: {
       network,
       startBlock,
-      interval: Number(process.env.HP_FINALITY_ADVANCER_INTERVAL_BLOCKS ?? 6),
+      interval: Number(process.env.HP_FINALITY_ADVANCER_INTERVAL_BLOCKS ?? 300),
     },
   },
 });

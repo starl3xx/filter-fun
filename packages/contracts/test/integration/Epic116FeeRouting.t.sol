@@ -14,6 +14,7 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
+import {FilterClubPass} from "../../src/FilterClubPass.sol";
 import {FilterFactory} from "../../src/FilterFactory.sol";
 import {FilterHook} from "../../src/FilterHook.sol";
 import {FilterLpLocker} from "../../src/FilterLpLocker.sol";
@@ -54,6 +55,7 @@ import {HookMiner} from "../../src/libraries/HookMiner.sol";
 ///         the routing math is exercised through the production code path, not a mock.
 contract Epic116FeeRoutingTest is Test, Deployers {
     FilterLauncher launcher;
+    FilterClubPass clubPass;
     FilterFactory factory;
     FilterHook hook;
     BonusDistributor bonus;
@@ -76,11 +78,12 @@ contract Epic116FeeRoutingTest is Test, Deployers {
         bonus = new BonusDistributor(address(0), address(weth), oracle);
         polVault = new POLVault(address(this));
 
+        clubPass = new FilterClubPass(ownerAddr, treasury, "ipfs://club/", 250, 0.05 ether, 5);
         launcher = new FilterLauncher(
-            ownerAddr, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            ownerAddr, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
+        clubPass.setLauncher(address(launcher));
         polManager = new POLManager(address(launcher), address(weth), IPOLVaultRecord(address(polVault)));
-        launcher.setPolManager(IPOLManager(address(polManager)));
         polVault.setPolManager(address(polManager));
         polVault.transferOwnership(polVaultOwner);
 
@@ -100,9 +103,9 @@ contract Epic116FeeRoutingTest is Test, Deployers {
             launcher.creatorCommitments()
         );
         hook.initialize(address(factory));
-        launcher.setFactory(IFilterFactory(address(factory)));
         // PR #88 audit: tournament wires are required. Real instances (not dummy
         // addresses) because SeasonVault's constructor calls into the registry view.
+        // One-shot wire once all four external deps exist.
         {
             TournamentRegistry tr = new TournamentRegistry(address(launcher));
             TournamentVault tv = new TournamentVault(
@@ -114,7 +117,7 @@ contract Epic116FeeRoutingTest is Test, Deployers {
                 ICreatorRegistryView(address(launcher.creatorRegistry())),
                 launcher.bonusUnlockDelay()
             );
-            launcher.setTournament(tr, tv);
+            launcher.wire(IFilterFactory(address(factory)), IPOLManager(address(polManager)), tr, tv);
         }
 
         vm.prank(oracle);

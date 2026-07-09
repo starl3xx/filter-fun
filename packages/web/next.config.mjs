@@ -95,19 +95,36 @@ const nextConfig = {
   //                                        — see the regression pin in
   //                                        polishSecurityPass.test.tsx.
   //   connect-src 'self' INDEXER_URL https://*.base.org
-  //               https://*.publicnode.com wss://*.walletconnect.{com,org}
+  //               https://*.publicnode.com https://*.chain.robinhood.com
+  //               https://robinhood-{mainnet,testnet}.g.alchemy.com
+  //               https://robinhoodchain.blockscout.com
+  //               https://explorer.testnet.chain.robinhood.com
+  //               wss://*.walletconnect.{com,org}
   //               https://*.walletconnect.{com,org}
   //                                      — the indexer is the SSE / REST
   //                                        surface; the *.base.org and
   //                                        *.publicnode.com hosts cover the
   //                                        viem public-RPC fallback for both
-  //                                        chains. WalletConnect needs both
+  //                                        Base chains, and (2026-07
+  //                                        Robinhood retarget)
+  //                                        *.chain.robinhood.com covers the
+  //                                        Robinhood public RPCs
+  //                                        (rpc.{mainnet,testnet}.chain.
+  //                                        robinhood.com) with the two
+  //                                        Alchemy hosts as the
+  //                                        production-grade transports from
+  //                                        NEXT_PUBLIC_ROBINHOOD_*_RPC_URL.
+  //                                        The Blockscout explorer origins
+  //                                        are allow-listed for future
+  //                                        client-side API reads (token
+  //                                        pages / verification lookups).
+  //                                        WalletConnect needs both
   //                                        wss:// (relay) and https://
   //                                        (project metadata) hosts at
   //                                        pair time. Deploys that override
-  //                                        NEXT_PUBLIC_BASE_RPC_URL to a
-  //                                        different provider must add that
-  //                                        host here too.
+  //                                        an RPC env var to a different
+  //                                        provider must add that host
+  //                                        here too.
   //                                        Bugbot fix on PR #80: Pinata is
   //                                        deliberately NOT in connect-src.
   //                                        Pinata is reached only by the
@@ -181,7 +198,7 @@ const nextConfig = {
       // `cloudflareinsights.com/cdn-cgi/rum`; without this entry the
       // analytics beacon loads but fails to report. Same scope rationale
       // as the script-src entry: first-party Cloudflare, fixed origin.
-      `connect-src 'self' ${indexerUrl} https://*.base.org https://*.publicnode.com wss://*.walletconnect.com wss://*.walletconnect.org https://*.walletconnect.com https://*.walletconnect.org https://cloudflareinsights.com`,
+      `connect-src 'self' ${indexerUrl} https://*.base.org https://*.publicnode.com wss://*.walletconnect.com wss://*.walletconnect.org https://*.walletconnect.com https://*.walletconnect.org https://cloudflareinsights.com https://*.chain.robinhood.com https://robinhood-mainnet.g.alchemy.com https://robinhood-testnet.g.alchemy.com https://robinhoodchain.blockscout.com https://explorer.testnet.chain.robinhood.com`,
       "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",
       "img-src 'self' https: data:",

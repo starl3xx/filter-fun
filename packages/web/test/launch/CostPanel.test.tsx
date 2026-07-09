@@ -75,3 +75,78 @@ describe("CostPanel — full economic picture", () => {
     expect(bountyLine.textContent).toContain("Ξ1.0000");
   });
 });
+
+/// Epic 2.6 (spec §47.3.8) — Filter Club credit rendering. Per the M-Ux-4
+/// rationale in CostPanel.tsx, a zero total is visually indistinguishable
+/// from a free launch, so a DELIBERATE free launch must be loudly labeled:
+/// badge + struck-through slot cost + explicit Ξ0 total with the credit note.
+describe("CostPanel — creditApplied (Filter Club)", () => {
+  it("renders the FREE badge and the credit note", () => {
+    render(
+      <CostPanel
+        slotIndex={0}
+        launchCostWei={parseEther("0.01")}
+        stakeWei={0n}
+        creditApplied
+      />,
+    );
+    expect(screen.getByTestId("cost-panel-credit-badge").textContent).toMatch(
+      /FREE — Filter Club credit/,
+    );
+    expect(screen.getByTestId("cost-panel-credit-note").textContent).toMatch(
+      /credit covers this slot/i,
+    );
+  });
+
+  it("strikes through the slot cost but keeps the original value visible", () => {
+    render(
+      <CostPanel
+        slotIndex={0}
+        launchCostWei={parseEther("0.01")}
+        stakeWei={0n}
+        creditApplied
+      />,
+    );
+    // The would-have-paid cost stays rendered (struck), so the user sees
+    // what the credit is worth.
+    const costCell = screen.getByText("Ξ0.010");
+    const struckWrap = costCell.closest("span[style]") as HTMLElement | null;
+    expect(struckWrap?.parentElement?.getAttribute("style") ?? "").toContain("line-through");
+  });
+
+  it("renders the total as an explicit Ξ0 (not the struck cost)", () => {
+    render(
+      <CostPanel
+        slotIndex={0}
+        launchCostWei={parseEther("0.01")}
+        stakeWei={parseEther("0.01")}
+        creditApplied
+      />,
+    );
+    // Total committed = 0 — a credit launch sends value: 0n; the contract
+    // retains no cost and no stake. (fmtUsd's sub-$1 branch renders "$0.00".)
+    expect(screen.getByText("Ξ0.000")).toBeTruthy();
+    expect(screen.getByText("$0.00")).toBeTruthy();
+    // The stake-refund copy would be a lie on a zero-value tx — suppressed.
+    expect(screen.queryByText(/stake refunds to your wallet/i)).toBeNull();
+  });
+
+  it("keeps the loading-dash discipline when costLoading wins", () => {
+    render(
+      <CostPanel
+        slotIndex={0}
+        launchCostWei={0n}
+        stakeWei={0n}
+        creditApplied
+        costLoading
+      />,
+    );
+    // While the status read is in flight the cells stay dashes — a
+    // struck-through zero would be the exact M-Ux-4 lie in new clothes.
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByText("Ξ0.000")).toBeNull();
+    // The badge still renders — it signals the user's toggle intent, not
+    // contract data.
+    expect(screen.getByTestId("cost-panel-credit-badge")).toBeTruthy();
+  });
+});

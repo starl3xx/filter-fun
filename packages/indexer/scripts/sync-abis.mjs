@@ -30,6 +30,8 @@ const targets = [
   "LaunchEscrow",
   "LauncherStakeAdmin",
   "LauncherLens",
+  // Epic 2.6 — Filter Club lifetime pass (mint + credit redemption lifecycle).
+  "FilterClubPass",
 ];
 
 for (const name of targets) {

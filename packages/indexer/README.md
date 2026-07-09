@@ -146,6 +146,26 @@ Per-token historical view. Returns the full HP trajectory across the season, LP 
 
 `/winners` lists all season winners with `winMarginHp` + `isSqueaker` (≤500). `/winners/:address/metrics` returns the long-tail Reserve growth, perpetual fee accrual, and holder retention series for a single winner.
 
+### `GET /club` (Epic 2.6 / spec §47.3.8)
+
+Filter Club lifetime-pass state — serves both the public mint page and the operator FilterClubCard. Always 200; pre-deploy returns the zero-state (`maxSupply: 0` = mint not live). `mintPriceWei`/`proceedsWei` are exact-wei decimal strings.
+
+```json
+{
+  "minted": 42,
+  "maxSupply": 250,
+  "mintPriceWei": "50000000000000000",
+  "proceedsWei": "2100000000000000000",
+  "credits": {"issued": 84, "consumed": 5, "reclaimed": 1, "outstanding": 80},
+  "holders": [{"address": "0x…", "tokenIds": [7, 12], "creditsRemaining": 4}],
+  "recentRedemptions": [
+    {"seasonId": 3, "creator": "0x…", "tokenId": 7, "status": "CONSUMED", "consumedAt": 1799990000, "reclaimedAt": null}
+  ]
+}
+```
+
+Backing tables: `clubPass` (per-token, current owner + credits — credits travel with the NFT), `clubCreditRedemption` (keyed `${seasonId}:${creator}`, joins `reservation` 1:1; `reservation.creditFunded` is set via this join at SlotReserved time), `clubStats` (singleton counters).
+
 ### `GET /tokens`
 
 Cohort for the current season, sorted by ascending rank (rank 1 first). Matches spec §26.4 shape.

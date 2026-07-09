@@ -26,6 +26,12 @@ export const contractAddresses = {
   /// addresses. Pre-deploy it's the zero address; `isDeployed("creatorFeeDistributor")`
   /// gates the form.
   creatorFeeDistributor: (deployment.addresses.creatorFeeDistributor || ZERO_ADDR) as Address,
+  /// FilterClubPass — Epic 2.6 / spec §47.3.8. The founding-member NFT mint:
+  /// /club reads supply + price + wallet cap here and writes `mint(qty)`; the
+  /// launch flow reads `creditsRemaining(wallet)` to offer the free-launch
+  /// credit toggle. Pre-deploy it's the zero address and
+  /// `isDeployed("filterClubPass")` gates both surfaces.
+  filterClubPass: (deployment.addresses.filterClubPass || ZERO_ADDR) as Address,
   // `filterToken` is intentionally not exported here. The deploy manifest
   // stores it at the top level as an object `{address, locker, ...}` (set
   // by SeedFilter.s.sol after the protocol launch), not under `addresses.*`.

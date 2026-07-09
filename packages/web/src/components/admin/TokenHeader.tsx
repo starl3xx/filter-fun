@@ -3,6 +3,7 @@
 import {useState} from "react";
 import type {Address} from "viem";
 
+import {chainLabel, type ChainSlug} from "@/lib/chain";
 import {C, F} from "@/lib/tokens";
 
 import {Card} from "./Card";
@@ -13,7 +14,7 @@ import {Card} from "./Card";
 export type TokenHeaderProps = {
   ticker: string;
   address: Address;
-  chain: "base" | "base-sepolia";
+  chain: ChainSlug;
   /// Show the "Admin" badge — only true when the connected wallet is the
   /// current admin (drives a one-pixel UI affordance, not auth).
   isAdmin: boolean;
@@ -64,7 +65,7 @@ export function TokenHeader({ticker, address, chain, isAdmin}: TokenHeaderProps)
             color: C.cyan,
           }}
         >
-          {chain === "base" ? "Base · V4" : "Base Sepolia · V4"}
+          {chainLabel(chain)}
         </span>
         {isAdmin && (
           <span

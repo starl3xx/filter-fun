@@ -7,8 +7,8 @@
 /// PR #43 (`packages/contracts/src/CreatorCommitments.sol`); the indexer surface
 /// at `/tokens.bagLock` arrived in PR #45. Per the spec (§38.5–§38.8), this is
 /// the trust signal vs Clanker — so the UI loudly states what the lock does NOT
-/// do, and on Sepolia carries an audit-gate warning until Epic 2.3 unblocks
-/// mainnet activation.
+/// do, and on testnets (Sepolia / Robinhood testnet) carries an audit-gate
+/// warning until Epic 2.3 unblocks mainnet activation.
 ///
 /// State branches (driven by `bagLock` from /tokens):
 ///   - LOCKED   → extend form, current unlock prominent, countdown.
@@ -28,6 +28,7 @@ import {useAccount, useWaitForTransactionReceipt, useWriteContract} from "wagmi"
 
 import {contractAddresses, isDeployed} from "@/lib/addresses";
 import type {BagLock} from "@/lib/arena/api";
+import {isTestnet, type ChainSlug} from "@/lib/chain";
 import {CreatorCommitmentsAbi} from "@/lib/token/abis";
 import {addrEq} from "@/lib/token/format";
 import {C, F} from "@/lib/tokens";
@@ -43,10 +44,11 @@ export type BagLockCardProps = {
   /// the current cohort (past-season tokens, first paint before /tokens
   /// resolves). Treated as "no commitment" for display.
   bagLock: BagLock | null;
-  /// `"base-sepolia"` shows the audit-gate warning; `"base"` does not. The
-  /// constraint per spec §2.3 is that the lock must not advertise as
-  /// production-ready until the audit clears.
-  chain: "base" | "base-sepolia";
+  /// Testnet slugs ("base-sepolia" / "robinhood-testnet") show the
+  /// audit-gate warning; mainnet slugs do not. The constraint per spec §2.3
+  /// is that the lock must not advertise as production-ready until the
+  /// audit clears.
+  chain: ChainSlug;
 };
 
 const COMMITMENTS_ADDRESS = contractAddresses.creatorCommitments;
@@ -75,7 +77,7 @@ export function BagLockCard({token, creator, bagLock, chain}: BagLockCardProps) 
 
   const isCreator = isConnected && Boolean(creator) && addrEq(connected, creator);
   const contractDeployed = isDeployed("creatorCommitments");
-  const isSepolia = chain === "base-sepolia";
+  const onTestnet = isTestnet(chain);
 
   const isLocked = Boolean(bagLock?.isLocked && bagLock.unlockTimestamp);
   const currentUnlockMs = bagLock?.unlockTimestamp ? bagLock.unlockTimestamp * 1000 : null;
@@ -102,7 +104,7 @@ export function BagLockCard({token, creator, bagLock, chain}: BagLockCardProps) 
         />
       )}
 
-      {isSepolia && <AuditGateWarning />}
+      {onTestnet && <AuditGateWarning chain={chain} />}
 
       <DoesNotDoDisclosure />
     </Card>
@@ -451,7 +453,11 @@ function CommitForm({
 
 // ---------------------------------------------------------------- Audit-gate warning
 
-function AuditGateWarning() {
+function AuditGateWarning({chain}: {chain: ChainSlug}) {
+  // Chain-aware naming (2026-07 Robinhood retarget): "Sepolia" on Base's
+  // testnet, "Robinhood" otherwise. Mainnet slugs never reach here — the
+  // call site gates on `isTestnet(chain)`.
+  const testnetName = chain === "base-sepolia" ? "Sepolia" : "Robinhood";
   return (
     <div
       role="alert"
@@ -468,10 +474,10 @@ function AuditGateWarning() {
         lineHeight: 1.5,
       }}
     >
-      <strong style={{color: C.yellow}}>⚠ Sepolia testnet only.</strong>{" "}
+      <strong style={{color: C.yellow}}>⚠ {testnetName} testnet only.</strong>{" "}
       Mainnet activation of bag-lock is blocked until Epic 2.3 (formal audit) completes. Locks
-      committed on Sepolia are real and enforced on-chain — they are not consequential to a
-      mainnet bag.
+      committed on the {testnetName} testnet are real and enforced on-chain — they are not
+      consequential to a mainnet bag.
     </div>
   );
 }

@@ -58,6 +58,7 @@ import {useSeasonContext} from "@/hooks/token/useSeasonContext";
 import {useStakeStatus} from "@/hooks/token/useStakeStatus";
 import {useTokenAdmin} from "@/hooks/token/useTokenAdmin";
 import {useTokenStats} from "@/hooks/token/useTokenStats";
+import {activeChainSlug} from "@/lib/chain";
 import {C, F} from "@/lib/tokens";
 
 export default function AdminConsolePage() {
@@ -111,9 +112,7 @@ function AdminConsole({token}: {token: Address}) {
     return () => clearTimeout(t);
   }, [auth.state]);
 
-  const chain = (process.env.NEXT_PUBLIC_CHAIN === "base" ? "base" : "base-sepolia") as
-    | "base"
-    | "base-sepolia";
+  const chain = activeChainSlug();
 
   const cohort = useMemo(() => tokens ?? [], [tokens]);
   const tokenStats = stats.token;

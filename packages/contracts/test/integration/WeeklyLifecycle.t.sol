@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
+import {FilterClubPass} from "../../src/FilterClubPass.sol";
 import {SeasonVault, IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
@@ -23,6 +24,7 @@ import {MiniMerkle} from "../utils/MiniMerkle.sol";
 ///         and the hold-bonus claim closes out the loop. Mirrors the spec's weekly lifecycle.
 contract WeeklyLifecycleTest is Test {
     FilterLauncher launcher;
+    FilterClubPass clubPass;
     MockFilterFactory factory;
     BonusDistributor bonus;
     MockPOLManager polManager;
@@ -47,12 +49,12 @@ contract WeeklyLifecycleTest is Test {
         // SeasonVault → POLManager seam is what this test pins.
         polManager = new MockPOLManager(weth);
         polManager.setMintRate(100_000e18); // matches MockLpLocker default; see below
+        clubPass = new FilterClubPass(owner, treasury, "ipfs://club/", 250, 0.05 ether, 5);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
-        launcher.setPolManager(IPOLManager(address(polManager)));
+        clubPass.setLauncher(address(launcher));
         factory = new MockFilterFactory(address(launcher), address(weth));
-        launcher.setFactory(IFilterFactory(address(factory)));
         // Tournament contracts are externalised post-§46 (EIP-3860 budget). Wire here so
         // SeasonVault.processFilterEvent / submitWinner have a real registry to call into.
         TournamentRegistry tr = new TournamentRegistry(address(launcher));
@@ -65,7 +67,7 @@ contract WeeklyLifecycleTest is Test {
             ICreatorRegistryView(address(launcher.creatorRegistry())),
             launcher.bonusUnlockDelay()
         );
-        launcher.setTournament(tr, tv);
+        launcher.wire(IFilterFactory(address(factory)), IPOLManager(address(polManager)), tr, tv);
     }
 
     function test_FullWeek() public {

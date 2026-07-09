@@ -35,6 +35,8 @@
 import {createPublicClient, getAddress, http, isAddress} from "viem";
 import {base, baseSepolia} from "viem/chains";
 
+import {robinhood, robinhoodTestnet} from "../chains.js";
+
 import type {MwContext} from "./middleware.js";
 
 const STALENESS_WINDOW_MS = 5 * 60 * 1000;
@@ -284,13 +286,21 @@ const defaultEoaVerifier: OperatorVerifier = async ({address, message, signature
 let cachedVerifier: OperatorVerifier | null = null;
 
 function buildProductionVerifier(): OperatorVerifier | null {
-  const networkRaw = process.env.PONDER_NETWORK ?? "baseSepolia";
-  const network = networkRaw === "base" ? "base" : "baseSepolia";
-  const rpcUrl =
-    network === "base" ? process.env.PONDER_RPC_URL_8453 : process.env.PONDER_RPC_URL_84532;
+  // Mirrors ponder.config.ts's network selection (default robinhoodTestnet since the
+  // 2026-07 Robinhood Chain retarget). Unknown values fall back to robinhoodTestnet,
+  // matching the config's ambiguous-default behavior.
+  const networkRaw = process.env.PONDER_NETWORK ?? "robinhoodTestnet";
+  const known = {
+    base: {chain: base, chainIdKey: "8453"},
+    baseSepolia: {chain: baseSepolia, chainIdKey: "84532"},
+    robinhood: {chain: robinhood, chainIdKey: "4663"},
+    robinhoodTestnet: {chain: robinhoodTestnet, chainIdKey: "46630"},
+  } as const;
+  const selected = known[networkRaw as keyof typeof known] ?? known.robinhoodTestnet;
+  const rpcUrl = process.env[`PONDER_RPC_URL_${selected.chainIdKey}`];
   if (!rpcUrl) {
     console.warn(
-      `[operator-auth] PONDER_RPC_URL_${network === "base" ? "8453" : "84532"} unset — operator-auth will use the EOA-only verifier. EIP-1271 multisig signatures will be rejected.`,
+      `[operator-auth] PONDER_RPC_URL_${selected.chainIdKey} unset — operator-auth will use the EOA-only verifier. EIP-1271 multisig signatures will be rejected.`,
     );
     return null;
   }
@@ -299,8 +309,7 @@ function buildProductionVerifier(): OperatorVerifier | null {
   // "two different types with this name exist" mismatch under Ponder's narrower
   // generated definitions. Letting TS infer the literal createPublicClient
   // return type keeps the call-site narrow and skips the conflict.
-  const chain = network === "base" ? base : baseSepolia;
-  const client = createPublicClient({chain, transport: http(rpcUrl)});
+  const client = createPublicClient({chain: selected.chain, transport: http(rpcUrl)});
   return async ({address, message, signature}) =>
     client.verifyMessage({address, message, signature});
 }

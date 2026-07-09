@@ -23,6 +23,7 @@ import {
   broadcastSeasonStateEvent,
 } from "./api/events/launchBroadcast.js";
 import {
+  clubCreditRedemption,
   launchEscrowSummary,
   pendingRefund,
   reservation,
@@ -38,6 +39,12 @@ ponder.on("LaunchEscrow:SlotReserved", async ({event, context}) => {
   // every creator-bearing write so a future API call doesn't hit the same trap.
   const creator = event.args.creator.toLowerCase() as `0x${string}`;
   const id = `${event.args.seasonId.toString()}:${creator}`;
+  // Epic 2.6 — a credit-funded reservation's tx emits FilterClubPass.CreditConsumed
+  // at a LOWER log index than this SlotReserved (the launcher consumes the credit at
+  // payment-check time, before the escrow call), so the redemption row already exists
+  // when we land here. Join on the shared `${seasonId}:${creator}` key rather than
+  // inferring from `escrowAmount == 0` (ambiguous with a `baseLaunchCost = 0` config).
+  const redemption = await context.db.find(clubCreditRedemption, {id});
   await context.db.insert(reservation).values({
     id,
     seasonId: event.args.seasonId,
@@ -48,6 +55,7 @@ ponder.on("LaunchEscrow:SlotReserved", async ({event, context}) => {
     escrowAmount: event.args.escrowAmount,
     status: "PENDING",
     reservedAt: event.block.timestamp,
+    creditFunded: redemption !== null && redemption !== undefined,
   });
   // Per-season ticker registry — backs the launch-form pre-flight check.
   await context.db.insert(seasonTickerReservation).values({

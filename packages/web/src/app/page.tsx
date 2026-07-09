@@ -53,6 +53,7 @@ import {useTrendBuffers} from "@/hooks/arena/useTrendBuffers";
 import {useHoldings} from "@/hooks/token/useHoldings";
 import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {weiToDecimalEther} from "@/lib/arena/format";
+import {activeChainSlug} from "@/lib/chain";
 import {C} from "@/lib/tokens";
 
 export default function HomePage() {
@@ -179,7 +180,7 @@ export default function HomePage() {
   const selectedToken = useMemo(() => cohort.find((t) => t.token === selected) ?? null, [cohort, selected]);
   const selectedTrend = selected ? trendBuffers.get(selected) ?? [] : [];
 
-  const chain = (process.env.NEXT_PUBLIC_CHAIN === "base" ? "base" : "base-sepolia") as "base" | "base-sepolia";
+  const chain = activeChainSlug();
   // Hide cut line in launch phase: status mapping treats everyone as SAFE
   // there, so showing a cut would be misleading.
   const hideCutLine = season?.phase === "launch";
