@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 
 import {FilterLauncher} from "../src/FilterLauncher.sol";
+import {FilterClubPass} from "../src/FilterClubPass.sol";
 import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 import {CreatorRegistry} from "../src/CreatorRegistry.sol";
 import {TournamentRegistry} from "../src/TournamentRegistry.sol";
@@ -74,10 +75,12 @@ contract VerifySepolia is Script {
         address tournRegAddr = vm.parseJsonAddress(m, ".addresses.tournamentRegistry");
         address manifestPolMgr = vm.parseJsonAddress(m, ".addresses.polManager");
         address manifestTreasury = vm.parseJsonAddress(m, ".addresses.treasuryTimelock");
+        address manifestClubPass = vm.parseJsonAddress(m, ".addresses.filterClubPass");
 
         require(launcherAddr != address(0), "VerifySepolia: launcher missing from manifest");
         require(creatorRegAddr != address(0), "VerifySepolia: creatorRegistry missing from manifest");
         require(tournRegAddr != address(0), "VerifySepolia: tournamentRegistry missing from manifest");
+        require(manifestClubPass != address(0), "VerifySepolia: filterClubPass missing from manifest");
 
         FilterLauncher launcher = FilterLauncher(payable(launcherAddr));
         CreatorRegistry creatorRegistry = CreatorRegistry(creatorRegAddr);
@@ -105,7 +108,7 @@ contract VerifySepolia is Script {
         address filterToken = address(0);
         if (!skipFilter) {
             // Probe `.filterToken.address` defensively — manifest may carry it as a zero
-            // address (DeploySepolia placeholder) or as a populated value (post-SeedFilter).
+            // address (DeployTestnet placeholder) or as a populated value (post-SeedFilter).
             try vm.parseJsonAddress(m, ".filterToken.address") returns (address addr) {
                 filterToken = addr;
             } catch {
@@ -154,7 +157,24 @@ contract VerifySepolia is Script {
             console2.log("  on-chain:", actualTreasury);
             revert("AssertionFailed_4b: launcher.treasury != manifest.treasuryTimelock");
         }
-        console2.log("[4/6] launcher.polManager + treasury match manifest");
+        // Epic 2.6: the Filter Club pass and the launcher must be wired to each other —
+        // the launcher holds the pass as an immutable, the pass holds the launcher via
+        // its one-shot setLauncher.
+        address actualClubPass = address(launcher.clubPass());
+        if (actualClubPass != manifestClubPass) {
+            console2.log("AssertionFailed_4c: launcher.clubPass mismatch");
+            console2.log("  manifest:", manifestClubPass);
+            console2.log("  on-chain:", actualClubPass);
+            revert("AssertionFailed_4c: launcher.clubPass != manifest.filterClubPass");
+        }
+        address clubPassLauncher = FilterClubPass(manifestClubPass).launcher();
+        if (clubPassLauncher != launcherAddr) {
+            console2.log("AssertionFailed_4d: clubPass.launcher mismatch");
+            console2.log("  expected:", launcherAddr);
+            console2.log("  actual:  ", clubPassLauncher);
+            revert("AssertionFailed_4d: clubPass.launcher != manifest.filterLauncher");
+        }
+        console2.log("[4/6] launcher.polManager + treasury + clubPass wiring match manifest");
 
         // ------------------------------------------------------------ Assertion 5
         // For every token in the current season: adminOf == creatorOf.

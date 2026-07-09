@@ -4,6 +4,8 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
+import {FilterClubPass} from "../../src/FilterClubPass.sol";
+import {IFilterClubPass} from "../../src/interfaces/IFilterClubPass.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {BonusDistributor} from "../../src/BonusDistributor.sol";
@@ -22,11 +24,12 @@ import {MockWETH} from "../mocks/MockWETH.sol";
 ///         than discovering a bricked deployment at use-time.
 ///
 ///         Surface covered:
-///           - constructor(oracle_, treasury_, mechanics_, bonusDistributor_, weth_)
+///           - constructor(oracle_, treasury_, mechanics_, bonusDistributor_, weth_, clubPass_)
 ///           - setOracle(address)
-///           - setFactory(IFilterFactory)
-///           - setPolManager(IPOLManager) — was using a string `require`; normalised here
-///             to `revert ZeroAddress()` for revert-selector consistency.
+///           - wire(factory_, polManager_, registry_, vault_) — Epic 2.6 consolidated the
+///             three one-shot setters (setFactory / setPolManager / setTournament) into a
+///             single atomic entry point; the per-arg zero checks and the AlreadySet
+///             sentinel carry over here.
 ///
 ///         `setForfeitRecipient` already has the check (since launch); included here so
 ///         a regression that drops it surfaces in the same suite.
@@ -38,6 +41,7 @@ import {MockWETH} from "../mocks/MockWETH.sol";
 ///           - Post-fix: every test in this suite PASSES.
 contract AdminSetterZeroAddressChecksTest is Test {
     FilterLauncher launcher;
+    FilterClubPass clubPass;
     BonusDistributor bonus;
     MockWETH weth;
 
@@ -49,9 +53,11 @@ contract AdminSetterZeroAddressChecksTest is Test {
     function setUp() public {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0xD15C), address(weth), oracle);
+        clubPass = new FilterClubPass(owner, treasury, "ipfs://club/", 250, 0.05 ether, 5);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
+        clubPass.setLauncher(address(launcher));
     }
 
     // ============================================================ Constructor
@@ -59,41 +65,66 @@ contract AdminSetterZeroAddressChecksTest is Test {
     function test_AuditH4_ConstructorRevertsOnZeroOracle() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
         new FilterLauncher(
-            owner, address(0), treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            owner, address(0), treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
     }
 
     function test_AuditH4_ConstructorRevertsOnZeroTreasury() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        new FilterLauncher(owner, oracle, address(0), mechanics, IBonusFunding(address(bonus)), address(weth));
+        new FilterLauncher(
+            owner, oracle, address(0), mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
+        );
     }
 
     function test_AuditH4_ConstructorRevertsOnZeroMechanics() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        new FilterLauncher(owner, oracle, treasury, address(0), IBonusFunding(address(bonus)), address(weth));
+        new FilterLauncher(
+            owner, oracle, treasury, address(0), IBonusFunding(address(bonus)), address(weth), clubPass
+        );
     }
 
     function test_AuditH4_ConstructorRevertsOnZeroBonusDistributor() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        new FilterLauncher(owner, oracle, treasury, mechanics, IBonusFunding(address(0)), address(weth));
+        new FilterLauncher(
+            owner, oracle, treasury, mechanics, IBonusFunding(address(0)), address(weth), clubPass
+        );
     }
 
     function test_AuditH4_ConstructorRevertsOnZeroWeth() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        new FilterLauncher(owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(0));
+        new FilterLauncher(
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(0), clubPass
+        );
+    }
+
+    /// @notice Epic 2.6: the Filter Club pass is a constructor-injected immutable — a zero
+    ///         pass would brick the `reserve` credit branch at first zero-value call, so it
+    ///         joins the H-4 zero-check surface.
+    function test_AuditH4_ConstructorRevertsOnZeroClubPass() public {
+        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
+        new FilterLauncher(
+            owner,
+            oracle,
+            treasury,
+            mechanics,
+            IBonusFunding(address(bonus)),
+            address(weth),
+            IFilterClubPass(address(0))
+        );
     }
 
     /// @notice Sanity: a constructor with all-non-zero deps succeeds. Pinned so a
     ///         regression that breaks the happy path also lights up here.
     function test_AuditH4_ConstructorAcceptsValidAddresses() public {
         FilterLauncher l = new FilterLauncher(
-            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
         assertEq(l.oracle(), oracle);
         assertEq(l.treasury(), treasury);
         assertEq(l.mechanics(), mechanics);
         assertEq(address(l.bonusDistributor()), address(bonus));
         assertEq(l.weth(), address(weth));
+        assertEq(address(l.clubPass()), address(clubPass));
     }
 
     // ============================================================ setOracle
@@ -109,60 +140,117 @@ contract AdminSetterZeroAddressChecksTest is Test {
         assertEq(launcher.oracle(), newOracle);
     }
 
-    // ============================================================ setFactory
+    // ============================================================ wire
+    //
+    // Epic 2.6 consolidated setFactory / setPolManager / setTournament into a single
+    // atomic `wire(factory_, polManager_, registry_, vault_)`. The zero-address gates
+    // are preserved per-arg (bugbot M+L PR #88: a zero in any slot would either bypass
+    // the AlreadySet sentinel — which keys off `factory` — or permanently brick that
+    // path with the one-shot guard blocking a re-wire). Dummy non-zero addresses are
+    // fine here: this suite never dereferences the wired contracts.
 
-    function test_AuditH4_SetFactoryRevertsOnZero() public {
+    function test_AuditH4_WireRevertsOnZeroFactory() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        launcher.setFactory(IFilterFactory(address(0)));
+        launcher.wire(
+            IFilterFactory(address(0)),
+            IPOLManager(address(0xF000)),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
+        // Sanity: storage stays at zero, so a follow-up call with valid args still works
+        // (the one-shot guard hasn't been tripped because the bad call reverted).
+        assertEq(address(launcher.factory()), address(0));
     }
 
-    // ============================================================ setPolManager
-
-    function test_AuditH4_SetPolManagerRevertsOnZeroWithCustomError() public {
-        // Pre-fix this used a string `require("zero polManager")`; post-fix the revert is
-        // the same selector as the rest of the admin-setter surface so an off-chain
-        // alerter can match a single selector across the launcher's writes.
+    function test_AuditH4_WireRevertsOnZeroPolManager() public {
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        launcher.setPolManager(IPOLManager(address(0)));
+        launcher.wire(
+            IFilterFactory(address(0xFAC7)),
+            IPOLManager(address(0)),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
+    }
+
+    /// @notice Audit: bugbot M PR #88 (carried over from `setTournament`). The one-shot
+    ///         guard MUST also reject zero `registry_` — otherwise a first call with zero
+    ///         leaves the storage slot at `address(0)` and later season starts would bake
+    ///         it into fresh SeasonVaults.
+    function test_BugbotPR88_WireRejectsZeroRegistry() public {
+        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
+        launcher.wire(
+            IFilterFactory(address(0xFAC7)),
+            IPOLManager(address(0xF000)),
+            TournamentRegistry(address(0)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
+        assertEq(address(launcher.tournamentRegistry()), address(0));
+    }
+
+    /// @notice Audit: bugbot L PR #88 (carried over). Mirror of the registry check for
+    ///         `vault_`. A zero vault would permanently brick `TournamentRegistry`'s
+    ///         `onlyTournamentVault`-gated entry points, and the one-shot `AlreadySet`
+    ///         guard blocks re-wiring.
+    function test_BugbotPR88_WireRejectsZeroVault() public {
+        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
+        launcher.wire(
+            IFilterFactory(address(0xFAC7)),
+            IPOLManager(address(0xF000)),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0)))
+        );
+    }
+
+    /// @notice Happy path: one wire call assigns all four slots atomically.
+    function test_WireAssignsAllFourSlots() public {
+        _wireWithDummies();
+        assertEq(address(launcher.factory()), address(0xFAC7));
+        assertEq(address(launcher.polManager()), address(0xF000));
+        assertEq(address(launcher.tournamentRegistry()), address(0xDEAD));
+        assertEq(address(launcher.tournamentVault()), address(0xBEEF));
+    }
+
+    /// @notice One-shot: a second wire reverts `AlreadySet` (sentinel keys off `factory`).
+    function test_WireSecondCallRevertsAlreadySet() public {
+        _wireWithDummies();
+        vm.expectRevert(FilterLauncher.AlreadySet.selector);
+        _wireWithDummies();
+    }
+
+    /// @notice Owner gate: a non-owner cannot wire.
+    function test_WireRevertsForNonOwner() public {
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        launcher.wire(
+            IFilterFactory(address(0xFAC7)),
+            IPOLManager(address(0xF000)),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
     }
 
     // `setForfeitRecipient` was removed when `forfeitRecipient` became immutable (Epic 1.15a
     // — EIP-170 size budget). The constructor sets it to `treasury_`; rotation is no longer
     // supported in-contract.
 
-    // ============================================================ setTournament
-
-    /// @notice Audit: bugbot M PR #88. The one-shot `setTournament` guard MUST also
-    ///         reject zero `registry_` — otherwise a first call with zero leaves the
-    ///         storage slot at `address(0)`, and the AlreadySet sentinel fails to fire
-    ///         on a second call. This would let an attacker (or a confused operator)
-    ///         silently re-wire the tournament addresses post-deploy.
-    function test_BugbotPR88_SetTournamentRejectsZeroRegistry() public {
-        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        launcher.setTournament(TournamentRegistry(address(0)), TournamentVault(payable(address(0xBEEF))));
-        // Sanity: storage stays at zero, so a follow-up call with valid args still works
-        // (the one-shot guard hasn't been tripped because the bad call reverted).
-        assertEq(address(launcher.tournamentRegistry()), address(0));
-    }
-
-    /// @notice Audit: bugbot L PR #88. Mirror of the registry check for `vault_`.
-    ///         A zero vault would permanently brick `TournamentRegistry`'s
-    ///         `onlyTournamentVault`-gated entry points (no caller can match
-    ///         `address(0)`), and the one-shot `AlreadySet` guard blocks re-wiring.
-    function test_BugbotPR88_SetTournamentRejectsZeroVault() public {
-        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0))));
-    }
-
-    /// @notice Audit: bugbot M PR #88. `startSeason` MUST refuse to deploy a
-    ///         `SeasonVault` if `tournamentRegistry` is unset — baking
-    ///         `address(0)` into the vault's `submitWinner` / `processFilterEvent`
-    ///         paths would permanently brick those flows for that season.
-    function test_BugbotPR88_StartSeasonRejectsUnsetTournamentRegistry() public {
-        // Wire polManager (else `PolManagerUnset` fires first) but skip `setTournament`.
-        launcher.setPolManager(IPOLManager(address(0xF000)));
+    /// @notice Audit: bugbot M PR #88 (post-Epic-2.6 form). `startSeason` MUST refuse to
+    ///         run on an unwired launcher. `wire` is atomic, so "polManager set but
+    ///         tournamentRegistry unset" is no longer reachable — the unwired launcher
+    ///         trips the first gate (`PolManagerUnset`); the registry zero-check remains
+    ///         in `startSeason` as defense-in-depth.
+    function test_BugbotPR88_StartSeasonRejectsUnwiredLauncher() public {
         vm.prank(oracle);
-        vm.expectRevert(FilterLauncher.ZeroAddress.selector);
+        vm.expectRevert(FilterLauncher.PolManagerUnset.selector);
         launcher.startSeason();
+    }
+
+    function _wireWithDummies() internal {
+        launcher.wire(
+            IFilterFactory(address(0xFAC7)),
+            IPOLManager(address(0xF000)),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
     }
 }

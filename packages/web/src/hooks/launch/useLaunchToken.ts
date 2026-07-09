@@ -10,9 +10,17 @@
 ///   - "success"     → mined; the page redirects to /arena
 ///   - "error"       → user-facing error in `error` field
 ///
+/// The write path is `FilterLauncher.reserve(ticker, metadataURI)` (spec
+/// §46.9) — Epic 1.15a replaced the never-shipped `launchToken(name, symbol,
+/// metadataURI)` with the reservation entry point. The canonical on-chain
+/// symbol IS the ticker; the display name lives only in the pinned metadata.
+///
 /// On success, the page reads the parsed `TokenLaunched` event from the
 /// receipt to derive the new token's address and redirects to
-/// `/arena?token=0x…`.
+/// `/arena?token=0x…`. Pre-activation (slots 1–3) the reservation is QUEUED —
+/// no `TokenLaunched` fires in the reserve tx — so `launchedToken` stays null
+/// and the page falls back to a plain arena redirect; the slot grid picks the
+/// reservation up via the indexer's launch-status overlay (Epic 1.15c).
 
 import {useCallback, useEffect, useState} from "react";
 import {decodeEventLog, type Address, type Hash, type Hex} from "viem";
@@ -30,20 +38,26 @@ export type LaunchPhase =
   | "error";
 
 export type LaunchPayload = {
-  name: string;
-  symbol: string;
+  /// Canonical ticker (post-`canonicalSymbol`): 2–10 chars, A–Z / 0–9. The
+  /// contract re-normalizes via TickerLib and uses the result as the on-chain
+  /// token symbol, so the display `name` is metadata-only and never sent here.
+  ticker: string;
   /// Pre-pinned URI (ipfs:// or https://) — produced by /api/metadata.
   metadataURI: string;
-  /// Total to send (cost + stake). The contract expects ≥ launchCost; the
+  /// Total to send (cost + stake). The contract expects ≥ the slot cost; the
   /// stake is held when `refundableStakeEnabled` is true. The page sums
-  /// both before calling.
+  /// both before calling. `0n` is unambiguous Filter Club intent (spec
+  /// §47.3.8): the contract consults the pass exactly when `msg.value == 0`,
+  /// so a credit launch sends zero rather than an underpayment.
   valueWei: bigint;
 };
 
 export type UseLaunchTokenResult = {
   phase: LaunchPhase;
   txHash: Hash | null;
-  /// Parsed `TokenLaunched` event payload — populated on success.
+  /// Parsed `TokenLaunched` event payload — populated on success when the
+  /// reserve tx deployed in-line (post-activation). Null for queued
+  /// pre-activation reservations, which emit no `TokenLaunched`.
   launchedToken: Address | null;
   error: string | null;
   /// Submits the launch — pin then write. The page is responsible for the
@@ -75,8 +89,8 @@ export function useLaunchToken(): UseLaunchTokenResult {
         {
           address: contractAddresses.filterLauncher,
           abi: FilterLauncherLaunchAbi,
-          functionName: "launchToken",
-          args: [payload.name, payload.symbol, payload.metadataURI],
+          functionName: "reserve",
+          args: [payload.ticker, payload.metadataURI],
           value: payload.valueWei,
         },
         {
@@ -92,7 +106,8 @@ export function useLaunchToken(): UseLaunchTokenResult {
   );
 
   // Watch the receipt; when it lands, decode the TokenLaunched event so the
-  // page can deep-link the new token in /arena.
+  // page can deep-link the new token in /arena. Absent event (queued
+  // pre-activation reservation) is still a success — launchedToken stays null.
   useEffect(() => {
     if (!txHash || !publicClient) return;
     let cancelled = false;
@@ -151,13 +166,23 @@ function parseLaunchedTokenFromReceipt(
   return null;
 }
 
+/// Map `reserve()`'s custom-error surface (spec §46.9 — one error per
+/// validation gate, mirrored in `FilterLauncherLaunchAbi`) to user copy.
+/// viem surfaces the decoded error NAME in the message; each branch tells
+/// the user what happened AND what to do next (Audit M-Ux-5 posture).
 function humanError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  // viem surfaces the revert reason in the message; trim the long stack.
-  if (/InsufficientPayment/.test(msg)) return "Not enough ETH for slot cost + stake.";
-  if (/LaunchCapReached/.test(msg)) return "Slot already taken — someone beat you to it.";
-  if (/LaunchWindowClosed/.test(msg)) return "Launch window closed before tx mined.";
-  if (/DuplicateSymbol/.test(msg)) return "Ticker collided with another launch this season.";
+  if (/WrongPhase/.test(msg)) return "The launch window isn't open right now — this season has moved past its launch phase.";
+  if (/SeasonAlreadyAborted/.test(msg)) return "This season was aborted — no new reservations. A fresh season opens Monday 00:00 UTC.";
+  if (/WindowClosed/.test(msg)) return "Launch window closed before your transaction mined.";
+  if (/AlreadyReserved/.test(msg)) return "This wallet already holds a slot this season — one reservation per wallet.";
+  if (/SlotsExhausted/.test(msg)) return "All 12 slots are taken — someone beat you to the last one.";
+  if (/InvalidTickerFormat/.test(msg)) return "Ticker must be 2–10 characters, A–Z and 0–9 only.";
+  if (/TickerBlocklisted/.test(msg)) return "That ticker is protocol-blocklisted. Pick another.";
+  if (/TickerWinnerReserved/.test(msg)) return "That ticker belongs to a past weekly winner — reserved across seasons. Pick another.";
+  if (/TickerTaken/.test(msg)) return "Ticker collided with another launch this season.";
+  if (/InsufficientEscrow/.test(msg)) return "Not enough ETH attached for this slot — or your Filter Club credit couldn't be applied.";
+  if (/RefundFailed/.test(msg)) return "Refunding your excess ETH failed, so the whole transaction was rolled back. Try again.";
   if (/User rejected/.test(msg)) return "You rejected the transaction.";
   return msg.length > 200 ? msg.slice(0, 200) + "…" : msg;
 }

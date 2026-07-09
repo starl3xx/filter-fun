@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 
 import {FilterLauncher} from "../../../src/FilterLauncher.sol";
+import {FilterClubPass} from "../../../src/FilterClubPass.sol";
 import {LaunchEscrow} from "../../../src/LaunchEscrow.sol";
 import {IFilterFactory} from "../../../src/interfaces/IFilterFactory.sol";
 import {IBonusFunding, IPOLManager} from "../../../src/SeasonVault.sol";
@@ -33,6 +34,7 @@ contract DeferredActivationHandler is Test {
     uint256 public constant TICKER_COUNT = 24;
 
     FilterLauncher public launcher;
+    FilterClubPass public clubPass;
     LaunchEscrow public escrow;
     MockFilterFactory public factory;
     BonusDistributor public bonus;
@@ -59,6 +61,14 @@ contract DeferredActivationHandler is Test {
     bool public ghostActivationStarted;
     bool public ghostActivationCompleted;
     uint256 public ghostLaunchCountAtActivationStart;
+    /// @dev Ghost: Filter Club credit ledger (spec §47.3.8 / Epic 2.6). `ghostCreditsConsumed`
+    ///      counts every successful `consumeCredit` observed through the launcher (detected by
+    ///      the (season, holder) record flipping non-zero on a successful reserve — this also
+    ///      catches `fuzz_reserve` calls whose bounded value landed on 0 with a credit-holding
+    ///      actor). `ghostCreditsReclaimed` counts successful post-abort `reclaimCredit` calls.
+    ///      Conservation: sum(creditsOf) + (consumed - reclaimed) == totalMinted × 2.
+    uint256 public ghostCreditsConsumed;
+    uint256 public ghostCreditsReclaimed;
 
     constructor() {
         weth = new MockWETH();
@@ -67,15 +77,21 @@ contract DeferredActivationHandler is Test {
         mechanics = address(0xE000);
 
         bonus = new BonusDistributor(address(0), address(weth), oracle);
+        clubPass = new FilterClubPass(address(this), treasury, "ipfs://club/", 250, 0.05 ether, 5);
         launcher = new FilterLauncher(
-            address(this), oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            address(this), oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
-        launcher.setPolManager(IPOLManager(address(0xF000)));
+        clubPass.setLauncher(address(launcher));
         factory = new MockFilterFactory(address(launcher), address(weth));
-        launcher.setFactory(IFilterFactory(address(factory)));
-        // Tournament wire required since `startSeason` zero-checks the registry
-        // (audit: bugbot M PR #88).
-        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0xBEEF))));
+        // One-shot wire. Tournament wire required since `startSeason` zero-checks the
+        // registry (audit: bugbot M PR #88); dummies suffice — the handler never
+        // dereferences polManager/tournament.
+        launcher.wire(
+            IFilterFactory(address(factory)),
+            IPOLManager(address(0xF000)),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
         escrow = launcher.launchEscrow();
 
         // Open season 1 once at construction; the fuzzer drives reservations + abort.
@@ -144,6 +160,11 @@ contract DeferredActivationHandler is Test {
             ghostLaunchCountAtActivationStart = launcher.launchCount(SEASON_ID);
         }
 
+        // A bounded valueWei of 0 from a credit-holding actor is a legitimate Filter Club
+        // reservation — detect the consumption via the (season, holder) record delta so the
+        // credit-conservation ghost stays exact regardless of which selector triggered it.
+        bool hadCreditRecord = clubPass.consumedTokenOf(SEASON_ID, creator) != 0;
+
         try this.reserveExternal(creator, valueWei, ticker) {
             // Successful reservation. Record ghosts.
             ghostReservers.push(creator);
@@ -151,6 +172,9 @@ contract DeferredActivationHandler is Test {
             ghostTickerToCreator[tickerHash] = creator;
             if (isActivationCall) {
                 ghostActivationCompleted = true;
+            }
+            if (!hadCreditRecord && clubPass.consumedTokenOf(SEASON_ID, creator) != 0) {
+                ++ghostCreditsConsumed;
             }
         } catch {
             // Wrong-state revert (already reserved / taken / slots exhausted / etc.) — fine,
@@ -181,6 +205,110 @@ contract DeferredActivationHandler is Test {
         require(msg.sender == address(this), "internal-only");
         vm.prank(oracle);
         launcher.abortSeason(SEASON_ID);
+    }
+
+    // ============================================================ Filter Club selectors (Epic 2.6)
+
+    /// @notice Mint 1..3 passes for a fuzzer-chosen actor. Precondition-guarded no-op (early
+    ///         return) rather than revert when supply or the wallet cap would fire, matching
+    ///         the `fail_on_revert = false` + ghost-flag house style. No ghost needed: the
+    ///         conservation invariant reads `totalMinted()` straight off the contract.
+    function fuzz_mintPass(uint256 actorIdx, uint256 qty) external {
+        actorIdx = bound(actorIdx, 0, CREATOR_COUNT - 1);
+        qty = bound(qty, 1, 3);
+        address actor = creators[actorIdx];
+
+        if (clubPass.totalMinted() + qty > clubPass.maxSupply()) return;
+        if (clubPass.mintedBy(actor) + uint32(qty) > clubPass.walletMintCap()) return;
+        if (clubPass.paused()) return;
+
+        // Pre-compute the price into a local — `vm.prank` is consumed by the next external
+        // call, including the `mintPrice()` staticcall (see WeeklyLifecycle's slot-cost note).
+        uint256 cost = clubPass.mintPrice() * qty;
+        vm.prank(actor);
+        clubPass.mint{value: cost}(qty);
+    }
+
+    /// @notice Reserve with `msg.value == 0` (the credit-intent signal) from an actor holding
+    ///         credits. Reuses `reserveExternal` so activation ghosts stay consistent with the
+    ///         paid path; the credit ghost increments only on an observed record flip.
+    function fuzz_creditReserve(uint256 creatorIdx, uint256 tickerIdx) external {
+        creatorIdx = bound(creatorIdx, 0, CREATOR_COUNT - 1);
+        tickerIdx = bound(tickerIdx, 0, TICKER_COUNT - 1);
+        address creator = creators[creatorIdx];
+        if (clubPass.creditsRemaining(creator) == 0) return;
+
+        string memory ticker = tickerPool[tickerIdx];
+        bytes32 tickerHash = keccak256(bytes(ticker));
+
+        bool isActivationCall =
+            launcher.lens().reservationCount(SEASON_ID) == 3 && !launcher.activated(SEASON_ID);
+        if (isActivationCall) {
+            ghostActivationStarted = true;
+            ghostLaunchCountAtActivationStart = launcher.launchCount(SEASON_ID);
+        }
+        bool hadCreditRecord = clubPass.consumedTokenOf(SEASON_ID, creator) != 0;
+
+        try this.reserveExternal(creator, 0, ticker) {
+            ghostReservers.push(creator);
+            ghostTickerHashes.push(tickerHash);
+            ghostTickerToCreator[tickerHash] = creator;
+            if (isActivationCall) {
+                ghostActivationCompleted = true;
+            }
+            if (!hadCreditRecord && clubPass.consumedTokenOf(SEASON_ID, creator) != 0) {
+                ++ghostCreditsConsumed;
+            }
+        } catch {
+            // Season cap / redemption cap / already reserved / window closed — all fine.
+        }
+    }
+
+    /// @notice Transfer a fuzzer-chosen pass between actors. Credits are keyed to the tokenId
+    ///         so this must never move the conservation sum — that's exactly what it probes.
+    function fuzz_transferPass(uint256 fromIdx, uint256 toIdx, uint256 tokenSeed) external {
+        fromIdx = bound(fromIdx, 0, CREATOR_COUNT - 1);
+        toIdx = bound(toIdx, 0, CREATOR_COUNT - 1);
+        address from = creators[fromIdx];
+        address to = creators[toIdx];
+        uint256 bal = clubPass.balanceOf(from);
+        if (bal == 0 || from == to) return;
+
+        uint256 tokenId = clubPass.tokenOfOwnerByIndex(from, tokenSeed % bal);
+        vm.prank(from);
+        clubPass.transferFrom(from, to, tokenId);
+    }
+
+    /// @notice Arm a fuzzer-chosen owned pass as the preferred credit source. Pure preference
+    ///         state — stale entries are the pass's own problem (auto-select must skip them).
+    function fuzz_armCredit(uint256 actorIdx, uint256 tokenSeed) external {
+        actorIdx = bound(actorIdx, 0, CREATOR_COUNT - 1);
+        address actor = creators[actorIdx];
+        uint256 bal = clubPass.balanceOf(actor);
+        if (bal == 0) return;
+
+        uint256 tokenId = clubPass.tokenOfOwnerByIndex(actor, tokenSeed % bal);
+        vm.prank(actor);
+        clubPass.armCredit(tokenId);
+    }
+
+    /// @notice Reclaim a consumed credit — only meaningful once the fuzzer has driven the
+    ///         season through `fuzz_warpAndAbort`. try/catch per house pattern (a competing
+    ///         sequence step could have reclaimed already).
+    function fuzz_reclaimCredit(uint256 creatorIdx) external {
+        creatorIdx = bound(creatorIdx, 0, CREATOR_COUNT - 1);
+        address creator = creators[creatorIdx];
+        if (!launcher.aborted(SEASON_ID)) return;
+        if (clubPass.consumedTokenOf(SEASON_ID, creator) == 0) return;
+
+        try this.reclaimExternal(creator) {
+            ++ghostCreditsReclaimed;
+        } catch {}
+    }
+
+    function reclaimExternal(address creator) external {
+        require(msg.sender == address(this), "internal-only");
+        clubPass.reclaimCredit(SEASON_ID, creator);
     }
 
     // ============================================================ Ghost views

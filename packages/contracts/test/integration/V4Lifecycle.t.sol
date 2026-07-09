@@ -16,6 +16,7 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
+import {FilterClubPass} from "../../src/FilterClubPass.sol";
 import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
 import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "../../src/TournamentVault.sol";
 import {FilterFactory} from "../../src/FilterFactory.sol";
@@ -38,6 +39,7 @@ contract V4LifecycleTest is Test, Deployers {
     using StateLibrary for IPoolManager;
 
     FilterLauncher launcher;
+    FilterClubPass clubPass;
     FilterFactory factory;
     FilterHook hook;
     BonusDistributor bonus;
@@ -61,11 +63,12 @@ contract V4LifecycleTest is Test, Deployers {
         bonus = new BonusDistributor(address(0), address(weth), oracle);
         polVault = new POLVault(address(this));
 
+        clubPass = new FilterClubPass(owner, treasury, "ipfs://club/", 250, 0.05 ether, 5);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
+        clubPass.setLauncher(address(launcher));
         polManager = new POLManager(address(launcher), address(weth), IPOLVaultRecord(address(polVault)));
-        launcher.setPolManager(IPOLManager(address(polManager)));
         polVault.setPolManager(address(polManager));
         polVault.transferOwnership(polVaultOwner);
 
@@ -87,8 +90,8 @@ contract V4LifecycleTest is Test, Deployers {
             launcher.creatorCommitments()
         );
         hook.initialize(address(factory));
-        launcher.setFactory(IFilterFactory(address(factory)));
-        // Tournament contracts are externalised (EIP-3860 budget); wire post-deploy.
+        // Tournament contracts are externalised (EIP-3860 budget); one-shot wire once all
+        // four external deps exist.
         {
             TournamentRegistry tr = new TournamentRegistry(address(launcher));
             TournamentVault tv = new TournamentVault(
@@ -100,7 +103,7 @@ contract V4LifecycleTest is Test, Deployers {
                 ICreatorRegistryView(address(launcher.creatorRegistry())),
                 launcher.bonusUnlockDelay()
             );
-            launcher.setTournament(tr, tv);
+            launcher.wire(IFilterFactory(address(factory)), IPOLManager(address(polManager)), tr, tv);
         }
 
         // Open Season 1.

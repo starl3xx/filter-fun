@@ -138,9 +138,10 @@ export interface HpSnapshotRowInsert {
   trigger: HpRecomputeTrigger;
   /// Reorg-safety status (Epic 1.22 / spec §6.12). See ponder.schema for the
   /// state machine. Per-token triggers (SWAP / HOLDER_SNAPSHOT / BLOCK_TICK)
-  /// land as `tip`; CUT / FINALIZE rows MUST land as `final` (the writer
-  /// queues them until ≥12 blocks past the wall-clock boundary, so by the
-  /// time we insert they are final by construction).
+  /// land as `tip` and are promoted on wall-clock age (30s → soft, 120s →
+  /// final; see finalityAdvancer.ts). CUT / FINALIZE rows land as `final` by
+  /// construction — they're written by settlement-event handlers, and Ponder's
+  /// own reorg handling rolls the event (and the row) back if the chain does.
   finality: HpFinality;
 }
 
@@ -149,10 +150,10 @@ export interface HpSnapshotRowInsert {
 export type HpFinality = "tip" | "soft" | "final";
 
 /// Resolves the initial `finality` for a fresh hpSnapshot row given its
-/// trigger. Settlement-tagged rows arrive only after the writer has waited
-/// ≥12 blocks past the wall-clock boundary, so they land as `final` by
-/// construction; everything else lands as `tip` (the periodic advancer will
-/// promote them to `soft` and `final`).
+/// trigger. Settlement-tagged rows are written by on-chain settlement-event
+/// handlers (Ponder rolls them back with the event on reorg), so they land as
+/// `final` by construction; everything else lands as `tip` (the periodic
+/// advancer promotes them on wall-clock age — 30s → `soft`, 120s → `final`).
 export function initialFinalityForTrigger(t: HpRecomputeTrigger): HpFinality {
   if (t === "CUT" || t === "FINALIZE") return "final";
   return "tip";

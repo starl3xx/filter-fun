@@ -19,7 +19,7 @@ import {readFileSync, existsSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 import {dirname, resolve} from "node:path";
 
-export type ChainNetwork = "base" | "baseSepolia";
+export type ChainNetwork = "base" | "baseSepolia" | "robinhood" | "robinhoodTestnet";
 
 export interface DeploymentAddresses {
   treasuryTimelock: `0x${string}`;
@@ -50,11 +50,15 @@ export interface DeploymentAddresses {
   tournamentVault: `0x${string}`;
   v4PoolManager: `0x${string}`;
   weth: `0x${string}`;
+  /// Epic 2.6 — Filter Club lifetime pass. Optional: manifests written before the club
+  /// shipped don't carry it; the Ponder config falls back to `FILTER_CLUB_ADDRESS` env
+  /// and warns on the zero sentinel like the other optional contracts.
+  filterClubPass?: `0x${string}`;
 }
 
 export interface Deployment {
-  /// "base" or "baseSepolia" — keyed off the manifest's `network` field, normalized to the
-  /// camelCase variant the Ponder config + wagmi config use.
+  /// One of the `ChainNetwork` keys — derived from the manifest's `network` field,
+  /// normalized to the camelCase variant the Ponder config + wagmi config use.
   network: ChainNetwork;
   /// Block height the manifest was written at — Ponder uses this as `startBlock` for every
   /// indexed contract. Without this, Ponder reindexes from chain genesis (slow, expensive,
@@ -64,6 +68,10 @@ export interface Deployment {
   /// production indexer that's pointed at the wrong manifest is obvious in the boot log.
   deployCommitHash: string;
   addresses: DeploymentAddresses;
+  /// Raw manifest `config` object passthrough (Epic 2.6 — the /club endpoint reads
+  /// `filterClubMintPriceWei` / `filterClubMaxSupply` from here so it needs no RPC at
+  /// request time). Empty object under the env-var fallback path.
+  config: Record<string, unknown>;
 }
 
 interface RawManifest {
@@ -81,10 +89,11 @@ interface RawManifest {
 
 const ZERO = "0x0000000000000000000000000000000000000000" as const;
 
-/// Default to base-sepolia when ambiguous — that's the testnet rehearsal target. Mainnet
-/// deploys override via `PONDER_NETWORK=base`.
+/// Default to robinhood-testnet when ambiguous — that's the rehearsal target since the
+/// 2026-07 Robinhood Chain retarget. Mainnet deploys override via `PONDER_NETWORK=robinhood`;
+/// the Base networks remain selectable for the documented emergency-retreat path.
 export function readDeployment(networkHint?: ChainNetwork): Deployment {
-  const network: ChainNetwork = networkHint ?? (process.env.PONDER_NETWORK as ChainNetwork) ?? "baseSepolia";
+  const network: ChainNetwork = networkHint ?? (process.env.PONDER_NETWORK as ChainNetwork) ?? "robinhoodTestnet";
 
   const fromManifest = tryLoadManifest(network);
   if (fromManifest) return fromManifest;
@@ -122,6 +131,7 @@ function tryLoadManifest(network: ChainNetwork): Deployment | null {
         deployBlockNumber: raw.deployBlockNumber,
         deployCommitHash: raw.deployCommitHash,
         addresses: raw.addresses,
+        config: raw.config ?? {},
       };
     } catch (e) {
       // Treat malformed JSON as "manifest not present" rather than throwing — the env-var
@@ -138,6 +148,7 @@ function loadFromEnv(network: ChainNetwork): Deployment {
   const factory = (process.env.FILTER_FACTORY_ADDRESS ?? ZERO) as `0x${string}`;
   const bonus = (process.env.BONUS_DISTRIBUTOR_ADDRESS ?? ZERO) as `0x${string}`;
   return {
+    config: {},
     network,
     deployBlockNumber: Number(process.env.DEPLOY_BLOCK ?? 0),
     deployCommitHash: process.env.DEPLOY_COMMIT_HASH ?? "unknown",
@@ -171,11 +182,22 @@ function monorepoManifestPath(network: ChainNetwork): string {
 }
 
 function networkSlug(network: ChainNetwork): string {
-  return network === "baseSepolia" ? "base-sepolia" : "base";
+  switch (network) {
+    case "baseSepolia":
+      return "base-sepolia";
+    case "base":
+      return "base";
+    case "robinhoodTestnet":
+      return "robinhood-testnet";
+    case "robinhood":
+      return "robinhood";
+  }
 }
 
 function normalizeNetwork(s: string): ChainNetwork {
   if (s === "base-sepolia" || s === "baseSepolia") return "baseSepolia";
   if (s === "base" || s === "base-mainnet") return "base";
+  if (s === "robinhood-testnet" || s === "robinhoodTestnet") return "robinhoodTestnet";
+  if (s === "robinhood" || s === "robinhood-mainnet") return "robinhood";
   throw new Error(`[indexer] unknown manifest network: ${s}`);
 }

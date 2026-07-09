@@ -50,6 +50,15 @@ export type CostPanelProps = {
   /// zero." The earnings block stays visible because it doesn't depend
   /// on the cost values.
   costLoading?: boolean;
+  /// Epic 2.6 (spec §47.3.8): true when the user armed the launch page's
+  /// "Use Filter Club credit" toggle. Per the M-Ux-4 rationale above, a
+  /// zero total is visually indistinguishable from a free launch — so a
+  /// DELIBERATE free launch must be loudly labeled: the slot cost renders
+  /// struck-through, a "FREE — Filter Club credit" badge sits beside it,
+  /// and the total commits to Ξ 0 with an explicit credit note. The
+  /// loading-dash discipline still wins while `costLoading` is true (the
+  /// struck-through value would be a lying zero during the read).
+  creditApplied?: boolean;
 };
 
 export function CostPanel({
@@ -59,9 +68,14 @@ export function CostPanel({
   ethUsd,
   championPoolEth,
   costLoading = false,
+  creditApplied = false,
 }: CostPanelProps) {
   const total = launchCostWei + stakeWei;
   const stakeOn = stakeWei > 0n;
+  // A credit launch sends `value: 0n` — the contract retains no cost and no
+  // stake (FilterLauncher.reserve step 8), so the committed total is exactly
+  // zero. `free` gates the loud FREE rendering; while loading we still dash.
+  const free = creditApplied && !costLoading;
 
   const launchUsd = weiToUsd(launchCostWei, ethUsd);
   const stakeUsd = weiToUsd(stakeWei, ethUsd);
@@ -93,7 +107,7 @@ export function CostPanel({
         gap: 10,
       }}
     >
-      <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+      <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap"}}>
         <span
           style={{
             fontFamily: F.mono,
@@ -106,12 +120,35 @@ export function CostPanel({
         >
           Cost &amp; earnings · Slot #{String(slotIndex + 1).padStart(2, "0")}
         </span>
+        {creditApplied && (
+          <span
+            data-testid="cost-panel-credit-badge"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              borderRadius: 99,
+              border: `1px solid ${C.yellow}66`,
+              background: `${C.yellow}1a`,
+              color: C.yellow,
+              fontFamily: F.mono,
+              fontWeight: 800,
+              fontSize: 9,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+            }}
+          >
+            FREE — Filter Club credit
+          </span>
+        )}
       </div>
 
       <Row
         label="Launch cost"
         eth={costLoading ? "—" : fmtEthFromWei(launchCostWei)}
         usd={costLoading ? "—" : fmtUsd(launchUsd)}
+        struck={free}
       />
       {/* During load we don't yet know if stake mode is on (the read is
           gated behind the same status). Show the row with dashes so the
@@ -124,18 +161,34 @@ export function CostPanel({
           label="Refundable stake"
           eth={costLoading ? "—" : fmtEthFromWei(stakeWei)}
           usd={costLoading ? "—" : fmtUsd(stakeUsd)}
+          struck={free}
         />
       )}
 
       <div style={{height: 1, background: C.line}} />
       <Row
         label="Total committed"
-        eth={costLoading ? "—" : fmtEthFromWei(total)}
-        usd={costLoading ? "—" : fmtUsd(totalUsd)}
+        eth={costLoading ? "—" : free ? fmtEthFromWei(0n) : fmtEthFromWei(total)}
+        usd={costLoading ? "—" : free ? fmtUsd(0) : fmtUsd(totalUsd)}
         bold
       />
 
-      {stakeOn && (
+      {free && (
+        <p
+          data-testid="cost-panel-credit-note"
+          style={{
+            margin: 0,
+            fontSize: 11,
+            color: C.yellow,
+            lineHeight: 1.45,
+          }}
+        >
+          Your Filter Club credit covers this slot — no ETH leaves your wallet. The credit is
+          consumed on-chain when the reservation lands.
+        </p>
+      )}
+
+      {stakeOn && !free && (
         <p
           style={{
             margin: 0,
@@ -169,7 +222,10 @@ export function CostPanel({
   );
 }
 
-function Row({label, eth, usd, bold}: {label: string; eth: string; usd: string; bold?: boolean}) {
+/// `struck` (Epic 2.6): renders the value cells with a line-through + faint
+/// color — the "what you would have paid" state when a Filter Club credit
+/// covers the launch. Label stays un-struck so the row remains scannable.
+function Row({label, eth, usd, bold, struck}: {label: string; eth: string; usd: string; bold?: boolean; struck?: boolean}) {
   return (
     <div style={{display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8}}>
       <span
@@ -190,13 +246,14 @@ function Row({label, eth, usd, bold}: {label: string; eth: string; usd: string; 
           gap: 8,
           fontFamily: F.mono,
           fontVariantNumeric: "tabular-nums",
+          textDecoration: struck ? "line-through" : undefined,
         }}
       >
         <span
           style={{
             fontWeight: 800,
             fontSize: bold ? 16 : 13,
-            color: C.text,
+            color: struck ? C.faint : C.text,
           }}
         >
           {eth}

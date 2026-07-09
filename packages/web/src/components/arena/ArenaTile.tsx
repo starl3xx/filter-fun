@@ -36,6 +36,7 @@ import type {TokenResponse} from "@/lib/arena/api";
 import {tradeTokenUrl} from "@/lib/arena/api";
 import {fmtPctChange} from "@/lib/arena/format";
 import {HP_MAX} from "@/lib/arena/hp";
+import type {ChainSlug} from "@/lib/chain";
 import {
   HP_TILE_COMPONENT_COLORS,
   HP_TILE_KEYS_IN_ORDER,
@@ -94,9 +95,9 @@ export type ArenaTileProps = {
   /// Whether this tile is the currently-selected token. Drives a cyan
   /// edge accent that mirrors the row view's selection treatment.
   isSelected?: boolean;
-  /// Chain — drives the "BUY" deeplink target (Uniswap on mainnet, Basescan
-  /// fallback on Sepolia).
-  chain: "base" | "base-sepolia";
+  /// Chain — drives the "BUY" deeplink target (Uniswap on mainnets,
+  /// explorer token-page fallback on testnets — see `tradeTokenUrl`).
+  chain: ChainSlug;
 };
 
 export function ArenaTile({

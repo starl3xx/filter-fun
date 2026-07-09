@@ -26,10 +26,11 @@
 import {useMemo} from "react";
 import {useReadContracts} from "wagmi";
 
-import {contractAddresses, isDeployed} from "@/lib/addresses";
-import {FilterLauncherLaunchAbi, MAX_LAUNCHES} from "@/lib/launch/abi";
+import {isDeployed} from "@/lib/addresses";
+import {LauncherLensAbi, MAX_LAUNCHES} from "@/lib/launch/abi";
 import type {LaunchStatusResponse, TokenResponse} from "@/lib/arena/api";
 
+import {useLauncherLens} from "./useLauncherLens";
 import {useLauncherSeason} from "./useLauncherSeason";
 import {useLaunchStatus} from "./useLaunchStatus";
 
@@ -85,21 +86,23 @@ const ALMOST_GONE_FROM_SLOT = 9;
 export function useLaunchSlots(cohort: TokenResponse[] | null): LaunchSlotsResult {
   const {data: seasonId} = useLauncherSeason();
 
-  const enabled = isDeployed("filterLauncher") && seasonId !== null;
-  const launcher = contractAddresses.filterLauncher;
+  // Epic 1.15a drift fix: these views live on the LauncherLens companion, not
+  // the launcher (EIP-170 externalization) — resolve the lens address first.
+  const {lensAddress} = useLauncherLens();
+  const enabled = isDeployed("filterLauncher") && seasonId !== null && Boolean(lensAddress);
   const sid = seasonId ?? 0n;
 
   const {data, isLoading, error} = useReadContracts({
     contracts: [
       {
-        address: launcher,
-        abi: FilterLauncherLaunchAbi,
+        address: lensAddress,
+        abi: LauncherLensAbi,
         functionName: "getLaunchSlots",
         args: [sid],
       },
       {
-        address: launcher,
-        abi: FilterLauncherLaunchAbi,
+        address: lensAddress,
+        abi: LauncherLensAbi,
         functionName: "getLaunchStatus",
         args: [sid],
       },
@@ -109,8 +112,8 @@ export function useLaunchSlots(cohort: TokenResponse[] | null): LaunchSlotsResul
 
   // Epic 1.15c — overlay reservation lifecycle on empty slots. The launcher's
   // `getLaunchSlots` only returns NORMALISED launches (post-activation +
-  // launchToken-completed); pre-activation reservations live in `LaunchEscrow`
-  // and surface via the indexer's `/season/:id/launch-status`.
+  // token-deployed via `reserve`); pre-activation reservations live in
+  // `LaunchEscrow` and surface via the indexer's `/season/:id/launch-status`.
   const {data: launchStatus} = useLaunchStatus(seasonId ?? null);
 
   return useMemo(() => {

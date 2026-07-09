@@ -7,8 +7,11 @@ import {BonusDistributor} from "../../src/BonusDistributor.sol";
 import {CreatorFeeDistributor} from "../../src/CreatorFeeDistributor.sol";
 import {CreatorRegistry} from "../../src/CreatorRegistry.sol";
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
-import {IBonusFunding} from "../../src/SeasonVault.sol";
+import {FilterClubPass} from "../../src/FilterClubPass.sol";
+import {IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
+import {TournamentRegistry} from "../../src/TournamentRegistry.sol";
+import {TournamentVault} from "../../src/TournamentVault.sol";
 
 // PolishContractsPassTest -- Audit polish pass (Phase 1, 2026-05-02)
 //
@@ -31,43 +34,60 @@ contract PolishContractsPassTest is Test {
     address internal stubBonusDistributor = address(0x6);
 
     FilterLauncher internal launcher;
+    FilterClubPass internal clubPass;
 
     function setUp() public {
         // Audit H-4 zero-address gates require non-zero on every constructor address;
-        // we only need a launcher that can take a setFactory call, so the bonusDistributor
+        // we only need a launcher that can take a wire call, so the bonusDistributor
         // wire can be a stub address (the launcher doesn't dispatch through it in this test).
-        launcher =
-            new FilterLauncher(owner, oracle, treasury, mechanics, IBonusFunding(stubBonusDistributor), weth);
+        clubPass = new FilterClubPass(owner, treasury, "ipfs://club/", 250, 0.05 ether, 5);
+        launcher = new FilterLauncher(
+            owner, oracle, treasury, mechanics, IBonusFunding(stubBonusDistributor), weth, clubPass
+        );
+        vm.prank(owner);
+        clubPass.setLauncher(address(launcher));
     }
 
     // M-Contracts-2 ------------------------------------------------------------------
     //
-    // setFactory is a one-shot owner-only setter for the FilterFactory address. Pre-fix
+    // setFactory was a one-shot owner-only setter for the FilterFactory address. Pre-fix
     // it mutated the `factory` storage slot without emitting any event; off-chain
     // indexers + the operator runbook had no on-chain log of when and to which address
     // the factory was wired. The audit asked for an event so the assignment is greppable
     // in chain logs.
     //
     // The FactorySet event was dropped in Epic 1.15a (EIP-170 budget); the assignment is
-    // observable directly via `launcher.factory()`. This regression test now verifies the
-    // assignment instead — equivalent semantic coverage, no extra bytecode.
+    // observable directly via `launcher.factory()`. Epic 2.6 then folded setFactory into
+    // the atomic `wire(...)`. This regression test now verifies the assignment through
+    // `wire` — equivalent semantic coverage, no extra bytecode. Dummy non-zero addresses
+    // for the other three slots: nothing in this suite dereferences them.
 
-    function test_MContracts2_SetFactory_AssignsFactory() public {
+    function test_MContracts2_Wire_AssignsFactory() public {
         address fakeFactory = address(0xFACEFACE);
         vm.prank(owner);
-        launcher.setFactory(IFilterFactory(fakeFactory));
+        launcher.wire(
+            IFilterFactory(fakeFactory),
+            IPOLManager(address(0xF000)),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
         assertEq(
-            address(launcher.factory()), fakeFactory, "M-Contracts-2 regression: setFactory did not assign"
+            address(launcher.factory()), fakeFactory, "M-Contracts-2 regression: wire did not assign factory"
         );
     }
 
-    function test_MContracts2_SetFactory_RevertsOnZero_NoEvent() public {
-        // Tighten the regression: the event must NOT fire on the zero-address path
+    function test_MContracts2_Wire_RevertsOnZeroFactory_NoEvent() public {
+        // Tighten the regression: nothing must be assigned on the zero-address path
         // (which reverts via the H-4 ZeroAddress gate). Pre-fix the emit could land
         // before the revert if a future maintainer reordered the lines.
         vm.prank(owner);
         vm.expectRevert(FilterLauncher.ZeroAddress.selector);
-        launcher.setFactory(IFilterFactory(address(0)));
+        launcher.wire(
+            IFilterFactory(address(0)),
+            IPOLManager(address(0xF000)),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
     }
 
     // M-Contracts-4 ------------------------------------------------------------------

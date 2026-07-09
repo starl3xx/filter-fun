@@ -4,8 +4,10 @@ pragma solidity ^0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
+import {ManifestWriter} from "./ManifestWriter.sol";
 import {ScriptUtils} from "./ScriptUtils.sol";
 import {FilterLauncher} from "../src/FilterLauncher.sol";
+import {FilterClubPass} from "../src/FilterClubPass.sol";
 import {FilterFactory} from "../src/FilterFactory.sol";
 import {FilterHook} from "../src/FilterHook.sol";
 import {BonusDistributor} from "../src/BonusDistributor.sol";
@@ -18,16 +20,22 @@ import {HookMiner} from "../src/libraries/HookMiner.sol";
 import {TournamentRegistry} from "../src/TournamentRegistry.sol";
 import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "../src/TournamentVault.sol";
 
-/// @notice Base Sepolia deploy. Deploys the full filter.fun contract suite against the
-///         canonical Uniswap V4 PoolManager on chain 84532, then writes a manifest at
-///         `deployments/base-sepolia.json` that the indexer + web read for addresses.
+/// @notice Testnet deploy (Robinhood Chain testnet 46630 — the rehearsal target since the
+///         2026-07 retarget — or Base Sepolia 84532 as the retreat path). Deploys the full
+///         filter.fun contract suite against the configured Uniswap V4 PoolManager, then
+///         writes a manifest at `deployments/<network-slug>.json` (slug from
+///         `ScriptUtils.networkSlugForChain`) that the indexer + web read for addresses.
+///
+///         Robinhood testnet has NO canonical Uniswap v4 or WETH9 — run
+///         `DeployTestnetInfra.s.sol` first and feed its printed addresses into
+///         `V4_POOL_MANAGER_ADDRESS` / `WETH_ADDRESS`.
 ///
 ///         Differences from `DeployGenesis` (mainnet):
-///           - EOA treasury / oracle / pol-vault-owner are tolerated (single key OK on Sepolia).
+///           - EOA treasury / oracle / pol-vault-owner are tolerated (single key OK on testnet).
 ///           - Mines the FilterHook CREATE2 salt inline if `HOOK_SALT` isn't in env, and writes
 ///             it back into the manifest so re-runs (after `rm`-ing the manifest) read the
 ///             cached salt instead of re-mining.
-///           - Calls `setRefundableStakeEnabled` with the env value so Sepolia config is
+///           - Calls `setRefundableStakeEnabled` with the env value so testnet config is
 ///             authoritative even when it matches contract defaults. (Per-wallet cap is
 ///             enforced structurally by LaunchEscrow per spec §46 — no env knob.)
 ///           - Refuses to overwrite an existing manifest unless `FORCE_REDEPLOY=1`. Re-runs
@@ -35,8 +43,8 @@ import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "..
 ///
 ///         Required env:
 ///           DEPLOYER_PRIVATE_KEY         deployer EOA (also accepted as PRIVATE_KEY)
-///           V4_POOL_MANAGER_ADDRESS      canonical V4 PoolManager on Base Sepolia
-///           WETH_ADDRESS                 canonical WETH9 on Base Sepolia
+///           V4_POOL_MANAGER_ADDRESS      V4 PoolManager on the target testnet
+///           WETH_ADDRESS                 WETH9 on the target testnet
 ///           TREASURY_OWNER               EOA acting as treasury timelock admin + recipient
 ///           SCHEDULER_ORACLE_ADDRESS     scheduler oracle EOA (calls startSeason/cuts/etc.)
 ///           REFUNDABLE_STAKE_ENABLED     "true" or "false"
@@ -51,7 +59,12 @@ import {TournamentVault, ITournamentRegistryView, ICreatorRegistryView} from "..
 ///           HOOK_SALT                    pre-mined CREATE2 salt; mined inline if absent
 ///           DEPLOY_COMMIT_HASH           git rev for the manifest (set by wrapper script)
 ///           FORCE_REDEPLOY               "1" to overwrite an existing manifest
-contract DeploySepolia is Script {
+///           FILTER_CLUB_SUPPLY           FilterClubPass max supply (default 250)
+///           FILTER_CLUB_PRICE            FilterClubPass mint price in wei (default 0.05 ether)
+///           FILTER_CLUB_WALLET_CAP       FilterClubPass per-wallet mint cap (default 5)
+///           FILTER_CLUB_BASE_URI         FilterClubPass metadata root (default filter.fun API)
+///           FILTER_CLUB_PAYOUT           mint-proceeds recipient (default: the TreasuryTimelock)
+contract DeployTestnet is Script, ManifestWriter {
     /// Foundry's canonical CREATE2 factory — `vm.broadcast` routes `new C{salt: ...}()` here.
     address internal constant DETERMINISTIC_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
@@ -94,10 +107,13 @@ contract DeploySepolia is Script {
         // accepted-and-ignored for one release so any cached deploy script doesn't break.
         bool refundableStake = ScriptUtils.envBool("REFUNDABLE_STAKE_ENABLED", true);
 
-        require(block.chainid == 84_532, "DeploySepolia: chainId != 84532 (Base Sepolia)");
+        require(
+            block.chainid == 46_630 || block.chainid == 84_532,
+            "DeployTestnet: unsupported testnet chainid (want 46630 Robinhood testnet or 84532 Base Sepolia)"
+        );
 
         address deployer = vm.addr(pk);
-        console2.log("=== DeploySepolia ===");
+        console2.log("=== DeployTestnet ===");
         console2.log("chainId:        ", block.chainid);
         console2.log("deployer:       ", deployer);
         console2.log("v4 poolManager: ", pmAddr);
@@ -126,19 +142,35 @@ contract DeploySepolia is Script {
         POLVault polVault = new POLVault(deployer);
         console2.log("POLVault:            ", address(polVault));
 
+        // 3b. FilterClubPass — founding-member lifetime pass (Epic 2.6). Deployed BEFORE
+        //     the launcher because the launcher takes it as an immutable constructor arg;
+        //     the pass learns the launcher via its own one-shot `setLauncher` below.
+        //     Mint proceeds default to the TreasuryTimelock (open `receive()`).
+        uint256 clubMaxSupply = vm.envOr("FILTER_CLUB_SUPPLY", uint256(250));
+        uint256 clubMintPrice = vm.envOr("FILTER_CLUB_PRICE", uint256(0.05 ether));
+        uint32 clubWalletCap = uint32(vm.envOr("FILTER_CLUB_WALLET_CAP", uint256(5)));
+        string memory clubBaseURI =
+            vm.envOr("FILTER_CLUB_BASE_URI", string("https://filter.fun/api/club/meta/"));
+        address clubPayout = vm.envOr("FILTER_CLUB_PAYOUT", address(treasury));
+        FilterClubPass clubPass = new FilterClubPass(
+            deployer, clubPayout, clubBaseURI, clubMaxSupply, clubMintPrice, clubWalletCap
+        );
+        console2.log("FilterClubPass:      ", address(clubPass));
+
         // 4. FilterLauncher — inline-deploys CreatorRegistry, CreatorFeeDistributor,
         //    CreatorCommitments, LaunchEscrow, LauncherLens, LauncherStakeAdmin. Their
         //    addresses are pulled below for the manifest; we don't construct them
         //    separately. TournamentRegistry + TournamentVault are deployed externally
         //    (their init code pushes the launcher past EIP-3860 when inlined) and wired
-        //    via `setTournament` below.
+        //    via the one-shot `wire` below (with factory + POLManager).
         FilterLauncher launcher = new FilterLauncher(
-            deployer, oracle, address(treasury), mechanics, IBonusFunding(address(bonus)), weth
+            deployer, oracle, address(treasury), mechanics, IBonusFunding(address(bonus)), weth, clubPass
         );
         console2.log("FilterLauncher:      ", address(launcher));
+        clubPass.setLauncher(address(launcher));
 
         // 4b. Tournament contracts — externalised post-§46 to fit EIP-3860. Deployed with
-        //     the launcher's address as `launcher_`, then wired via `setTournament`.
+        //     the launcher's address as `launcher_`, then wired via `wire` below.
         TournamentRegistry tournamentRegistry = new TournamentRegistry(address(launcher));
         TournamentVault tournamentVault = new TournamentVault(
             address(launcher),
@@ -149,15 +181,13 @@ contract DeploySepolia is Script {
             ICreatorRegistryView(address(launcher.creatorRegistry())),
             launcher.bonusUnlockDelay()
         );
-        launcher.setTournament(tournamentRegistry, tournamentVault);
         console2.log("TournamentRegistry:  ", address(tournamentRegistry));
         console2.log("TournamentVault:     ", address(tournamentVault));
 
         // 5. POLManager — wants the launcher's address in its constructor, so we deploy it
-        //    after the launcher and call `setPolManager` on both sides.
+        //    after the launcher; the launcher side lands in the `wire` call below.
         POLManager polManager = new POLManager(address(launcher), weth, IPOLVaultRecord(address(polVault)));
         console2.log("POLManager:          ", address(polManager));
-        launcher.setPolManager(IPOLManager(address(polManager)));
         polVault.setPolManager(address(polManager));
 
         // 6. FilterHook (deterministic via CREATE2 salt) → factory wires post-construct.
@@ -177,7 +207,14 @@ contract DeploySepolia is Script {
         console2.log("FilterFactory:       ", address(factory));
 
         hook.initialize(address(factory));
-        launcher.setFactory(IFilterFactory(address(factory)));
+        // One-shot atomic wire of every externally-deployed dependency (Epic 2.6 —
+        // replaces setFactory / setPolManager / setTournament). All four exist by here.
+        launcher.wire(
+            IFilterFactory(address(factory)),
+            IPOLManager(address(polManager)),
+            tournamentRegistry,
+            tournamentVault
+        );
 
         // 7. Sepolia-specific config knobs. Per-wallet cap is no longer configurable —
         //    LaunchEscrow enforces 1 reservation per wallet per season structurally
@@ -203,6 +240,9 @@ contract DeploySepolia is Script {
                 treasury: address(treasury),
                 bonus: address(bonus),
                 polVault: address(polVault),
+                clubPass: address(clubPass),
+                clubMintPrice: clubMintPrice,
+                clubMaxSupply: clubMaxSupply,
                 launcher: address(launcher),
                 launchEscrow: address(launcher.launchEscrow()),
                 launcherStakeAdmin: address(launcher.stakeAdmin()),
@@ -253,183 +293,6 @@ contract DeploySepolia is Script {
             console2.log("  mined salt:");
             console2.logBytes32(salt);
             return salt;
-        }
-    }
-
-    /// Manifest write. Two sub-objects (`addresses` + `config`) plus top-level metadata.
-    /// `filterToken` is left null — `SeedFilter.s.sol` populates it after the protocol launch.
-    struct ManifestArgs {
-        address deployer;
-        bytes32 hookSalt;
-        address treasury;
-        address bonus;
-        address polVault;
-        address launcher;
-        address launchEscrow;
-        address launcherStakeAdmin;
-        address polManager;
-        address hook;
-        address factory;
-        address creatorRegistry;
-        address creatorFeeDistributor;
-        address creatorCommitments;
-        address tournamentRegistry;
-        address tournamentVault;
-        address v4PoolManager;
-        address weth;
-        address treasuryOwner;
-        address oracle;
-        address mechanics;
-        address polVaultOwner;
-        bool refundableStake;
-    }
-
-    /// Manual JSON construction. We deliberately bypass Foundry's `vm.serialize*` builder
-    /// here because that cheatcode caches state per-id at the cheatcode-handler level and
-    /// the cache persists across script invocations in the same forge process. Across our
-    /// test suite that surfaced as flaky failures: stale fields from a prior run bled into
-    /// the current write, producing malformed JSON or wrong addresses. Manual string-concat
-    /// is verbose but completely stateless — every call writes exactly what we asked for.
-    /// Each value goes through a typed quoter (`_quoteAddr` / `_quoteBytes32`) that emits
-    /// JSON-valid output without escaping concerns.
-    function _writeManifest(string memory path, ManifestArgs memory a) internal {
-        string memory addressesObj = string.concat(
-            "{",
-            _kv("treasuryTimelock", a.treasury),
-            ",",
-            _kv("bonusDistributor", a.bonus),
-            ",",
-            _kv("polVault", a.polVault),
-            ",",
-            _kv("filterLauncher", a.launcher),
-            ",",
-            _kv("launchEscrow", a.launchEscrow),
-            ",",
-            _kv("launcherStakeAdmin", a.launcherStakeAdmin),
-            ",",
-            _kv("polManager", a.polManager),
-            ",",
-            _kv("filterHook", a.hook),
-            ",",
-            _kv("filterFactory", a.factory),
-            ",",
-            _kv("creatorRegistry", a.creatorRegistry),
-            ",",
-            _kv("creatorFeeDistributor", a.creatorFeeDistributor),
-            ",",
-            _kv("creatorCommitments", a.creatorCommitments),
-            ",",
-            _kv("tournamentRegistry", a.tournamentRegistry),
-            ",",
-            _kv("tournamentVault", a.tournamentVault),
-            ",",
-            _kv("v4PoolManager", a.v4PoolManager),
-            ",",
-            _kv("weth", a.weth),
-            "}"
-        );
-
-        string memory configObj = string.concat(
-            "{",
-            _kv("treasuryOwner", a.treasuryOwner),
-            ",",
-            _kv("schedulerOracle", a.oracle),
-            ",",
-            _kv("mechanicsWallet", a.mechanics),
-            ",",
-            _kv("polVaultOwner", a.polVaultOwner),
-            ",",
-            _kvBool("refundableStakeEnabled", a.refundableStake),
-            "}"
-        );
-
-        // `filterToken` placeholder. MUST be an object (not a string) so SeedFilter can
-        // overwrite via `vm.writeJson(value, path, ".filterToken")` — that cheatcode rejects
-        // a scalar destination. Zero addresses signal "not yet seeded"; SeedFilter's guard
-        // probes `.filterToken.address != address(0)` to refuse double-seed.
-        string memory filterTokenObj = string.concat(
-            "{",
-            _kv("address", address(0)),
-            ",",
-            _kv("locker", address(0)),
-            ",",
-            _kvStr("name", ""),
-            ",",
-            _kvStr("symbol", ""),
-            ",",
-            _kvUint("seededAt", 0),
-            ",",
-            _kvStr("metadataURI", ""),
-            "}"
-        );
-
-        string memory finalJson = string.concat(
-            "{",
-            _kvUint("chainId", block.chainid),
-            ",",
-            _kvStr("network", "base-sepolia"),
-            ",",
-            _kvUint("deployBlockNumber", block.number),
-            ",",
-            _kvUint("deployedAt", block.timestamp),
-            ",",
-            _kv("deployerAddress", a.deployer),
-            ",",
-            _kvBytes32("hookSalt", a.hookSalt),
-            ",",
-            _kvRaw("filterToken", filterTokenObj),
-            ",",
-            _kvStr("deployCommitHash", _envOrDefaultString("DEPLOY_COMMIT_HASH", "unknown")),
-            ",",
-            _kvRaw("addresses", addressesObj),
-            ",",
-            _kvRaw("config", configObj),
-            "}"
-        );
-
-        vm.writeJson(finalJson, path);
-    }
-
-    // ---------- JSON-emit helpers ----------
-    //
-    // The address/uint/bytes32 stringifiers used to live here too; they're now in
-    // `ScriptUtils` so `SeedFilter` can share the address formatter. The `_kv*` wrappers
-    // stay here because they're glue that pre-formats keys for this manifest's specific
-    // shape — not generally reusable.
-
-    function _kv(string memory key, address value) private pure returns (string memory) {
-        return string.concat("\"", key, "\":\"", ScriptUtils.addrToString(value), "\"");
-    }
-
-    function _kvStr(string memory key, string memory value) private pure returns (string memory) {
-        return string.concat("\"", key, "\":\"", value, "\"");
-    }
-
-    function _kvUint(string memory key, uint256 value) private pure returns (string memory) {
-        return string.concat("\"", key, "\":", ScriptUtils.uintToString(value));
-    }
-
-    function _kvBool(string memory key, bool value) private pure returns (string memory) {
-        return string.concat("\"", key, "\":", value ? "true" : "false");
-    }
-
-    function _kvBytes32(string memory key, bytes32 value) private pure returns (string memory) {
-        return string.concat("\"", key, "\":\"", ScriptUtils.bytes32ToHex(value), "\"");
-    }
-
-    function _kvRaw(string memory key, string memory rawJson) private pure returns (string memory) {
-        return string.concat("\"", key, "\":", rawJson);
-    }
-
-    function _envOrDefaultString(string memory key, string memory fallback_)
-        internal
-        view
-        returns (string memory)
-    {
-        try vm.envString(key) returns (string memory v) {
-            return bytes(v).length == 0 ? fallback_ : v;
-        } catch {
-            return fallback_;
         }
     }
 }

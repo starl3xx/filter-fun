@@ -3,10 +3,11 @@ pragma solidity ^0.8.26;
 
 import {Vm} from "forge-std/Vm.sol";
 
-/// @notice Shared helpers used by every Sepolia operations script (DeploySepolia, SeedFilter,
-///         VerifySepolia, RedeployFactory). Keeping them in one place eliminates the drift
-///         risk the bugbot flagged on PR #46 — a future whitelist tweak (e.g. accepting
-///         "yes"/"no") needs to land in exactly one location instead of three or four.
+/// @notice Shared helpers used by every operations script (DeployTestnet, DeployGenesis,
+///         SeedFilter, VerifySepolia, RedeployFactory). Keeping them in one place
+///         eliminates the drift risk the bugbot flagged on PR #46 — a future whitelist
+///         tweak (e.g. accepting "yes"/"no") needs to land in exactly one location
+///         instead of three or four.
 ///
 ///         Every function here is `internal` so the call sites get inlining instead of a
 ///         `delegatecall` link step. The library uses the standard forge-std `vm` constant
@@ -15,20 +16,39 @@ library ScriptUtils {
     /// Forge cheatcode handler address. Identical to the constant inside `forge-std/Vm.sol`.
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    /// Default Base Sepolia manifest path. Operators override via `MANIFEST_PATH_OVERRIDE`
-    /// (used by every test in `Deploy.t.sol`).
-    string internal constant DEFAULT_MANIFEST_PATH = "./deployments/base-sepolia.json";
+    // ============================================================ Network identity
+
+    /// Canonical network slug for every chain the deploy pipeline supports (2026-07
+    /// Robinhood Chain retarget — one pipeline, four networks). The slug names the
+    /// manifest file (`deployments/<slug>.json`) and is written into the manifest's
+    /// `network` field; the indexer's `normalizeNetwork` and the web's `ChainSlug` union
+    /// accept exactly these values, so a typo here breaks both consumers loudly (their
+    /// cross-network guard skips a mismatched manifest). Reverting on an unknown chainid
+    /// (rather than defaulting) keeps a fat-fingered `--rpc-url` from writing a manifest
+    /// under the wrong identity.
+    function networkSlugForChain(uint256 chainid) internal pure returns (string memory) {
+        if (chainid == 4663) return "robinhood";
+        if (chainid == 46_630) return "robinhood-testnet";
+        if (chainid == 8453) return "base";
+        if (chainid == 84_532) return "base-sepolia";
+        revert(string.concat("ScriptUtils: no network slug for chainid ", uintToString(chainid)));
+    }
 
     // ============================================================ Env helpers
 
-    /// Read the manifest path with optional env override. Empty-string override falls back
-    /// to the default — guards against the operator setting `MANIFEST_PATH_OVERRIDE=` (no
+    /// Read the manifest path with optional env override. The default derives from
+    /// `block.chainid`, so every script pointed at the same RPC reads/writes the same
+    /// file with zero configuration. Operators override via `MANIFEST_PATH_OVERRIDE`
+    /// (used by every test in `Deploy.t.sol`); empty-string override falls back to the
+    /// default — guards against the operator setting `MANIFEST_PATH_OVERRIDE=` (no
     /// value) and accidentally reading from / writing to the wrong file.
     function manifestPath() internal view returns (string memory) {
+        string memory fallbackPath =
+            string.concat("./deployments/", networkSlugForChain(block.chainid), ".json");
         try vm.envString("MANIFEST_PATH_OVERRIDE") returns (string memory v) {
-            return bytes(v).length == 0 ? DEFAULT_MANIFEST_PATH : v;
+            return bytes(v).length == 0 ? fallbackPath : v;
         } catch {
-            return DEFAULT_MANIFEST_PATH;
+            return fallbackPath;
         }
     }
 
@@ -70,7 +90,7 @@ library ScriptUtils {
 
     // ============================================================ JSON-emit helpers
     //
-    // Hand-built primitives used by `DeploySepolia`'s and `SeedFilter`'s manifest writers.
+    // Hand-built primitives used by `ManifestWriter`'s and `SeedFilter`'s manifest writers.
     // We don't go through `vm.serializeXxx` because its builder state is process-global and
     // races across parallel forge test files (see `SeedFilter._appendFilterToken` for the
     // full back-story).

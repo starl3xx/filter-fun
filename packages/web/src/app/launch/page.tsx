@@ -30,6 +30,7 @@ import {SlotGrid} from "@/components/launch/SlotGrid";
 import {LaunchForm} from "@/components/launch/LaunchForm";
 import {PendingRefundBanner} from "@/components/launch/PendingRefundBanner";
 import {RoiCalculator} from "@/components/launch/RoiCalculator";
+import {useClubCredits} from "@/hooks/launch/useClubCredits";
 import {useEligibility} from "@/hooks/launch/useEligibility";
 import {useLaunchSlots} from "@/hooks/launch/useLaunchSlots";
 import {useLaunchToken} from "@/hooks/launch/useLaunchToken";
@@ -66,8 +67,17 @@ export default function LaunchPage() {
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinning, setPinning] = useState(false);
 
+  // Epic 2.6 — Filter Club credit. The toggle defaults OFF (spending a
+  // lifetime credit must be explicit) and only arms when the wallet actually
+  // holds credit; `creditApplied` is the effective flag the tx path reads,
+  // so a credit consumed elsewhere mid-session (8s poll catches it) silently
+  // disarms the toggle rather than sending a doomed `value: 0n` reserve.
+  const {totalCredits, hasCredit} = useClubCredits();
+  const [useCredit, setUseCredit] = useState(false);
+  const creditApplied = useCredit && hasCredit;
+
   // Refundable-stake mode is a contract setting; we read it once so the
-  // cost panel + total accurately reflect what `launchToken` will retain.
+  // cost panel + total accurately reflect what `reserve` will retain.
   const {data: stakeOn} = useReadContract({
     address: contractAddresses.filterLauncher,
     abi: FilterLauncherLaunchAbi,
@@ -105,18 +115,24 @@ export default function LaunchPage() {
   // when a slot tier rollover happened during the pin step (~seconds against
   // IPFS). Snapshotting locks the user's commitment to the values they saw
   // when they clicked. If a tier rollover beats the tx, the contract reverts
-  // with `InsufficientPayment` (mapped to a friendly message in
+  // with `InsufficientEscrow` (mapped to a friendly message in
   // `useLaunchToken.humanError`) and the user re-confirms with the new cost.
   //
-  // Follow-up for Epic 1.15: the contract today doesn't take a slot index
-  // arg — it uses the next available slot internally. A proper slot-pinned
-  // `reserve(uint8 slotIndex)` with `error SlotTaken(uint8)` would let us
+  // Follow-up for Epic 1.15: `reserve(ticker, metadataURI)` still doesn't
+  // take a slot index arg — it assigns the next available slot internally. A
+  // slot-pinned variant with `error SlotTaken(uint8)` would let us
   // distinguish "slot taken" from "tier rolled over" — both fail with
-  // `InsufficientPayment` today which is misleading on the former.
+  // `InsufficientEscrow` today which is misleading on the former.
+  //
+  // `creditApplied` rides in the snapshot too (Epic 2.6): the badge must
+  // keep saying "Filter Club credit" for the whole pin → sign → broadcast
+  // pipeline even if the toggle disarms mid-flight (credit consumed in
+  // another tab) — the tx the user signed is the snapshotted one.
   type LaunchSnapshot = {
     slotIndex: number;
     nextCostWei: bigint;
     stakeWei: bigint;
+    creditApplied: boolean;
   };
   const [snapshot, setSnapshot] = useState<LaunchSnapshot | null>(null);
 
@@ -133,8 +149,13 @@ export default function LaunchPage() {
       // `getLaunchStatus`, and `refundableStakeEnabled` are separate wagmi
       // reads. Eligibility can resolve to "eligible" (form rendered) one
       // beat before the cost or stake-mode reads land. A submit in that
-      // window would send `0n` to the contract — `InsufficientPayment`
-      // revert. Refuse upfront with a clear message.
+      // window would send an ACCIDENTAL `0n` to the contract — which since
+      // Epic 2.6 is unambiguous Filter Club intent (`InsufficientEscrow`
+      // revert for non-holders, or worse: a silently burned credit for a
+      // holder who meant to pay). Refuse upfront with a clear message. The
+      // guard applies on the credit path too — a deliberate free launch
+      // still waits for the reads so the struck-through cost the user
+      // acknowledged is the real one, not a loading dash.
       if (nextCostWei === 0n || !stakeReady) {
         setPinError("Launch settings are still loading from the contract. Try again in a moment.");
         return;
@@ -148,6 +169,7 @@ export default function LaunchPage() {
         slotIndex: nextSlotIndex,
         nextCostWei,
         stakeWei,
+        creditApplied,
       };
       setSnapshot(snap);
       setPinning(true);
@@ -164,15 +186,21 @@ export default function LaunchPage() {
         setPinning(false);
         // Belt-and-suspenders: the form already canonicalizes the ticker
         // before calling onSubmit, but re-canonicalize here so the contract
-        // can never receive a non-canonical symbol regardless of how this
-        // function is called. The contract uses keccak256(bytes(symbol))
-        // as its uniqueness key, so a single divergent character would
-        // produce a different hash than the form's collision check used.
+        // can never receive a non-canonical ticker regardless of how this
+        // function is called. The contract normalizes via TickerLib and uses
+        // keccak256(bytes(canonical)) as its uniqueness key, so a single
+        // divergent character would produce a different hash than the form's
+        // collision check used. The display name travels ONLY in the pinned
+        // metadata (`fields.name` went into the /api/metadata body above) —
+        // `reserve` takes just the ticker, which becomes the on-chain symbol.
+        //
+        // Epic 2.6: a snapshotted credit launch sends `value: 0n` — the
+        // contract consults the Filter Club pass exactly when msg.value is
+        // zero and consumes a credit instead of ETH.
         launch({
-          name: fields.name.trim(),
-          symbol: canonicalSymbol(fields.ticker),
+          ticker: canonicalSymbol(fields.ticker),
           metadataURI: json.uri,
-          valueWei: snap.nextCostWei + snap.stakeWei,
+          valueWei: snap.creditApplied ? 0n : snap.nextCostWei + snap.stakeWei,
         });
       } catch (e) {
         setPinError(e instanceof Error ? e.message : String(e));
@@ -180,21 +208,25 @@ export default function LaunchPage() {
       }
     },
     // `launch`/`resetLaunch` are stable; `nextSlotIndex`/`nextCostWei`/
-    // `stakeWei`/`stakeReady` are captured at click time intentionally — the
-    // useCallback re-binds on every render so the click reads the latest
-    // values, then snapshots them. If we read these via a ref the snapshot
-    // would race the closure (the H-Web-2 root-cause).
-    [launch, resetLaunch, nextSlotIndex, nextCostWei, stakeWei, stakeReady],
+    // `stakeWei`/`stakeReady`/`creditApplied` are captured at click time
+    // intentionally — the useCallback re-binds on every render so the click
+    // reads the latest values, then snapshots them. If we read these via a
+    // ref the snapshot would race the closure (the H-Web-2 root-cause).
+    [launch, resetLaunch, nextSlotIndex, nextCostWei, stakeWei, stakeReady, creditApplied],
   );
 
   // On success, redirect to the homepage (the arena IS the homepage as of
   // PR #39 follow-up) with the new token selected. Run inside an effect so
   // navigation is a side effect, not a render-phase action — the latter
   // double-fires under React Strict Mode and breaks the React rules.
+  //
+  // Queued pre-activation reservations (slots 1–3) emit no `TokenLaunched`
+  // in the reserve tx, so `launchedToken` stays null on success — fall back
+  // to the plain arena redirect; the reservation surfaces on the slot grid
+  // via the launch-status overlay once the indexer catches the event.
   useEffect(() => {
-    if (phase === "success" && launchedToken) {
-      router.replace(`/?token=${launchedToken}`);
-    }
+    if (phase !== "success") return;
+    router.replace(launchedToken ? `/?token=${launchedToken}` : "/");
   }, [phase, launchedToken, router]);
 
   const phaseForButton = pinning ? "pinning" : phase;
@@ -257,6 +289,12 @@ export default function LaunchPage() {
                   error={combinedError}
                   onSubmit={onSubmit}
                   championPoolEth={championPoolEth}
+                  /* Epic 2.6 — Filter Club credit toggle. The page owns the
+                     state (it decides the tx value); the form renders the
+                     control only when the wallet holds credit. */
+                  clubCredits={hasCredit ? totalCredits : 0n}
+                  creditApplied={creditApplied}
+                  onCreditToggle={setUseCredit}
                   /* Audit M-Ux-4 (Phase 1, 2026-05-03): drive CostPanel's
                      "show dashes" mode while the launcher status read
                      hasn't resolved. The page already detects the loading
@@ -324,10 +362,14 @@ function SnapshotBadge({
   snapshot,
   phase,
 }: {
-  snapshot: {slotIndex: number; nextCostWei: bigint; stakeWei: bigint};
+  snapshot: {slotIndex: number; nextCostWei: bigint; stakeWei: bigint; creditApplied: boolean};
   phase: string;
 }) {
-  const totalEth = formatEther(snapshot.nextCostWei + snapshot.stakeWei);
+  // Epic 2.6: a credit launch sends Ξ0 — say WHY, not just the zero, so the
+  // badge can't be misread as the M-Ux-4 "loading rendered as free" bug.
+  const totalEth = snapshot.creditApplied
+    ? "0 · Filter Club credit"
+    : formatEther(snapshot.nextCostWei + snapshot.stakeWei);
   const phaseLabel =
     phase === "pinning"
       ? "Pinning metadata…"

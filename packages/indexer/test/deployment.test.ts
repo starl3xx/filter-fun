@@ -147,6 +147,53 @@ describe("readDeployment — env-var fallback", () => {
   });
 });
 
+describe("readDeployment — Robinhood Chain networks (2026-07 retarget)", () => {
+  it("loads a robinhood-testnet manifest and normalizes the slug to robinhoodTestnet", () => {
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({...SAMPLE, network: "robinhood-testnet", chainId: 46_630}),
+    );
+    process.env.DEPLOYMENT_MANIFEST_PATH = manifestPath;
+
+    const d = readDeployment("robinhoodTestnet");
+    expect(d.network).toBe("robinhoodTestnet");
+    expect(d.addresses.filterLauncher).toBe("0x5555555555555555555555555555555555555555");
+  });
+
+  it("loads a robinhood mainnet manifest (accepts both 'robinhood' and 'robinhood-mainnet')", () => {
+    writeFileSync(manifestPath, JSON.stringify({...SAMPLE, network: "robinhood", chainId: 4663}));
+    process.env.DEPLOYMENT_MANIFEST_PATH = manifestPath;
+    expect(readDeployment("robinhood").network).toBe("robinhood");
+
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({...SAMPLE, network: "robinhood-mainnet", chainId: 4663}),
+    );
+    expect(readDeployment("robinhood").network).toBe("robinhood");
+  });
+
+  it("skips a robinhood manifest when the caller asks for robinhoodTestnet (cross-network guard)", () => {
+    writeFileSync(manifestPath, JSON.stringify({...SAMPLE, network: "robinhood", chainId: 4663}));
+    process.env.DEPLOYMENT_MANIFEST_PATH = manifestPath;
+    process.env.FILTER_LAUNCHER_ADDRESS = "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed";
+
+    const d = readDeployment("robinhoodTestnet");
+    expect(d.addresses.filterLauncher).toBe("0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed");
+  });
+
+  it("defaults to robinhoodTestnet when no hint and no PONDER_NETWORK are provided", () => {
+    process.env.FILTER_LAUNCHER_ADDRESS = "0x1111111111111111111111111111111111111111";
+    const d = readDeployment();
+    expect(d.network).toBe("robinhoodTestnet");
+  });
+
+  it("strict mode error names the robinhood-testnet manifest filename", () => {
+    process.env.DEPLOYMENT_MANIFEST_REQUIRED = "1";
+    process.env.DEPLOYMENT_MANIFEST_PATH = manifestPath; // non-existent
+    expect(() => readDeployment("robinhoodTestnet")).toThrow(/robinhood-testnet\.json/);
+  });
+});
+
 describe("manifest schema", () => {
   it("documents every key that downstream consumers depend on", () => {
     // This is a *contract test* against the deploy script's output shape. If a key listed

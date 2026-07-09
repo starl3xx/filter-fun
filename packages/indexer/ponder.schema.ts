@@ -252,23 +252,25 @@ export const hpSnapshot = onchainTable("hp_snapshot", (t) => ({
   /// "which scoring snapshot drove this settlement" without joining txs.
   /// Pre-Epic-1.17b rows backfill to `BLOCK_TICK` (the only writer that existed).
   trigger: t.text().notNull().default("BLOCK_TICK"),
-  /// Reorg-safety status (Epic 1.22 / spec §6.12). One of:
+  /// Reorg-safety status (Epic 1.22 / spec §6.12; re-based to wall-clock
+  /// seconds in the 2026-07 Robinhood Chain retarget — block-count age is
+  /// meaningless on an on-demand-block Arbitrum-stack chain). One of:
   ///   - `tip`   — written at the head of the chain, may still reorg
-  ///   - `soft`  — ≥6 blocks past write, statistically safe but not guaranteed
-  ///   - `final` — ≥12 blocks past write, considered final under Base finality
+  ///   - `soft`  — ≥30s past write (block-timestamp age), statistically safe
+  ///   - `final` — ≥120s past write, considered final for settlement reads
   ///
   /// **Settlement contract.** Rows tagged `CUT` or `FINALIZE` MUST be `final`
   /// before the oracle's Merkle publish reads them. The publication path
   /// asserts `finality = 'final'` and refuses to post otherwise; a reorg
   /// inside the settlement window forces a re-compute.
   ///
-  /// Indexer writer logic (Epic 1.22b — PR 2 will add the periodic advancer):
-  ///   - SWAP / HOLDER_SNAPSHOT / BLOCK_TICK rows write as `tip`; a
-  ///     periodic job advances them to `soft` at +6 blocks and `final` at +12.
-  ///   - CUT / FINALIZE rows are queued and only inserted once the source
-  ///     block is ≥12 confirmations past the wall-clock boundary (a row
-  ///     written for a CUT trigger MUST therefore land as `final` by
-  ///     construction).
+  /// Indexer writer logic (Epic 1.22b):
+  ///   - SWAP / HOLDER_SNAPSHOT / BLOCK_TICK rows write as `tip`; the periodic
+  ///     advancer promotes them on `snapshotAtSec` age (30s → soft, 120s →
+  ///     final; env-tunable HP_FINALITY_SOFT_SECONDS / HP_FINALITY_FINAL_SECONDS).
+  ///   - CUT / FINALIZE rows are written by settlement-event handlers and land
+  ///     as `final` by construction (Ponder's reorg handling rolls the event
+  ///     and the row back together if the chain reorgs).
   ///
   /// Pre-Epic-1.22 rows have no finality concept; default = `tip` so the
   /// schema migration is non-destructive but the legacy rows aren't usable
@@ -396,6 +398,16 @@ export const reservation = onchainTable("reservation", (t) => ({
   /// Lets the Arena UI link from the slot card to the token's leaderboard entry
   /// without joining `token` on `(seasonId, creator)`.
   token: t.hex(),
+  /// Epic 2.6 — true when this reservation was funded by a Filter Club credit
+  /// (zero-value escrow). Set at insert by the `SlotReserved` handler via a
+  /// lookup of `clubCreditRedemption` on the shared `${seasonId}:${creator}`
+  /// key — NOT inferred from `escrowAmount == 0`, which would be ambiguous
+  /// with a hypothetical `baseLaunchCost = 0` config. Ordering is
+  /// deterministic: within a credit-launch tx, `CreditConsumed` has a lower
+  /// log index than `SlotReserved` (the launcher consumes the credit at
+  /// payment-check time, before the escrow call), so the redemption row
+  /// exists by the time the reservation row is written.
+  creditFunded: t.boolean().notNull().default(false),
 }));
 
 /// One row per (seasonId, creator) where a refund push failed. Mirrors
@@ -521,4 +533,46 @@ export const operatorActionLog = onchainTable("operator_action_log", (t) => ({
   txHash: t.hex().notNull(),
   blockNumber: t.bigint().notNull(),
   blockTimestamp: t.bigint().notNull(),
+}));
+
+// ============================================================ Filter Club (Epic 2.6 / spec §47.3.8)
+
+/// One row per minted Filter Club pass. `owner` tracks the CURRENT holder
+/// (updated on every Transfer); `minter` is immutable provenance. Credits are
+/// keyed to the token (they travel on transfer), so `creditsRemaining` lives
+/// here — updated by CreditConsumed / CreditReclaimed handlers.
+export const clubPass = onchainTable("club_pass", (t) => ({
+  id: t.bigint().primaryKey(), // tokenId (ids start at 1)
+  owner: t.hex().notNull(), // lowercased — matches the API's query normalization
+  minter: t.hex().notNull(), // lowercased
+  mintedAt: t.bigint().notNull(),
+  pricePaid: t.bigint().notNull(),
+  creditsRemaining: t.integer().notNull(), // 0..CREDITS_PER_TOKEN (2 at genesis)
+  lastTransferAt: t.bigint().notNull(),
+}));
+
+/// One row per credit redemption — keyed `${seasonId}:${creator}` so it joins
+/// `reservation` 1:1 (the launcher's escrow enforces one reservation per wallet
+/// per season, and `consumeCredit` refuses a second consumption for the same
+/// pair). `status` flips CONSUMED → RECLAIMED only via `reclaimCredit` on an
+/// aborted season; an activated season's redemptions stay CONSUMED forever.
+export const clubCreditRedemption = onchainTable("club_credit_redemption", (t) => ({
+  id: t.text().primaryKey(), // `${seasonId}:${creator}` (creator lowercased)
+  seasonId: t.bigint().notNull(),
+  creator: t.hex().notNull(), // lowercased — the reserving wallet at consume time
+  tokenId: t.bigint().notNull(),
+  status: t.text().notNull().default("CONSUMED"), // CONSUMED | RECLAIMED
+  consumedAt: t.bigint().notNull(),
+  reclaimedAt: t.bigint(),
+}));
+
+/// Singleton aggregate for the mint page + operator FilterClubCard. Incremental
+/// counters — cheaper than scanning clubPass on every poll, and the operator
+/// card wants proceeds accounting (audit-budget allocation) in one read.
+export const clubStats = onchainTable("club_stats", (t) => ({
+  id: t.text().primaryKey(), // always "club"
+  minted: t.integer().notNull().default(0),
+  proceedsWei: t.bigint().notNull().default(0n),
+  creditsConsumed: t.integer().notNull().default(0),
+  creditsReclaimed: t.integer().notNull().default(0),
 }));

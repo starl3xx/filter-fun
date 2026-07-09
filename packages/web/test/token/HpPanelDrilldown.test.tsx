@@ -143,8 +143,11 @@ describe("HpPanel — component drilldown (Epic 1.23)", () => {
     expect(container.textContent).toContain("0.5 ETH buy");
     // Truncated address rendering — 6-char head + 4-char tail.
     expect(container.textContent).toContain("0xabc1");
-    // Tx link points at Basescan (testnet default in tests since
-    // NEXT_PUBLIC_CHAIN is unset → falls through to base-sepolia).
+    // Tx link points at Basescan: in tests NEXT_PUBLIC_CHAIN is unset, so
+    // `activeChainSlug` falls through to the committed placeholder
+    // deployment.json manifest, whose network is "base-sepolia"
+    // (2026-07 retarget: the hard default is now robinhood-testnet, but the
+    // manifest fallback wins before it here).
     const txLink = container.querySelector('a[href*="basescan.org/tx/"]');
     expect(txLink).not.toBeNull();
     expect(txLink!.getAttribute("href")).toContain("0xdeadbeef");

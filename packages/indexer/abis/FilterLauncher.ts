@@ -32,6 +32,11 @@ export const FilterLauncherAbi = [
         "name": "weth_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "clubPass_",
+        "type": "address",
+        "internalType": "contract IFilterClubPass"
       }
     ],
     "stateMutability": "nonpayable"
@@ -202,6 +207,19 @@ export const FilterLauncherAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "clubPass",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IFilterClubPass"
       }
     ],
     "stateMutability": "view"
@@ -586,7 +604,7 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "pendingReservations",
+    "name": "pendingCount",
     "inputs": [
       {
         "name": "seasonId",
@@ -597,40 +615,8 @@ export const FilterLauncherAbi = [
     "outputs": [
       {
         "name": "",
-        "type": "tuple[]",
-        "internalType": "struct FilterLauncher.PendingReservation[]",
-        "components": [
-          {
-            "name": "creator",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "slotIndex",
-            "type": "uint64",
-            "internalType": "uint64"
-          },
-          {
-            "name": "tickerHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "metadataHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "ticker",
-            "type": "string",
-            "internalType": "string"
-          },
-          {
-            "name": "metadataURI",
-            "type": "string",
-            "internalType": "string"
-          }
-        ]
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -731,19 +717,6 @@ export const FilterLauncherAbi = [
   },
   {
     "type": "function",
-    "name": "setFactory",
-    "inputs": [
-      {
-        "name": "factory_",
-        "type": "address",
-        "internalType": "contract IFilterFactory"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setFinalists",
     "inputs": [
       {
@@ -799,37 +772,6 @@ export const FilterLauncherAbi = [
         "name": "paused_",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setPolManager",
-    "inputs": [
-      {
-        "name": "polManager_",
-        "type": "address",
-        "internalType": "contract IPOLManager"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setTournament",
-    "inputs": [
-      {
-        "name": "registry_",
-        "type": "address",
-        "internalType": "contract TournamentRegistry"
-      },
-      {
-        "name": "vault_",
-        "type": "address",
-        "internalType": "contract TournamentVault"
       }
     ],
     "outputs": [],
@@ -1024,6 +966,34 @@ export const FilterLauncherAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "wire",
+    "inputs": [
+      {
+        "name": "factory_",
+        "type": "address",
+        "internalType": "contract IFilterFactory"
+      },
+      {
+        "name": "polManager_",
+        "type": "address",
+        "internalType": "contract IPOLManager"
+      },
+      {
+        "name": "registry_",
+        "type": "address",
+        "internalType": "contract TournamentRegistry"
+      },
+      {
+        "name": "vault_",
+        "type": "address",
+        "internalType": "contract TournamentVault"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "event",

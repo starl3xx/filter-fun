@@ -16,6 +16,8 @@ import "./TournamentRegistry";
 import "./V4PoolManager";
 import "./HpSnapshot";
 import "./HpFinalityAdvancer";
+// Epic 2.6 — Filter Club lifetime pass (mint / transfer / credit lifecycle).
+import "./FilterClubPass";
 
 // HTTP API routes — see `src/api/index.ts` (REST: /season, /tokens, /token/:address,
 // /profile/:address, /tokens/:address/history) and `src/api/events/index.ts` (SSE).

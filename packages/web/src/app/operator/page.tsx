@@ -33,8 +33,8 @@ import {TopBar} from "@/components/broadcast/TopBar";
 import {useSeason} from "@/hooks/arena/useSeason";
 import {useTokens} from "@/hooks/arena/useTokens";
 import {useOperatorAuth} from "@/hooks/operator/useOperatorAuth";
-import {INDEXER_URL} from "@/lib/arena/api";
-import type {SeasonResponse, TokenResponse} from "@/lib/arena/api";
+import {fetchClub, INDEXER_URL} from "@/lib/arena/api";
+import type {ClubResponse, SeasonResponse, TokenResponse} from "@/lib/arena/api";
 import {
   fetchAlerts,
   fetchFinancialOverview,
@@ -111,6 +111,7 @@ function OperatorConsole({
     weights: Record<string, number>;
     flags: Record<string, boolean>;
   } | null>(null);
+  const [club, setClub] = useState<ClubResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -134,8 +135,10 @@ function OperatorConsole({
       //
       // The scoring/weights endpoint is a public transparency surface
       // (Epic 1.17a) — it deliberately doesn't carry operator auth, so it
-      // doesn't need a wallet prompt.
-      const [swResult, finResult, histResult, actsResult, alertsResult] = await Promise.allSettled([
+      // doesn't need a wallet prompt. Same posture for `/club` (Epic 2.6 /
+      // spec §47.3.8): it's the public mint-page endpoint, so it rides the
+      // fan-out unsigned and fails independently.
+      const [swResult, finResult, histResult, actsResult, alertsResult, clubResult] = await Promise.allSettled([
         fetch(`${INDEXER_URL}/scoring/weights`).then((r) => {
           if (!r.ok) throw new Error(`/scoring/weights ${r.status}`);
           return r.json();
@@ -144,6 +147,7 @@ function OperatorConsole({
         fetchSettlementHistory({signer, limit: 10}),
         fetchOperatorActions({signer, limit: 50}),
         fetchAlerts({signer}),
+        fetchClub(),
       ]);
 
       // Critical surfaces — if any reject, surface the first error. We
@@ -182,6 +186,14 @@ function OperatorConsole({
         // Leave scoringWeights null — the card renders a "weights unavailable"
         // hint without dragging down the rest of the dashboard.
         setScoringWeights(null);
+      }
+
+      // Non-critical: Filter Club roster (public /club). Failure stays
+      // scoped to the FilterClubCard's Pending state.
+      if (clubResult.status === "fulfilled") {
+        setClub(clubResult.value);
+      } else {
+        setClub(null);
       }
 
       // Always mark loaded once the fan-out completes, even if some surfaces
@@ -285,7 +297,7 @@ function OperatorConsole({
               />
               <BagLockSurfaceCard tokens={tokens as TokenResponse[] | null} />
               <ReservationStateCard />
-              <FilterClubCard />
+              <FilterClubCard club={club} />
               <ActionAuditCard rows={actions} />
               <InfraHealthCard
                 alertsCount={alerts?.length ?? 0}

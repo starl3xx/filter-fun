@@ -21,7 +21,7 @@ The oracle publishes per-user JSON entries cut from the full `buildSettlementPay
 Stack:
 
 - App Router. Pink / cyan / yellow / purple palette over a deep purple gradient (broadcast/playful direction). Bricolage Grotesque + JetBrains Mono via `next/font`.
-- wagmi v2 + viem. Chain choice is env-controlled (`NEXT_PUBLIC_CHAIN`); defaults to Base Sepolia, `base` for mainnet.
+- wagmi v2 + viem. Chain choice is env-controlled (`NEXT_PUBLIC_CHAIN`); defaults to Robinhood Chain testnet (`robinhood-testnet`), `robinhood` for mainnet. Base slugs (`base` / `base-sepolia`) remain supported as the retreat path — see `src/lib/chain.ts`.
 - Injected-connector wallet flow.
 - React Query for wagmi hooks.
 - Workspace-imports `@filter-fun/scheduler` for ABI + call builders, so the contract surface stays in lockstep with the on-chain ABI.
@@ -99,8 +99,9 @@ Open `http://localhost:3000`. With MetaMask (or any injected wallet) installed, 
 
 Contract addresses come from `src/lib/deployment.json`, which is overwritten by
 `npm run sync:deployment` (it copies
-`packages/contracts/deployments/base-sepolia.json` — set `NETWORK=base` for mainnet
-or `MANIFEST=/abs/path` to override). The placeholder shipped in this repo has zero
+`packages/contracts/deployments/robinhood-testnet.json` — set `NETWORK=robinhood`
+for mainnet, `NETWORK=base-sepolia` / `NETWORK=base` for the Base retreat path, or
+`MANIFEST=/abs/path` to override). The placeholder shipped in this repo has zero
 addresses; pre-deploy contract calls will fail at the wallet layer rather than
 silently no-op. See [`src/lib/addresses.ts`](./src/lib/addresses.ts) for the typed
 export and [`docs/runbook-sepolia-smoke.md`](../../docs/runbook-sepolia-smoke.md) for
@@ -117,9 +118,11 @@ Both are workspace-linked and transpiled via Next's `transpilePackages`.
 
 | Var                                | Default                    | Notes                                                              |
 | ---------------------------------- | -------------------------- | ------------------------------------------------------------------ |
-| `NEXT_PUBLIC_CHAIN`                | `base-sepolia`             | `base` for mainnet.                                                |
-| `NEXT_PUBLIC_BASE_RPC_URL`         | (chain default public)     | Override for production-grade RPC (Alchemy, Infura, your own).     |
-| `NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL` | (chain default public)     | Same, for testnet.                                                 |
+| `NEXT_PUBLIC_CHAIN`                | `robinhood-testnet`        | `robinhood` for Robinhood Chain mainnet; `base` / `base-sepolia` for the Base retreat path. |
+| `NEXT_PUBLIC_ROBINHOOD_RPC_URL`    | (chain default public)     | Production-grade RPC for Robinhood mainnet (Alchemy `robinhood-mainnet.g.alchemy.com/v2/<key>`); the public RPC is rate-limited. |
+| `NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL` | (chain default public) | Same, for Robinhood testnet (`robinhood-testnet.g.alchemy.com/v2/<key>`). |
+| `NEXT_PUBLIC_BASE_RPC_URL`         | (chain default public)     | Override for production-grade RPC (Alchemy, Infura, your own) — Base retreat path. |
+| `NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL` | (chain default public)     | Same, for Base Sepolia.                                            |
 | `NEXT_PUBLIC_INDEXER_URL`          | `http://localhost:42069`   | Indexer HTTP base — `/season`, `/tokens`, `/events` for the arena. |
 | `PINATA_JWT`                       | (unset)                    | **Server-side.** Pinata JWT used by `/api/metadata` to pin token metadata to IPFS. Preferred backend for production. Never expose this to the client. |
 | `METADATA_STORE_DIR`               | (unset)                    | **Server-side.** Filesystem fallback when `PINATA_JWT` is not set — `/api/metadata` writes JSON files to this directory and returns a self-hosted URL. Intended for testnet / preview deploys, not production. |

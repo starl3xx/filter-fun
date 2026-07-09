@@ -906,7 +906,7 @@ plan to redeploy via §8.6 after.
 
 ```sh
 cd packages/contracts
-./script/deploy-sepolia.sh
+./script/deploy-testnet.sh --network base-sepolia
 ```
 
 Manifest lands at `./deployments/base-sepolia.json`. Confirm:
@@ -1282,7 +1282,7 @@ under `-x`. Just don't enable tracing in those scripts.
 
 ### A.2 Silent boolean fallbacks in env parsers
 
-`_envBool` in `DeploySepolia.s.sol` whitelisted `"true" / "TRUE" / "1"` and friends. A
+`_envBool` in `DeploySepolia.s.sol` (now `DeployTestnet.s.sol`) whitelisted `"true" / "TRUE" / "1"` and friends. A
 deployer who set `FORCE_REDEPLOY=True` (capital T) silently got `false` back — the
 idempotency guard NOT bypassed despite their explicit intent.
 

@@ -58,7 +58,8 @@ The corresponding row in `audit/2026-05-PHASE-1-AUDIT/deps.md` is the audit anch
 
 ## Deploying
 
-- **Base Sepolia:** [`docs/runbook-sepolia-smoke.md`](docs/runbook-sepolia-smoke.md) — `npm run deploy:sepolia` chains mine → deploy → verify; `script/SeedFilter.s.sol` seeds $FILTER. Manifest written to `packages/contracts/deployments/base-sepolia.json` and consumed by indexer + web. Sepolia was **redeployed 2026-05-01** with the Epic 1.13 contracts (FilterFactory v2 + CreatorCommitments + CreatorRegistry) — bag-lock features only enforce on tokens deployed by this factory; pre-1.13 legacy tokens cannot be bag-locked even if the call appears to succeed (see [`docs/bag-lock.md`](docs/bag-lock.md) §5).
+- **Robinhood Chain (genesis target, 2026-07 retarget):** [`docs/runbook-robinhood-deploy.md`](docs/runbook-robinhood-deploy.md) — testnet 46630 rehearsal via `npm run deploy:testnet` (`DeployTestnetInfra.s.sol` first for v4/WETH), mainnet 4663 via `npm run deploy:robinhood`. Manifests: `deployments/robinhood-testnet.json` / `robinhood.json`.
+- **Base Sepolia (retreat path):** [`docs/runbook-sepolia-smoke.md`](docs/runbook-sepolia-smoke.md) — `npm run deploy:sepolia` chains mine → deploy → verify; `script/SeedFilter.s.sol` seeds $FILTER. Manifest written to `packages/contracts/deployments/base-sepolia.json` and consumed by indexer + web. Sepolia was **redeployed 2026-05-01** with the Epic 1.13 contracts (FilterFactory v2 + CreatorCommitments + CreatorRegistry) — bag-lock features only enforce on tokens deployed by this factory; pre-1.13 legacy tokens cannot be bag-locked even if the call appears to succeed (see [`docs/bag-lock.md`](docs/bag-lock.md) §5).
 - **Season ops:** [`docs/runbook-operator.md`](docs/runbook-operator.md) — full season-by-season SOP including bag-lock procedure (§5.6).
 - **Mainnet:** blocked on Phase 2 audit (Epic 2.3).
 

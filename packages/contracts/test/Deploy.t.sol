@@ -5,11 +5,12 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Deployers} from "v4-core/test/utils/Deployers.sol";
 
-import {DeploySepolia} from "../script/DeploySepolia.s.sol";
+import {DeployTestnet} from "../script/DeployTestnet.s.sol";
 import {SeedFilter} from "../script/SeedFilter.s.sol";
 import {VerifySepolia} from "../script/VerifySepolia.s.sol";
 import {RedeployFactory} from "../script/RedeployFactory.s.sol";
 import {FilterLauncher} from "../src/FilterLauncher.sol";
+import {FilterClubPass} from "../src/FilterClubPass.sol";
 import {FilterFactory} from "../src/FilterFactory.sol";
 import {FilterHook} from "../src/FilterHook.sol";
 import {POLVault} from "../src/POLVault.sol";
@@ -21,7 +22,7 @@ import {IFilterLauncher} from "../src/interfaces/IFilterLauncher.sol";
 
 import {MockWETH} from "./mocks/MockWETH.sol";
 
-/// @notice Deploy + seed correctness tests. Runs the actual `DeploySepolia` and
+/// @notice Deploy + seed correctness tests. Runs the actual `DeployTestnet` and
 ///         `SeedFilter` scripts in-process against a v4 PoolManager spun up via the
 ///         v4-core Deployers helper, then asserts:
 ///           - every deployed address is non-zero
@@ -43,7 +44,7 @@ import {MockWETH} from "./mocks/MockWETH.sol";
 ///         `V4_POOL_MANAGER_ADDRESS`), silently producing the wrong manifest path / pool
 ///         manager mid-test.
 contract DeployTest is Test, Deployers {
-    DeploySepolia internal deployer;
+    DeployTestnet internal deployer;
     SeedFilter internal seed;
     VerifySepolia internal verify;
     RedeployFactory internal redeploy;
@@ -67,7 +68,7 @@ contract DeployTest is Test, Deployers {
 
     /// Where the test writes its sandbox manifest. Picked to live under the same package so
     /// fs_permissions allow it; the `freshEnv` modifier wipes any leftover before every test.
-    string internal constant TEST_MANIFEST = "./deployments/base-sepolia.test.json";
+    string internal constant TEST_MANIFEST = "./deployments/robinhood-testnet.test.json";
 
     address internal deployerAddr;
     address internal treasuryOwner = makeAddr("treasuryOwner");
@@ -81,7 +82,7 @@ contract DeployTest is Test, Deployers {
         deployFreshManagerAndRouters();
 
         weth = new MockWETH();
-        deployer = new DeploySepolia();
+        deployer = new DeployTestnet();
         seed = new SeedFilter();
         verify = new VerifySepolia();
         redeploy = new RedeployFactory();
@@ -90,9 +91,10 @@ contract DeployTest is Test, Deployers {
         // Fund the deployer so `new` calls under broadcast don't OOG.
         vm.deal(deployerAddr, 100 ether);
 
-        // The script asserts chainid == 84_532. Spoof it. (Doesn't affect anything else
+        // The script gates on a supported testnet chainid; spoof the Robinhood testnet
+        // (46630 — the rehearsal target since the 2026-07 retarget). (Doesn't affect anything else
         // in-test — V4 helpers don't care about chainid.)
-        vm.chainId(84_532);
+        vm.chainId(46_630);
     }
 
     /// Modifier instead of `setUp()` because forge's per-test isolation mechanism reverts
@@ -118,12 +120,18 @@ contract DeployTest is Test, Deployers {
         vm.setEnv("POL_VAULT_OWNER", vm.toString(polVaultOwner));
         vm.setEnv("MAX_LAUNCHES_PER_WALLET", "1");
         vm.setEnv("REFUNDABLE_STAKE_ENABLED", "true");
+        // FilterClubPass knobs (Epic 2.6) — pin to the documented defaults so the manifest
+        // assertions are deterministic even if the operator shell exports overrides.
+        vm.setEnv("FILTER_CLUB_SUPPLY", "250");
+        vm.setEnv("FILTER_CLUB_PRICE", "50000000000000000");
+        vm.setEnv("FILTER_CLUB_WALLET_CAP", "5");
+        vm.setEnv("FILTER_CLUB_BASE_URI", "https://filter.fun/api/club/meta/");
         vm.setEnv("DEPLOY_COMMIT_HASH", "test-commit-hash");
         // Process env is shared across test files / test runs in forge — explicitly clear
         // every knob that *another* test might have set, otherwise stale state leaks in.
         vm.setEnv("FORCE_REDEPLOY", "0");
         vm.setEnv("HOOK_SALT", "");
-        // Used by SeedFilter; harmless when DeploySepolia tests run.
+        // Used by SeedFilter; harmless when DeployTestnet tests run.
         vm.setEnv("FILTER_METADATA_URI", "ipfs://test-filter-metadata");
         // Used by VerifySepolia; verifier ignores it when callers pass `runWithFlags(...)`
         // directly, but reset it so any operator-style `verify.run()` reaches a known state.
@@ -138,13 +146,14 @@ contract DeployTest is Test, Deployers {
 
         // Read the manifest back and pull every address.
         string memory m = vm.readFile(TEST_MANIFEST);
-        assertEq(vm.parseJsonUint(m, ".chainId"), 84_532, "manifest chainId");
-        assertEq(vm.parseJsonString(m, ".network"), "base-sepolia");
+        assertEq(vm.parseJsonUint(m, ".chainId"), 46_630, "manifest chainId");
+        assertEq(vm.parseJsonString(m, ".network"), "robinhood-testnet");
         assertEq(vm.parseJsonString(m, ".deployCommitHash"), "test-commit-hash");
 
         address treasury = vm.parseJsonAddress(m, ".addresses.treasuryTimelock");
         address bonus = vm.parseJsonAddress(m, ".addresses.bonusDistributor");
         address polVault = vm.parseJsonAddress(m, ".addresses.polVault");
+        address clubPass = vm.parseJsonAddress(m, ".addresses.filterClubPass");
         address launcher = vm.parseJsonAddress(m, ".addresses.filterLauncher");
         address polMgr = vm.parseJsonAddress(m, ".addresses.polManager");
         address hook = vm.parseJsonAddress(m, ".addresses.filterHook");
@@ -160,6 +169,7 @@ contract DeployTest is Test, Deployers {
         assertTrue(treasury != address(0), "treasury non-zero");
         assertTrue(bonus != address(0), "bonus non-zero");
         assertTrue(polVault != address(0), "polVault non-zero");
+        assertTrue(clubPass != address(0), "clubPass non-zero");
         assertTrue(launcher != address(0), "launcher non-zero");
         assertTrue(polMgr != address(0), "polManager non-zero");
         assertTrue(hook != address(0), "hook non-zero");
@@ -195,6 +205,11 @@ contract DeployTest is Test, Deployers {
         address manifestEscrow = vm.parseJsonAddress(m, ".addresses.launchEscrow");
         assertEq(address(l.launchEscrow()), manifestEscrow, "launcher.launchEscrow == manifest");
         assertTrue(manifestEscrow != address(0), "manifest.launchEscrow non-zero");
+        // Epic 2.6: Filter Club pass ↔ launcher two-way wiring.
+        assertEq(address(l.clubPass()), clubPass, "launcher.clubPass == manifest");
+        assertEq(FilterClubPass(clubPass).launcher(), launcher, "clubPass.launcher == launcher");
+        assertEq(FilterClubPass(clubPass).payoutRecipient(), treasury, "clubPass payout defaults to timelock");
+        assertEq(FilterClubPass(clubPass).owner(), deployerAddr, "clubPass.owner is deployer");
         // Spec §4.6.1 protocol-blocklist seed.
         assertTrue(l.tickerBlocklist(keccak256("FILTER")), "blocklist seed: FILTER");
         assertTrue(l.tickerBlocklist(keccak256("WETH")), "blocklist seed: WETH");
@@ -217,6 +232,10 @@ contract DeployTest is Test, Deployers {
         assertEq(vm.parseJsonAddress(m, ".config.mechanicsWallet"), mechanics, "config.mechanicsWallet");
         assertEq(vm.parseJsonAddress(m, ".config.polVaultOwner"), polVaultOwner, "config.polVaultOwner");
         assertTrue(vm.parseJsonBool(m, ".config.refundableStakeEnabled"), "config.refundableStakeEnabled");
+        assertEq(
+            vm.parseJsonUint(m, ".config.filterClubMintPriceWei"), 0.05 ether, "config.filterClubMintPriceWei"
+        );
+        assertEq(vm.parseJsonUint(m, ".config.filterClubMaxSupply"), 250, "config.filterClubMaxSupply");
 
         // Hook salt was persisted (non-zero implies the script wrote the mined value).
         bytes32 cachedSalt = vm.parseJsonBytes32(m, ".hookSalt");
@@ -410,7 +429,7 @@ contract DeployTest is Test, Deployers {
         verify.runWithFlags(false);
         VerifyOKLog memory ev = _findOkLog(vm.getRecordedLogs());
 
-        assertEq(ev.chainId, 84_532, "ev.chainId");
+        assertEq(ev.chainId, 46_630, "ev.chainId");
         assertEq(ev.filterLauncher, address(launcher), "ev.filterLauncher");
         assertEq(ev.launchEscrow, address(launcher.launchEscrow()), "ev.launchEscrow");
         assertTrue(ev.filterTokenChecked, "ev.filterTokenChecked");
@@ -428,7 +447,7 @@ contract DeployTest is Test, Deployers {
         verify.runWithFlags(true);
         VerifyOKLog memory ev = _findOkLog(vm.getRecordedLogs());
 
-        assertEq(ev.chainId, 84_532, "ev.chainId");
+        assertEq(ev.chainId, 46_630, "ev.chainId");
         assertEq(ev.filterLauncher, address(launcher), "ev.filterLauncher");
         assertEq(ev.launchEscrow, address(launcher.launchEscrow()), "ev.launchEscrow");
         assertFalse(ev.filterTokenChecked, "ev.filterTokenChecked");
@@ -436,7 +455,7 @@ contract DeployTest is Test, Deployers {
         assertEq(ev.tokensChecked, 0, "ev.tokensChecked (no season)");
     }
 
-    /// Assertion 2a — manifest.filterToken.address is zero (DeploySepolia placeholder)
+    /// Assertion 2a — manifest.filterToken.address is zero (DeployTestnet placeholder)
     /// and the verifier wasn't told to skip. Should revert with the assertion-2a message
     /// pointing the operator at SKIP_FILTER_TOKEN_CHECK.
     function test_VerifyFailsWhenFilterTokenZeroAndNotSkipped() public freshEnv {
@@ -491,7 +510,7 @@ contract DeployTest is Test, Deployers {
 
     // ============================================================ RedeployFactory
     //
-    // Operator-facing factory rotation. The script wraps DeploySepolia with FORCE_REDEPLOY=1
+    // Operator-facing factory rotation. The script wraps DeployTestnet with FORCE_REDEPLOY=1
     // plus an active-launch safety guard and a manifest-archive step. Tests cover:
     //   - happy path (deploy → seed → archive + redeploy → emits event with old/new pair)
     //   - active-launch refusal without ACTIVE_LAUNCH_OK=1

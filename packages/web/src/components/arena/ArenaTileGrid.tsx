@@ -26,6 +26,7 @@ import {useEffect, useMemo, useRef} from "react";
 
 import type {HpUpdate} from "@/hooks/arena/useHpUpdates";
 import type {TokenResponse} from "@/lib/arena/api";
+import type {ChainSlug} from "@/lib/chain";
 import {C, F} from "@/lib/tokens";
 
 import type {CohortPercentiles} from "./ArenaTile";
@@ -45,7 +46,7 @@ export type ArenaTileGridProps = {
   freshHpUpdateSeqByAddress: ReadonlyMap<string, number>;
   selectedAddress: `0x${string}` | null;
   onSelect: (address: `0x${string}`) => void;
-  chain: "base" | "base-sepolia";
+  chain: ChainSlug;
 };
 
 export function ArenaTileGrid({

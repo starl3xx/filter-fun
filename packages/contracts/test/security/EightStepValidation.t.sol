@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 
 import {FilterLauncher} from "../../src/FilterLauncher.sol";
+import {FilterClubPass} from "../../src/FilterClubPass.sol";
 import {LaunchEscrow} from "../../src/LaunchEscrow.sol";
 import {IFilterFactory} from "../../src/interfaces/IFilterFactory.sol";
 import {IBonusFunding, IPOLManager} from "../../src/SeasonVault.sol";
@@ -35,6 +36,7 @@ import {MockFilterFactory} from "../mocks/MockFilterFactory.sol";
 ///         (cheap reverts first). Tests below pin the actual contract order.
 contract EightStepValidationTest is Test {
     FilterLauncher launcher;
+    FilterClubPass clubPass;
     LaunchEscrow escrow;
     MockFilterFactory factory;
     BonusDistributor bonus;
@@ -53,15 +55,21 @@ contract EightStepValidationTest is Test {
     function setUp() public {
         weth = new MockWETH();
         bonus = new BonusDistributor(address(0), address(weth), oracle);
+        clubPass = new FilterClubPass(owner, treasury, "ipfs://club/", 250, 0.05 ether, 5);
         launcher = new FilterLauncher(
-            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth)
+            owner, oracle, treasury, mechanics, IBonusFunding(address(bonus)), address(weth), clubPass
         );
-        launcher.setPolManager(IPOLManager(polManager));
+        clubPass.setLauncher(address(launcher));
         factory = new MockFilterFactory(address(launcher), address(weth));
-        launcher.setFactory(IFilterFactory(address(factory)));
-        // Tournament wire required since `startSeason` zero-checks the registry
-        // (audit: bugbot M PR #88).
-        launcher.setTournament(TournamentRegistry(address(0xDEAD)), TournamentVault(payable(address(0xBEEF))));
+        // One-shot wire. Tournament wire required since `startSeason` zero-checks the
+        // registry (audit: bugbot M PR #88); dummies suffice — this suite never
+        // dereferences polManager/tournament.
+        launcher.wire(
+            IFilterFactory(address(factory)),
+            IPOLManager(polManager),
+            TournamentRegistry(address(0xDEAD)),
+            TournamentVault(payable(address(0xBEEF)))
+        );
         escrow = launcher.launchEscrow();
         vm.deal(creator, 100 ether);
     }

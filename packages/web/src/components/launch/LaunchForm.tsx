@@ -58,6 +58,15 @@ export type LaunchFormProps = {
   /// cost cells render dashes instead of zero values during the launcher
   /// status read. See CostPanel.tsx for rationale.
   costLoading?: boolean;
+  /// Epic 2.6 (spec §47.3.8) — Filter Club credit surface. `clubCredits`
+  /// is the connected wallet's spendable credit count (from
+  /// `useClubCredits`); the toggle renders only when it's > 0n. The PAGE
+  /// owns the toggle state (it decides the tx `value`); the form just
+  /// renders the control and forwards `creditApplied` to CostPanel so the
+  /// free launch is loudly labeled.
+  clubCredits?: bigint;
+  creditApplied?: boolean;
+  onCreditToggle?: (on: boolean) => void;
 };
 
 export function LaunchForm({
@@ -72,6 +81,9 @@ export function LaunchForm({
   ethUsd,
   championPoolEth,
   costLoading,
+  clubCredits = 0n,
+  creditApplied = false,
+  onCreditToggle,
 }: LaunchFormProps) {
   const {isConnected} = useAccount();
   const [fields, setFields] = useState<LaunchFormFields>({
@@ -296,6 +308,42 @@ export function LaunchForm({
 
       <CreatorIncentives />
 
+      {/* Epic 2.6 — Filter Club credit toggle. Rendered only when the wallet
+          holds ≥1 credit; default OFF (spending a lifetime credit must be an
+          explicit choice, never a default). Same explicit id + htmlFor
+          pairing as the acknowledge checkbox below (Audit M-A11y-1). */}
+      {clubCredits > 0n && (
+        <label
+          htmlFor="use-club-credit"
+          data-testid="club-credit-toggle"
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 10,
+            padding: 12,
+            borderRadius: 10,
+            border: `1px solid ${C.yellow}55`,
+            background: "rgba(255, 233, 51, 0.06)",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            id="use-club-credit"
+            type="checkbox"
+            checked={creditApplied}
+            onChange={(e) => onCreditToggle?.(e.target.checked)}
+            style={{marginTop: 2}}
+          />
+          <span style={{fontSize: 12, color: C.text, lineHeight: 1.45}}>
+            <span style={{fontWeight: 800}}>Use Filter Club credit</span> — launch this slot
+            free.{" "}
+            <span data-testid="club-credits-left" style={{color: C.yellow, fontFamily: F.mono}}>
+              {clubCredits.toString()} credit{clubCredits === 1n ? "" : "s"} left
+            </span>
+          </span>
+        </label>
+      )}
+
       <CostPanel
         slotIndex={slotIndex}
         launchCostWei={launchCostWei}
@@ -303,6 +351,7 @@ export function LaunchForm({
         ethUsd={ethUsd}
         championPoolEth={championPoolEth}
         costLoading={costLoading}
+        creditApplied={creditApplied}
       />
 
       <FilterMechanicHint />

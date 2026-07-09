@@ -6,6 +6,7 @@ import {ArenaHpBar, colorForHp} from "@/components/arena/HpBar";
 import {useComponentDeltas} from "@/hooks/token/useComponentDeltas";
 import type {ComponentDeltasResponse, ComponentKey, SwapImpactRow, TokenResponse} from "@/lib/arena/api";
 import {HP_MAX} from "@/lib/arena/hp";
+import {activeChainSlug, explorerTxUrl, type ChainSlug} from "@/lib/chain";
 import {HP_KEYS_IN_ORDER, HP_LABELS, type HpKey} from "@/lib/arena/hpLabels";
 import {C, F} from "@/lib/tokens";
 
@@ -176,8 +177,10 @@ export function HpPanel({token}: {token: TokenResponse}) {
   );
 }
 
-function resolveChain(): "base" | "base-sepolia" {
-  return process.env.NEXT_PUBLIC_CHAIN === "base" ? "base" : "base-sepolia";
+function resolveChain(): ChainSlug {
+  // Delegates to the shared env → manifest → default resolution
+  // (2026-07 Robinhood retarget; was an env-only base/base-sepolia ternary).
+  return activeChainSlug();
 }
 
 /// Drilldown rendering: per-component swap-impact rows, newest-first. The
@@ -186,7 +189,8 @@ function resolveChain(): "base" | "base-sepolia" {
 ///   +0.42 velocity · 0.5 ETH buy by 0xabc...123 · 14m ago · [tx]
 ///
 /// Wallet truncation matches the existing leaderboard convention (4-char
-/// head + 4-char tail). Tx links open the chain's Basescan tx page;
+/// head + 4-char tail). Tx links open the chain's explorer tx page
+/// (Basescan on Base, Blockscout on Robinhood — `lib/chain.ts`);
 /// taker links open `/profile/<address>`.
 function DrilldownRows({
   componentKey,
@@ -196,7 +200,7 @@ function DrilldownRows({
 }: {
   componentKey: ComponentKey;
   data: ComponentDeltasResponse | null;
-  chain: "base" | "base-sepolia";
+  chain: ChainSlug;
   id: string;
 }) {
   if (!data) {
@@ -251,7 +255,7 @@ function DrilldownRow({
 }: {
   row: SwapImpactRow;
   componentKey: ComponentKey;
-  chain: "base" | "base-sepolia";
+  chain: ChainSlug;
 }) {
   const sign = row.delta >= 0 ? "+" : "−";
   const deltaAbs = Math.abs(row.delta).toFixed(2);
@@ -284,7 +288,7 @@ function DrilldownRow({
           <span>{ageLabel(row.timestamp)} ago</span>
           <span>·</span>
           <a
-            href={txExplorerUrl(row.swap.txHash, chain)}
+            href={explorerTxUrl(chain, row.swap.txHash)}
             target="_blank"
             rel="noopener noreferrer"
             style={{color: C.cyan, textDecoration: "none"}}
@@ -333,10 +337,4 @@ function ageLabel(timestampSec: number): string {
   if (ageSec < 3600) return `${Math.floor(ageSec / 60)}m`;
   if (ageSec < 86_400) return `${Math.floor(ageSec / 3600)}h`;
   return `${Math.floor(ageSec / 86_400)}d`;
-}
-
-function txExplorerUrl(txHash: string, chain: "base" | "base-sepolia"): string {
-  return chain === "base"
-    ? `https://basescan.org/tx/${txHash}`
-    : `https://sepolia.basescan.org/tx/${txHash}`;
 }

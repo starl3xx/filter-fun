@@ -32,13 +32,13 @@ import {ScriptUtils} from "./ScriptUtils.sol";
 contract SeedFilter is Script {
     function run() external {
         string memory manifestPath = ScriptUtils.manifestPath();
-        require(vm.exists(manifestPath), "manifest missing; run DeploySepolia first");
+        require(vm.exists(manifestPath), "manifest missing; run DeployTestnet first");
         string memory manifest = vm.readFile(manifestPath);
 
         address launcherAddr = vm.parseJsonAddress(manifest, ".addresses.filterLauncher");
         require(launcherAddr != address(0), "launcher address missing from manifest");
 
-        // Refuse to double-seed. After DeploySepolia the manifest carries `filterToken: ""`
+        // Refuse to double-seed. After DeployTestnet the manifest carries `filterToken: ""`
         // (empty string), and after the first successful SeedFilter it carries an object
         // `{ "address": "0x...", "locker": "0x...", ... }`. We probe `.filterToken.address`:
         // if it exists and is non-zero, the seed already ran. The earlier draft probed
@@ -85,7 +85,7 @@ contract SeedFilter is Script {
     /// across parallel forge test files (forge runs different test contracts on different
     /// threads in the same process) the serializer racily emits `DuplicateSymbol()` or builds
     /// inconsistent JSON. Hand-building dodges that entirely — the output is plain
-    /// `string.concat`, identical to `DeploySepolia`'s manifest emission.
+    /// `string.concat`, identical to `ManifestWriter`'s manifest emission.
     function _appendFilterToken(
         string memory manifestPath,
         address token,
