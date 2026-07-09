@@ -140,7 +140,7 @@ abstract contract ManifestWriter {
             ",",
             _kvStr("network", ScriptUtils.networkSlugForChain(block.chainid)),
             ",",
-            _kvUint("deployBlockNumber", block.number),
+            _kvUint("deployBlockNumber", _deployBlockNumber()),
             ",",
             _kvUint("deployedAt", block.timestamp),
             ",",
@@ -159,6 +159,37 @@ abstract contract ManifestWriter {
         );
 
         _vm.writeJson(finalJson, path);
+    }
+
+    /// The L2 block height Ponder uses as `startBlock` — MUST be the RPC
+    /// (`eth_blockNumber`) height, never the on-chain-EVM `block.number`.
+    ///
+    /// Audit: bugbot H PR #105. On Arbitrum-family chains (Robinhood 4663 /
+    /// 46630), contract-executed `block.number` returns the L1 ANCESTOR height
+    /// (~25.5M vs the ~5.3M L2 tip, measured 2026-07-09) — a manifest carrying
+    /// that value points the indexer at a block far above the real tip so sync
+    /// never sees the deployed contracts. In `forge script` the ambient
+    /// `block.number` is set from the forked RPC header (L2-denominated), so
+    /// the trap likely never fires in practice — but "likely" is the wrong
+    /// posture for the one value every consumer keys on. So: query
+    /// `eth_blockNumber` directly via `vm.rpc` (authoritative whenever an RPC
+    /// is attached, i.e. every real deploy); fall back to `block.number` only
+    /// when no fork is active (in-process test runs, where the test env
+    /// controls the value anyway). The deploy wrappers additionally hard-fail
+    /// if the written value exceeds the chain tip (deploy-testnet.sh /
+    /// deploy-robinhood.sh sanity check).
+    function _deployBlockNumber() internal returns (uint256) {
+        try _vm.rpc("eth_blockNumber", "[]") returns (bytes memory raw) {
+            // vm.rpc hex-decodes the JSON result: "0x509c5b" arrives as the
+            // big-endian bytes 0x509c5b. Fold into a uint.
+            uint256 v;
+            for (uint256 i = 0; i < raw.length; ++i) {
+                v = (v << 8) | uint256(uint8(raw[i]));
+            }
+            return v;
+        } catch {
+            return block.number;
+        }
     }
 
     // ---------- JSON-emit helpers ----------

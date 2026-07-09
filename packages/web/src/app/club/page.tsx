@@ -5,7 +5,7 @@
 /// Composition:
 ///
 ///   ┌──────────────────────────────────────────────────────────────┐
-///   │ ← arena · Header (🔻 FILTER CLUB · founding members)         │
+///   │ ← arena · Header (▼ FILTER CLUB · founding members)          │
 ///   ├──────────────────────────────────────┬───────────────────────┤
 ///   │ SupplyProgress (minted/max bar)      │ MintBox               │
 ///   │ UtilityCopy (2 free launches, …)     │  (stepper + total +   │

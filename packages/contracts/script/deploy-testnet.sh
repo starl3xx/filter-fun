@@ -96,6 +96,21 @@ forge script script/DeployTestnet.s.sol:DeployTestnet \
   --slow \
   -vvv
 
+# ----- Manifest startBlock sanity (bugbot H PR #105) ---------------------------------
+# On Arbitrum-family chains, contract-EVM `block.number` is the L1 ancestor height —
+# a manifest carrying it would point Ponder's startBlock far above the L2 tip and the
+# indexer would silently never sync. ManifestWriter queries eth_blockNumber directly,
+# but this tripwire makes the failure loud if any regression reintroduces the trap.
+CURRENT_BLOCK=$(cast block-number -r "$RPC_URL")
+MANIFEST_BLOCK=$(jq -r '.deployBlockNumber' "$MANIFEST")
+if (( MANIFEST_BLOCK > CURRENT_BLOCK )); then
+  echo "FATAL: manifest deployBlockNumber ($MANIFEST_BLOCK) exceeds the chain tip ($CURRENT_BLOCK)."
+  echo "  This is the Arbitrum L1-vs-L2 block-number trap — the indexer would never sync."
+  echo "  Fix ManifestWriter._deployBlockNumber, correct the manifest by hand, and re-verify."
+  exit 1
+fi
+echo "manifest startBlock sanity: $MANIFEST_BLOCK <= tip $CURRENT_BLOCK ✓"
+
 # ----- Verify ------------------------------------------------------------------------
 echo "=== Step 2/3: forge verify-contract per deployed contract ==="
 SKIP_VERIFY=0
